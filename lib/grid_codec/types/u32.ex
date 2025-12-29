@@ -55,18 +55,18 @@ defmodule GridCodec.Types.U32 do
     case endian do
       :little ->
         quote do
-          (case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
-             nil -> unquote(null_val)
-             v -> v
-           end) :: unsigned - little - 32
+          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+            nil -> unquote(null_val)
+            v -> v
+          end :: unsigned - little - 32
         end
 
       :big ->
         quote do
-          (case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
-             nil -> unquote(null_val)
-             v -> v
-           end) :: unsigned - big - 32
+          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+            nil -> unquote(null_val)
+            v -> v
+          end :: unsigned - big - 32
         end
     end
   end

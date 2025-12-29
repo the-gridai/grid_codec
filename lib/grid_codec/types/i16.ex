@@ -49,18 +49,18 @@ defmodule GridCodec.Types.I16 do
     case endian do
       :little ->
         quote do
-          (case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
-             nil -> unquote(null_val)
-             v -> v
-           end) :: signed - little - 16
+          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+            nil -> unquote(null_val)
+            v -> v
+          end :: signed - little - 16
         end
 
       :big ->
         quote do
-          (case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
-             nil -> unquote(null_val)
-             v -> v
-           end) :: signed - big - 16
+          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+            nil -> unquote(null_val)
+            v -> v
+          end :: signed - big - 16
         end
     end
   end

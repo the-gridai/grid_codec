@@ -6,27 +6,27 @@ defmodule GridCodec.Types.BitsetTest do
   defmodule OrderFlags do
     use GridCodec.Types.Bitset, size: :u8
 
-    flag :active, 0
-    flag :verified, 1
-    flag :premium, 2
-    flag :suspended, 3
+    flag(:active, 0)
+    flag(:verified, 1)
+    flag(:premium, 2)
+    flag(:suspended, 3)
   end
 
   defmodule ExtendedFlags do
     use GridCodec.Types.Bitset, size: :u16
 
-    flag :flag_0, 0
-    flag :flag_1, 1
-    flag :flag_8, 8
-    flag :flag_15, 15
+    flag(:flag_0, 0)
+    flag(:flag_1, 1)
+    flag(:flag_8, 8)
+    flag(:flag_15, 15)
   end
 
   defmodule LargeFlags do
     use GridCodec.Types.Bitset, size: :u32
 
-    flag :bit_0, 0
-    flag :bit_16, 16
-    flag :bit_31, 31
+    flag(:bit_0, 0)
+    flag(:bit_16, 16)
+    flag(:bit_31, 31)
   end
 
   describe "flag definitions" do

@@ -156,16 +156,16 @@ defmodule GridCodec.Types.CharArray do
       def encode_ast(name, _default, _endian, data_var) do
         quote do
           (fn ->
-            val = Map.get(unquote(data_var), unquote(name))
-            unquote(__MODULE__).encode(val)
-          end).()::binary-size(unquote(@char_array_length))
+             val = Map.get(unquote(data_var), unquote(name))
+             unquote(__MODULE__).encode(val)
+           end).() :: binary - size(unquote(@char_array_length))
         end
       end
 
       @impl GridCodec.Type
       def decode_pattern_ast(var, _endian) do
         quote do
-          unquote(var)::binary-size(unquote(@char_array_length))
+          unquote(var) :: binary - size(unquote(@char_array_length))
         end
       end
 

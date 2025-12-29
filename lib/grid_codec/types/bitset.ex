@@ -100,11 +100,21 @@ defmodule GridCodec.Types.Bitset do
 
     {byte_size, max_bits} =
       case size do
-        :u8 -> {1, 8}
-        :u16 -> {2, 16}
-        :u32 -> {4, 32}
-        :u64 -> {8, 64}
-        other -> raise ArgumentError, "Invalid bitset size: #{inspect(other)}. Use :u8, :u16, :u32, or :u64"
+        :u8 ->
+          {1, 8}
+
+        :u16 ->
+          {2, 16}
+
+        :u32 ->
+          {4, 32}
+
+        :u64 ->
+          {8, 64}
+
+        other ->
+          raise ArgumentError,
+                "Invalid bitset size: #{inspect(other)}. Use :u8, :u16, :u32, or :u64"
       end
 
     quote do
@@ -302,33 +312,33 @@ defmodule GridCodec.Types.Bitset do
           :u8 ->
             quote do
               (fn ->
-                flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                unquote(__MODULE__).to_integer(flags)
-              end).()::8
+                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
+                 unquote(__MODULE__).to_integer(flags)
+               end).() :: 8
             end
 
           :u16 ->
             quote do
               (fn ->
-                flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                unquote(__MODULE__).to_integer(flags)
-              end).()::unquote(endian_spec)-16
+                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
+                 unquote(__MODULE__).to_integer(flags)
+               end).() :: unquote(endian_spec) - 16
             end
 
           :u32 ->
             quote do
               (fn ->
-                flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                unquote(__MODULE__).to_integer(flags)
-              end).()::unquote(endian_spec)-32
+                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
+                 unquote(__MODULE__).to_integer(flags)
+               end).() :: unquote(endian_spec) - 32
             end
 
           :u64 ->
             quote do
               (fn ->
-                flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                unquote(__MODULE__).to_integer(flags)
-              end).()::unquote(endian_spec)-64
+                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
+                 unquote(__MODULE__).to_integer(flags)
+               end).() :: unquote(endian_spec) - 64
             end
         end
       end
@@ -338,10 +348,10 @@ defmodule GridCodec.Types.Bitset do
         endian_spec = if endian == :little, do: :little, else: :big
 
         case @bitset_size do
-          :u8 -> quote(do: unquote(var)::8)
-          :u16 -> quote(do: unquote(var)::unquote(endian_spec)-16)
-          :u32 -> quote(do: unquote(var)::unquote(endian_spec)-32)
-          :u64 -> quote(do: unquote(var)::unquote(endian_spec)-64)
+          :u8 -> quote(do: unquote(var) :: 8)
+          :u16 -> quote(do: unquote(var) :: unquote(endian_spec) - 16)
+          :u32 -> quote(do: unquote(var) :: unquote(endian_spec) - 32)
+          :u64 -> quote(do: unquote(var) :: unquote(endian_spec) - 64)
         end
       end
 

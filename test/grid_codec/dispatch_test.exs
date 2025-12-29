@@ -43,12 +43,12 @@ defmodule GridCodec.DispatchTest do
   defmodule TestDispatch do
     use GridCodec.Dispatch
 
-    codecs [
+    codecs([
       OrderCreated,
       OrderFilled,
       OrderCancelled,
       OtherSchemaEvent
-    ]
+    ])
   end
 
   describe "decode/1" do
@@ -58,7 +58,8 @@ defmodule GridCodec.DispatchTest do
       order_filled = OrderFilled.encode!(%{order_id: 123, fill_price: 1001, fill_qty: 50})
 
       # Dispatch should route to correct decoder
-      assert {:ok, %{order_id: 123, price: 1000}, OrderCreated} = TestDispatch.decode(order_created)
+      assert {:ok, %{order_id: 123, price: 1000}, OrderCreated} =
+               TestDispatch.decode(order_created)
 
       assert {:ok, %{order_id: 123, fill_price: 1001, fill_qty: 50}, OrderFilled} =
                TestDispatch.decode(order_filled)
@@ -66,7 +67,9 @@ defmodule GridCodec.DispatchTest do
 
     test "returns error for unknown message type" do
       # Create a header with unknown template_id
-      header = GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+      header =
+        GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+
       payload = <<0::64>>
       binary = <<header::binary, payload::binary>>
 
@@ -74,7 +77,9 @@ defmodule GridCodec.DispatchTest do
     end
 
     test "returns error for unknown schema_id" do
-      header = GridCodec.Header.encode(block_length: 8, template_id: 1, schema_id: 999, version: 1)
+      header =
+        GridCodec.Header.encode(block_length: 8, template_id: 1, schema_id: 999, version: 1)
+
       payload = <<0::64>>
       binary = <<header::binary, payload::binary>>
 
@@ -122,7 +127,9 @@ defmodule GridCodec.DispatchTest do
     end
 
     test "raises on error" do
-      header = GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+      header =
+        GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+
       payload = <<0::64>>
       binary = <<header::binary, payload::binary>>
 
@@ -144,7 +151,9 @@ defmodule GridCodec.DispatchTest do
     end
 
     test "returns error for unknown message" do
-      header = GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+      header =
+        GridCodec.Header.encode(block_length: 8, template_id: 999, schema_id: 100, version: 1)
+
       binary = <<header::binary, 0::64>>
 
       assert {:error, :unknown_message} = TestDispatch.wrap(binary)

@@ -10,7 +10,8 @@ defmodule GridCodec.OptionalityTest do
 
     defcodec do
       field :id, :u64
-      field :name, :u32, presence: :optional  # default
+      # default
+      field :name, :u32, presence: :optional
       field :score, :u16
     end
   end
@@ -167,7 +168,8 @@ defmodule GridCodec.OptionalityTest do
 
       {:ok, decoded} = MixedCodec.decode(binary)
 
-      assert decoded.version == 2  # constant, ignores input
+      # constant, ignores input
+      assert decoded.version == 2
       assert decoded.id == 123
       assert decoded.count == 456
       assert decoded.flags == 7
@@ -195,7 +197,8 @@ defmodule GridCodec.OptionalityTest do
 
       assert decoded.version == 2
       assert decoded.id == 100
-      assert decoded.count == nil  # No default set
+      # No default set
+      assert decoded.count == nil
       # flags has default: 0, so even missing it encodes as 0
       # But the null sentinel for u8 is 255, so 0 decodes as 0
       assert decoded.flags == 0

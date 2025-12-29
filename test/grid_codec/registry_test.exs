@@ -59,9 +59,11 @@ defmodule GridCodec.RegistryTest do
     test "accepts custom filter function" do
       # Only codecs with :price field
       codecs =
-        Registry.list_codecs(filter: fn mod ->
-          :price in mod.__fields__()
-        end)
+        Registry.list_codecs(
+          filter: fn mod ->
+            :price in mod.__fields__()
+          end
+        )
 
       assert TestCodecA in codecs
       refute TestCodecB in codecs
