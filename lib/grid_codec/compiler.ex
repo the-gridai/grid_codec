@@ -851,7 +851,12 @@ defmodule GridCodec.Compiler do
         block_length = unquote(block_length)
         endian = unquote(endian)
 
-        GridCodec.Compiler.__build_match_pattern__(field_bindings, field_info, block_length, endian)
+        GridCodec.Compiler.__build_match_pattern__(
+          field_bindings,
+          field_info,
+          block_length,
+          endian
+        )
       end
     end
   end
@@ -881,7 +886,7 @@ defmodule GridCodec.Compiler do
         segs =
           if offset > current_pos do
             skip_size = offset - current_pos
-            skip_seg = quote do: _::binary-size(unquote(skip_size))
+            skip_seg = quote do: _ :: binary - size(unquote(skip_size))
             segs ++ [skip_seg]
           else
             segs
@@ -896,14 +901,14 @@ defmodule GridCodec.Compiler do
             build_typed_pattern(var, size, endian)
           else
             # Skip this field
-            quote do: _::binary-size(unquote(size))
+            quote do: _ :: binary - size(unquote(size))
           end
 
         {segs ++ [seg], offset + size}
       end)
 
     # Add trailing binary match for rest of message
-    final_segments = segments ++ [quote(do: _::binary)]
+    final_segments = segments ++ [quote(do: _ :: binary)]
 
     # Build the binary pattern
     quote do
@@ -914,33 +919,33 @@ defmodule GridCodec.Compiler do
   defp build_typed_pattern(var, size, endian) do
     case {size, endian} do
       {1, _} ->
-        quote do: unquote(var)::8
+        quote do: unquote(var) :: 8
 
       {2, :little} ->
-        quote do: unquote(var)::little-16
+        quote do: unquote(var) :: little - 16
 
       {2, :big} ->
-        quote do: unquote(var)::big-16
+        quote do: unquote(var) :: big - 16
 
       {4, :little} ->
-        quote do: unquote(var)::little-32
+        quote do: unquote(var) :: little - 32
 
       {4, :big} ->
-        quote do: unquote(var)::big-32
+        quote do: unquote(var) :: big - 32
 
       {8, :little} ->
-        quote do: unquote(var)::little-64
+        quote do: unquote(var) :: little - 64
 
       {8, :big} ->
-        quote do: unquote(var)::big-64
+        quote do: unquote(var) :: big - 64
 
       {16, _} ->
         # UUID - match as binary
-        quote do: unquote(var)::binary-size(16)
+        quote do: unquote(var) :: binary - size(16)
 
       {_, _} ->
         # General case - match as binary
-        quote do: unquote(var)::binary-size(unquote(size))
+        quote do: unquote(var) :: binary - size(unquote(size))
     end
   end
 end

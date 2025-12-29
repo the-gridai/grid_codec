@@ -176,7 +176,7 @@ defmodule GridCodec.Registry do
           fields: length(info.fields),
           block_length: info.block_length,
           has_groups: info.groups > 0,
-          has_var_fields: length(info.var_fields) > 0
+          has_var_fields: info.var_fields != []
         }
       end)
 
