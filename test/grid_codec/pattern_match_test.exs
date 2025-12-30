@@ -164,14 +164,21 @@ defmodule GridCodec.PatternMatchTest do
 
   describe "match/1 error cases" do
     test "raises on unknown field at compile time" do
-      # The error is raised at compile time as an ArgumentError,
-      # but when using Code.eval_quoted it becomes a CompileError
-      assert_raise CompileError, fn ->
-        Code.eval_quoted(
-          quote do
-            require GridCodec.PatternMatchTest.Message, as: M
-            M.match(unknown_field: x) = <<>>
-          end
+      # Test that the macro properly validates field names.
+      # We test this by calling the internal function directly since Code.eval_quoted
+      # with macros in pattern position hits Elixir's "remote function in match" check
+      # before the macro can expand.
+      field_info = [
+        {:type, :u8, GridCodec.Types.Primitives.U8, 0, 1},
+        {:id, :u64, GridCodec.Types.Primitives.U64, 1, 8}
+      ]
+
+      assert_raise ArgumentError, ~r/unknown or non-matchable fields: \[:unknown_field\]/, fn ->
+        GridCodec.Compiler.__build_match_pattern__(
+          [unknown_field: {:x, [], nil}],
+          field_info,
+          9,
+          :little
         )
       end
     end
