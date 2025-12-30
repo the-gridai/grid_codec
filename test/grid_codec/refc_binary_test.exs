@@ -26,7 +26,8 @@ defmodule GridCodec.RefcBinaryTest do
     @tag :refc_proof
     test "tiny heap process can handle huge binary (10KB in 1.8KB heap)" do
       huge_binary = :crypto.strong_rand_bytes(10_000)
-      min_heap_words = 233  # BEAM minimum ~1.8KB on 64-bit
+      # BEAM minimum ~1.8KB on 64-bit
+      min_heap_words = 233
 
       result = spawn_tiny_heap_worker(huge_binary, min_heap_words)
 
@@ -68,7 +69,8 @@ defmodule GridCodec.RefcBinaryTest do
 
   describe "memory impact comparison" do
     @tag :memory
-    @tag :skip  # Memory measurement is flaky - the "impossible heap" tests prove sharing better
+    # Memory measurement is flaky - the "impossible heap" tests prove sharing better
+    @tag :skip
     test "map broadcast uses more memory than binary broadcast" do
       # NOTE: This test is inherently flaky because:
       # - Process overhead dominates the measurements
@@ -132,6 +134,7 @@ defmodule GridCodec.RefcBinaryTest do
       assert byte_size(field) == 20
       # Referenced size should be much larger than the field itself
       referenced = :binary.referenced_byte_size(field)
+
       assert referenced > byte_size(field),
              "Sub-binary (#{byte_size(field)} bytes) should reference larger binary (got #{referenced})"
     end
@@ -142,11 +145,12 @@ defmodule GridCodec.RefcBinaryTest do
     test "large map uses more process memory than large binary" do
       # Create a LARGE map - 1000 key-value pairs with big integers
       # This will definitely exceed the base process overhead
-      large_map = for i <- 1..1000, into: %{} do
-        # Use string keys (not atoms) to avoid atom table
-        # Use large integers that take multiple words
-        {Integer.to_string(i), i * 1_000_000_000_000}
-      end
+      large_map =
+        for i <- 1..1000, into: %{} do
+          # Use string keys (not atoms) to avoid atom table
+          # Use large integers that take multiple words
+          {Integer.to_string(i), i * 1_000_000_000_000}
+        end
 
       # A binary the same logical size but shared (refc)
       # 1000 entries * ~30 bytes per entry ≈ 30KB of "data"
@@ -282,7 +286,12 @@ defmodule GridCodec.RefcBinaryTest do
 
     receive do
       {:result, ^ref, memory_bytes, _data} ->
-        {:ok, %{memory_bytes: memory_bytes, final_heap_words: div(memory_bytes, 8), initial_heap_words: min_heap_words}}
+        {:ok,
+         %{
+           memory_bytes: memory_bytes,
+           final_heap_words: div(memory_bytes, 8),
+           initial_heap_words: min_heap_words
+         }}
 
       {:error, ^ref, reason} ->
         {:error, reason}
@@ -317,7 +326,12 @@ defmodule GridCodec.RefcBinaryTest do
 
     receive do
       {:result, ^ref, memory_bytes, _data} ->
-        {:ok, %{memory_bytes: memory_bytes, final_heap_words: div(memory_bytes, 8), initial_heap_words: min_heap_words}}
+        {:ok,
+         %{
+           memory_bytes: memory_bytes,
+           final_heap_words: div(memory_bytes, 8),
+           initial_heap_words: min_heap_words
+         }}
 
       {:error, ^ref, reason} ->
         {:error, reason}
@@ -376,6 +390,7 @@ defmodule GridCodec.RefcBinaryTest do
   end
 
   defp std_dev(values) when length(values) < 2, do: 0.0
+
   defp std_dev(values) do
     mean = Enum.sum(values) / length(values)
     variance = Enum.sum(Enum.map(values, fn x -> (x - mean) * (x - mean) end)) / length(values)

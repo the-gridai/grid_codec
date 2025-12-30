@@ -491,7 +491,7 @@ defmodule GridCodec.Compiler do
         Keyword.get(opts, :presence) == :constant
       end)
 
-    if can_use_fast_path and length(non_constant_fields) > 0 do
+    if can_use_fast_path and not Enum.empty?(non_constant_fields) do
       fast_path = generate_fast_encoder(fixed_fields, endian)
       fallback = generate_fallback_encoder(fixed_fields, var_fields, groups, endian)
 
