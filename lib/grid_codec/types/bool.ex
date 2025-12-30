@@ -74,8 +74,16 @@ defmodule GridCodec.Types.Bool do
 
   @impl true
   def encode_ast(field_name, default, _endian, data_var) do
+    # Use :maps.get/3 BIF directly (faster than Map.get/3)
+    # - true → 1
+    # - false → 0
+    # - nil (explicit) or missing field → null_value
     quote do
-      if(Map.get(unquote(data_var), unquote(field_name), unquote(default)), do: 1, else: 0) :: 8
+      case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
+        true -> 1
+        false -> 0
+        _ -> unquote(@null_value)
+      end :: 8
     end
   end
 
@@ -101,7 +109,12 @@ defmodule GridCodec.Types.Bool do
   def getter_ast(offset, _endian, payload_var) do
     quote do
       <<_::binary-size(unquote(offset)), value::8, _::binary>> = unquote(payload_var)
-      value != 0
+
+      case value do
+        0 -> false
+        unquote(@null_value) -> nil
+        _ -> true
+      end
     end
   end
 

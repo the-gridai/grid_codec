@@ -66,15 +66,18 @@ defmodule GridCodec.Types.F64 do
 
   @impl true
   def encode_ast(field_name, default, endian, data_var) do
+    # Floats are not nullable - nil will cause a runtime error
+    # To support nullable floats, use a wrapper type or treat NaN as null
     case endian do
       :little ->
         quote do
-          Map.get(unquote(data_var), unquote(field_name), unquote(default)) :: float - little - 64
+          :maps.get(unquote(field_name), unquote(data_var), unquote(default)) ::
+            float - little - 64
         end
 
       :big ->
         quote do
-          Map.get(unquote(data_var), unquote(field_name), unquote(default)) :: float - big - 64
+          :maps.get(unquote(field_name), unquote(data_var), unquote(default)) :: float - big - 64
         end
     end
   end

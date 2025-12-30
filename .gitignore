@@ -21,3 +21,13 @@ grid_codec-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Coverage and profiling artifacts
+/artifacts/
+
+# Profiling output files
+*.dis
+perf.data
+perf.data.*
+callgrind.out.*
+coverage_output.txt

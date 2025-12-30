@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -24,6 +24,21 @@ defmodule GridCodec.MixProject do
       # Testing
       preferred_cli_env: [
         "test.watch": :test
+      ],
+
+      # Coverage
+      test_coverage: [
+        summary: [threshold: 75],
+        ignore_modules: [
+          # String wrapper modules that delegate to main String module
+          # Their encode_ast/decode_pattern_ast/getter_ast callbacks raise
+          # because they're handled specially by the compiler
+          GridCodec.Types.String8,
+          GridCodec.Types.String16,
+          GridCodec.Types.String32,
+          # Generators are dev/test utilities
+          GridCodec.Generators
+        ]
       ]
     ]
   end
@@ -77,18 +92,34 @@ defmodule GridCodec.MixProject do
 
   defp docs do
     [
-      main: "readme",
+      main: "GridCodec",
       source_url: @source_url,
       source_ref: "v#{@version}",
       extras: [
-        "README.md",
-        "CHANGELOG.md"
+        "README.md": [title: "Overview"],
+        "CHANGELOG.md": [title: "Changelog"]
       ],
       groups_for_modules: [
         "Core DSL": [
-          GridCodec
+          GridCodec,
+          GridCodec.Compiler
         ],
-        "Generated Codecs": []
+        Runtime: [
+          GridCodec.Envelope,
+          GridCodec.Group,
+          GridCodec.Dispatch,
+          GridCodec.Header
+        ],
+        Types: [
+          GridCodec.Type,
+          GridCodec.Types.Bool,
+          GridCodec.Types.Decimal,
+          GridCodec.Types.String,
+          GridCodec.Types.Timestamp,
+          GridCodec.Types.Enum,
+          GridCodec.Types.Bitset,
+          GridCodec.Types.CharArray
+        ]
       ]
     ]
   end

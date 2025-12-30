@@ -44,7 +44,7 @@ defmodule GridCodec.Types.U8 do
     null_val = @null_val
 
     quote do
-      case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+      case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
         nil -> unquote(null_val)
         v -> v
       end :: unsigned - 8

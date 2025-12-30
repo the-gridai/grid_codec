@@ -121,13 +121,18 @@ if Code.ensure_loaded?(StreamData) do
       )
     end
 
-    @doc "Generator for booleans (true/false only, no nil)"
-    @spec bool() :: StreamData.t(boolean())
-    def bool, do: boolean()
+    @doc """
+    Generator for nullable booleans (true/false/nil).
 
-    @doc "Generator for nullable booleans (true/false/nil)"
-    @spec nullable_bool() :: StreamData.t(boolean() | nil)
-    def nullable_bool, do: one_of([boolean(), constant(nil)])
+    Includes nil because GridCodec bool fields are optional by default,
+    and nil is encoded as the null sentinel (255).
+    """
+    @spec bool() :: StreamData.t(boolean() | nil)
+    def bool, do: one_of([boolean(), constant(nil)])
+
+    @doc "Generator for non-nullable booleans (true/false only)"
+    @spec non_nullable_bool() :: StreamData.t(boolean())
+    def non_nullable_bool, do: boolean()
 
     @doc """
     Generator for UTF-8 strings up to 1000 bytes.

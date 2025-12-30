@@ -54,7 +54,8 @@ defmodule GridCodec do
       │   All fixed-size fields in declaration order            │
       ├─────────────────────────────────────────────────────────┤
       │ Groups Section                                          │
-      │   Header (8 bytes) + Entries for each group             │
+      │   Header (4 bytes: blockLength u16 + numInGroup u16)    │
+      │   + Entries for each group                              │
       ├─────────────────────────────────────────────────────────┤
       │ Var-Data Section                                        │
       │   Length-prefixed strings/bytes                         │
@@ -83,7 +84,9 @@ defmodule GridCodec do
 
   | Type | Prefix | Max Size | Description |
   |------|--------|----------|-------------|
-  | `:string` | u16 | 65535 | UTF-8 string |
+  | `:string8` | u8 | 255 | Short strings |
+  | `:string` / `:string16` | u16 | 65535 | UTF-8 string (default) |
+  | `:string32` | u32 | ~4GB | Large text |
 
   ## Groups
 
@@ -99,7 +102,7 @@ defmodule GridCodec do
         end
       end
 
-  Groups use an 8-byte header (numInGroup u32 + blockLength u32) followed
+  Groups use a 4-byte header (blockLength u16 + numInGroup u16) followed
   by N fixed-size entries. See `GridCodec.Group` for iteration APIs.
 
   ## Zero-Copy Design
@@ -171,14 +174,17 @@ defmodule GridCodec do
         end
       end
 
-      # Register for dispatch
-      GridCodec.Dispatch.register(MyApp.Events.OrderFilled)
+      # Define a dispatch module (compile-time registration)
+      defmodule MyApp.Events.Dispatch do
+        use GridCodec.Dispatch
+        codecs [MyApp.Events.OrderFilled]
+      end
 
       # Encode with header
       framed = MyApp.Events.OrderFilled.encode!(%{id: 1, name: "test"})
 
-      # Dispatch to correct decoder
-      {:ok, decoded, _codec} = GridCodec.Dispatch.decode(framed)
+      # Dispatch routes to correct decoder
+      {:ok, decoded, _codec} = MyApp.Events.Dispatch.decode(framed)
   """
   defmacro __using__(opts \\ []) do
     quote do
@@ -283,10 +289,10 @@ defmodule GridCodec do
 
   ## Wire Format
 
-  Groups use an 8-byte header followed by fixed-size entries:
+  Groups use a 4-byte header followed by fixed-size entries:
 
       ┌────────────────────────┬────────────────────────┐
-      │  numInGroup (u32 LE)   │  blockLength (u32 LE)  │
+      │  blockLength (u16 LE)  │  numInGroup (u16 LE)   │
       └────────────────────────┴────────────────────────┘
       │  Entry[0] ... Entry[N-1]                        │
       └─────────────────────────────────────────────────┘

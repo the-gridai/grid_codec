@@ -306,52 +306,42 @@ defmodule GridCodec.Types.Bitset do
       # GridCodec.Type implementation
       @impl GridCodec.Type
       def encode_ast(name, _default, endian, data_var) do
-        endian_spec = if endian == :little, do: :little, else: :big
+        # Generate proper binary segment specifier (not using unquote for atoms)
+        encode_spec =
+          case {@bitset_size, endian} do
+            {:u8, _} -> quote(do: unsigned - 8)
+            {:u16, :little} -> quote(do: unsigned - little - 16)
+            {:u16, :big} -> quote(do: unsigned - big - 16)
+            {:u32, :little} -> quote(do: unsigned - little - 32)
+            {:u32, :big} -> quote(do: unsigned - big - 32)
+            {:u64, :little} -> quote(do: unsigned - little - 64)
+            {:u64, :big} -> quote(do: unsigned - big - 64)
+          end
 
-        case @bitset_size do
-          :u8 ->
-            quote do
-              (fn ->
-                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                 unquote(__MODULE__).to_integer(flags)
-               end).() :: 8
-            end
-
-          :u16 ->
-            quote do
-              (fn ->
-                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                 unquote(__MODULE__).to_integer(flags)
-               end).() :: unquote(endian_spec) - 16
-            end
-
-          :u32 ->
-            quote do
-              (fn ->
-                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                 unquote(__MODULE__).to_integer(flags)
-               end).() :: unquote(endian_spec) - 32
-            end
-
-          :u64 ->
-            quote do
-              (fn ->
-                 flags = Map.get(unquote(data_var), unquote(name)) || MapSet.new()
-                 unquote(__MODULE__).to_integer(flags)
-               end).() :: unquote(endian_spec) - 64
-            end
+        quote do
+          (fn ->
+             flags = :maps.get(unquote(name), unquote(data_var), nil) || MapSet.new()
+             unquote(__MODULE__).to_integer(flags)
+           end).() :: unquote(encode_spec)
         end
       end
 
       @impl GridCodec.Type
       def decode_pattern_ast(var, endian) do
-        endian_spec = if endian == :little, do: :little, else: :big
+        # Generate proper binary segment specifier
+        decode_spec =
+          case {@bitset_size, endian} do
+            {:u8, _} -> quote(do: unsigned - 8)
+            {:u16, :little} -> quote(do: unsigned - little - 16)
+            {:u16, :big} -> quote(do: unsigned - big - 16)
+            {:u32, :little} -> quote(do: unsigned - little - 32)
+            {:u32, :big} -> quote(do: unsigned - big - 32)
+            {:u64, :little} -> quote(do: unsigned - little - 64)
+            {:u64, :big} -> quote(do: unsigned - big - 64)
+          end
 
-        case @bitset_size do
-          :u8 -> quote(do: unquote(var) :: 8)
-          :u16 -> quote(do: unquote(var) :: unquote(endian_spec) - 16)
-          :u32 -> quote(do: unquote(var) :: unquote(endian_spec) - 32)
-          :u64 -> quote(do: unquote(var) :: unquote(endian_spec) - 64)
+        quote do
+          unquote(var) :: unquote(decode_spec)
         end
       end
 
@@ -364,39 +354,74 @@ defmodule GridCodec.Types.Bitset do
 
       @impl GridCodec.Type
       def getter_ast(offset, endian, payload_var) do
-        endian_spec = if endian == :little, do: :little, else: :big
+        # Generate proper binary segment specifier
+        {getter_spec, getter_body} =
+          case {@bitset_size, endian} do
+            {:u8, _} ->
+              {quote(do: val :: unsigned - 8),
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-8, _::binary>> =
+                   unquote(payload_var)
 
-        case @bitset_size do
-          :u8 ->
-            quote do
-              <<_::binary-size(unquote(offset)), val::8, _::binary>> = unquote(payload_var)
-              unquote(__MODULE__).from_integer(val)
-            end
+                 unquote(__MODULE__).from_integer(val)
+               end}
 
-          :u16 ->
-            quote do
-              <<_::binary-size(unquote(offset)), val::unquote(endian_spec)-16, _::binary>> =
-                unquote(payload_var)
+            {:u16, :little} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-little-16, _::binary>> =
+                   unquote(payload_var)
 
-              unquote(__MODULE__).from_integer(val)
-            end
+                 unquote(__MODULE__).from_integer(val)
+               end}
 
-          :u32 ->
-            quote do
-              <<_::binary-size(unquote(offset)), val::unquote(endian_spec)-32, _::binary>> =
-                unquote(payload_var)
+            {:u16, :big} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-big-16, _::binary>> =
+                   unquote(payload_var)
 
-              unquote(__MODULE__).from_integer(val)
-            end
+                 unquote(__MODULE__).from_integer(val)
+               end}
 
-          :u64 ->
-            quote do
-              <<_::binary-size(unquote(offset)), val::unquote(endian_spec)-64, _::binary>> =
-                unquote(payload_var)
+            {:u32, :little} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-little-32, _::binary>> =
+                   unquote(payload_var)
 
-              unquote(__MODULE__).from_integer(val)
-            end
-        end
+                 unquote(__MODULE__).from_integer(val)
+               end}
+
+            {:u32, :big} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-big-32, _::binary>> =
+                   unquote(payload_var)
+
+                 unquote(__MODULE__).from_integer(val)
+               end}
+
+            {:u64, :little} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-little-64, _::binary>> =
+                   unquote(payload_var)
+
+                 unquote(__MODULE__).from_integer(val)
+               end}
+
+            {:u64, :big} ->
+              {nil,
+               quote do
+                 <<_::binary-size(unquote(offset)), val::unsigned-big-64, _::binary>> =
+                   unquote(payload_var)
+
+                 unquote(__MODULE__).from_integer(val)
+               end}
+          end
+
+        getter_body
       end
 
       # Predicates

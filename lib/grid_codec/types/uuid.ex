@@ -86,9 +86,12 @@ defmodule GridCodec.Types.UUID do
 
   @impl true
   def encode_ast(field_name, _default, _endian, data_var) do
-    # UUIDs don't have defaults - they must be provided
+    null_uuid = @null_uuid
+
+    # Handle nil by encoding as all-zeros (null UUID)
     quote do
-      Map.fetch!(unquote(data_var), unquote(field_name)) :: binary - size(16)
+      :maps.get(unquote(field_name), unquote(data_var), nil) || unquote(null_uuid) ::
+        binary - size(16)
     end
   end
 
@@ -99,13 +102,26 @@ defmodule GridCodec.Types.UUID do
   end
 
   @impl true
+  def decode_value_ast(var) do
+    null = @null_uuid
+
+    # Convert all-zeros to nil for proper null handling
+    # Use equality comparison (fast) instead of pattern match with pin (slow!)
+    quote do
+      if unquote(var) == unquote(null), do: nil, else: unquote(var)
+    end
+  end
+
+  @impl true
   def getter_ast(offset, _endian, payload_var) do
-    # Returns a sub-binary reference (zero-copy!)
+    null = @null_uuid
+
+    # Returns a sub-binary reference (zero-copy!) or nil for null UUID
     quote do
       <<_::binary-size(unquote(offset)), value::binary-size(16), _::binary>> =
         unquote(payload_var)
 
-      value
+      if value == unquote(null), do: nil, else: value
     end
   end
 

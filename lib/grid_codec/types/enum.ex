@@ -206,12 +206,29 @@ defmodule GridCodec.Types.Enum do
 
       # GridCodec.Type callbacks for AST generation
       @impl GridCodec.Type
-      def encode_ast(field_name, default, _endian, data_var) do
+      def encode_ast(field_name, default, endian, data_var) do
         mod = __MODULE__
+        null_val = unquote(null_value)
+        sz = unquote(size) * 8
+
+        # Generate binary segment expression (not a binary!)
+        # Must return: integer_expression :: unsigned-endian-size
+        encode_spec =
+          case {endian, unquote(size)} do
+            {:little, 1} -> quote do: unsigned - 8
+            {:little, 2} -> quote do: unsigned - little - 16
+            {:little, 4} -> quote do: unsigned - little - 32
+            {:big, 1} -> quote do: unsigned - 8
+            {:big, 2} -> quote do: unsigned - big - 16
+            {:big, 4} -> quote do: unsigned - big - 32
+          end
 
         quote do
-          value = Map.get(unquote(data_var), unquote(field_name), unquote(default))
-          unquote(mod).encode(value)
+          case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
+            nil -> unquote(null_val)
+            v when is_atom(v) -> unquote(mod).to_integer(v)
+            v when is_integer(v) -> v
+          end :: unquote(encode_spec)
         end
       end
 

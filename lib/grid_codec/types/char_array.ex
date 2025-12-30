@@ -156,7 +156,7 @@ defmodule GridCodec.Types.CharArray do
       def encode_ast(name, _default, _endian, data_var) do
         quote do
           (fn ->
-             val = Map.get(unquote(data_var), unquote(name))
+             val = :maps.get(unquote(name), unquote(data_var), nil)
              unquote(__MODULE__).encode(val)
            end).() :: binary - size(unquote(@char_array_length))
         end

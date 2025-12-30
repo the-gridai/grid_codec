@@ -2,7 +2,9 @@
 #
 # Compares GridCodec with Jason, OTP JSON, MessagePack (msgpax), and ETF
 #
-# Run with: MIX_ENV=test mix run benchmarks/encode_decode_benchmark.exs
+# Run with: mix run benchmarks/encode_decode_benchmark.exs
+#
+# Results saved to: artifacts/benchmarks/
 #
 # What this measures:
 # - Encoding speed (map -> binary)
@@ -374,3 +376,37 @@ IO.puts("║    • Compile-time generated encode/decode                        
 IO.puts("║    • BEAM sub-binary sharing for fan-out                                      ║")
 IO.puts("║    • No external dependencies for core functionality                          ║")
 IO.puts("╚══════════════════════════════════════════════════════════════════════════════╝")
+
+# Save results to artifacts folder
+timestamp = DateTime.utc_now() |> DateTime.to_iso8601(:basic) |> String.slice(0, 15)
+output_file = "artifacts/benchmarks/encode_decode_#{timestamp}.md"
+File.mkdir_p!("artifacts/benchmarks")
+
+summary = """
+# GridCodec Encode/Decode Benchmark Results
+
+Generated: #{DateTime.utc_now() |> DateTime.to_iso8601()}
+
+## Binary Sizes
+
+| Format | Size (bytes) | vs GridCodec |
+|--------|-------------|--------------|
+| GridCodec | #{grid_size} | baseline |
+| Protobuf | #{protobuf_size} | #{Float.round(protobuf_size / grid_size, 2)}x |
+| ETF | #{etf_size} | #{Float.round(etf_size / grid_size, 2)}x |
+| ETF (compressed) | #{etf_comp_size} | #{Float.round(etf_comp_size / grid_size, 2)}x |
+| MessagePack | #{msgpack_size} | #{Float.round(msgpack_size / grid_size, 2)}x |
+| JSON (Jason) | #{json_size} | #{Float.round(json_size / grid_size, 2)}x |
+| JSON (OTP) | #{otp_json_size} | #{Float.round(otp_json_size / grid_size, 2)}x |
+
+## Key Findings
+
+GridCodec provides:
+- Compact binary format (#{grid_size} bytes vs #{json_size} bytes JSON)
+- O(1) zero-copy field access via wrap/get
+- Compile-time generated encode/decode
+- BEAM sub-binary sharing for fan-out
+"""
+
+File.write!(output_file, summary)
+IO.puts("\nResults saved to: #{output_file}")

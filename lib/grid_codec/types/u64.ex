@@ -54,12 +54,14 @@ defmodule GridCodec.Types.U64 do
 
   @impl true
   def encode_ast(field_name, default, endian, data_var) do
+    # Use :maps.get/3 BIF directly (faster than Map.get/3)
+    # If key is missing, default is returned; if present with nil, use null_val
     null_val = @null_val
 
     case endian do
       :little ->
         quote do
-          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+          case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
             nil -> unquote(null_val)
             v -> v
           end :: unsigned - little - 64
@@ -67,7 +69,7 @@ defmodule GridCodec.Types.U64 do
 
       :big ->
         quote do
-          case Map.get(unquote(data_var), unquote(field_name), unquote(default)) do
+          case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
             nil -> unquote(null_val)
             v -> v
           end :: unsigned - big - 64

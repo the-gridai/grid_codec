@@ -54,7 +54,7 @@ defmodule GridCodec.Types.TimestampMicros do
   def encode_ast(field_name, default, _endian, data_var) do
     quote do
       GridCodec.Types.TimestampMicros.encode_value(
-        Map.get(unquote(data_var), unquote(field_name), unquote(default))
+        :maps.get(unquote(field_name), unquote(data_var), unquote(default))
       ) :: binary
     end
   end
@@ -187,7 +187,7 @@ defmodule GridCodec.Types.TimestampNanos do
   def encode_ast(field_name, default, _endian, data_var) do
     quote do
       GridCodec.Types.TimestampNanos.encode_value(
-        Map.get(unquote(data_var), unquote(field_name), unquote(default))
+        :maps.get(unquote(field_name), unquote(data_var), unquote(default))
       ) :: binary
     end
   end
