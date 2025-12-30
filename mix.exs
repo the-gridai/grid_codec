@@ -58,7 +58,9 @@ defmodule GridCodec.MixProject do
       {:jason, "~> 1.4", only: [:dev, :test]},
       {:msgpax, "~> 2.4", only: [:dev, :test]},
       # Pure Elixir protobuf implementation (no protoc required)
-      {:protobuf, "~> 0.15", only: [:dev, :test]}
+      {:protobuf, "~> 0.15", only: [:dev, :test]},
+      # ElixirProto - context-scoped schema serialization (for comparison)
+      {:elixir_proto, "~> 0.1", only: [:dev, :test]}
     ]
   end
 
