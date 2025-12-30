@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-12-31
+
+### Added
+- Interactive Livebooks for benchmarking and documentation:
+  - `01_performance_comparison.livemd` - Compare GridCodec vs JSON, ETF, Protobuf, MessagePack
+  - `02_subbinary_fanout.livemd` - Demonstrate BEAM's refc binary sharing for efficient fan-out
+  - `03_internal_analysis.livemd` - Deep dive into generated code and BEAM bytecode
+- Tests for refc binary sharing behavior (`refc_binary_test.exs`)
+- NIF-based JSON benchmark comparison using `jiffy`
+
+### Changed
+- Consolidated 30+ benchmark scripts into 3 educational Livebooks
+- Updated terminology: "zero-copy" → "direct field access" / "sub-binary sharing"
+- `03_internal_analysis.livemd` now accurately reflects implemented optimizations
+
+### Removed
+- Legacy benchmark scripts (moved to Livebooks)
+
 ## [0.2.0] - 2025-12-30
 
 ### Added

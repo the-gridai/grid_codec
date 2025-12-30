@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.2.1"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -14,7 +14,7 @@ defmodule GridCodec.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
 
       # Hex
-      description: "High-performance binary codec for BEAM/Elixir with zero-copy field access",
+      description: "High-performance binary codec for BEAM/Elixir with direct field access",
       package: package(),
 
       # Docs
@@ -75,7 +75,9 @@ defmodule GridCodec.MixProject do
       # Pure Elixir protobuf implementation (no protoc required)
       {:protobuf, "~> 0.15", only: [:dev, :test]},
       # ElixirProto - context-scoped schema serialization (for comparison)
-      {:elixir_proto, "~> 0.1", only: [:dev, :test]}
+      {:elixir_proto, "~> 0.1", only: [:dev, :test]},
+      # NIF-based JSON encoder (for benchmark comparison)
+      {:jiffy, "~> 1.1", only: [:dev, :test]}
     ]
   end
 

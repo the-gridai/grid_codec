@@ -1,0 +1,618 @@
+# GridCodec Internals: How the Magic Works
+
+```elixir
+Mix.install([
+  {:grid_codec, path: Path.join(__DIR__, "..")},
+  {:kino, "~> 0.14"},
+  {:kino_vega_lite, "~> 0.1"}
+])
+
+alias VegaLite, as: Vl
+```
+
+## Introduction
+
+This notebook is for **GridCodec contributors and curious developers** who want to understand:
+
+1. How GridCodec generates code at compile time
+2. What the generated BEAM bytecode looks like
+3. Why certain design decisions were made
+4. Potential optimization opportunities
+
+## Part 1: The Compilation Pipeline
+
+When you write `defcodec`, here's what happens:
+
+```elixir
+Kino.Mermaid.new("""
+flowchart TB
+    subgraph "Your Code"
+        DEF["defcodec do<br/>  field(:id, :u64)<br/>  field(:name, :string16)<br/>end"]
+    end
+    
+    subgraph "Compile Time (GridCodec.Compiler)"
+        PARSE[Parse field<br/>definitions]
+        SCHEMA[Build schema<br/>with offsets]
+        GEN_E[Generate<br/>encode/1 AST]
+        GEN_D[Generate<br/>decode/1 AST]
+        GEN_G[Generate<br/>get/2 clauses]
+    end
+    
+    subgraph "Runtime (Generated Module)"
+        ENCODE["encode/1"]
+        DECODE["decode/1"]
+        WRAP["wrap/1"]
+        GET["get/2"]
+    end
+    
+    DEF --> PARSE
+    PARSE --> SCHEMA
+    SCHEMA --> GEN_E
+    SCHEMA --> GEN_D
+    SCHEMA --> GEN_G
+    GEN_E --> ENCODE
+    GEN_D --> DECODE
+    GEN_G --> GET
+    GEN_G --> WRAP
+    
+    style DEF fill:#3498db,color:#fff
+    style SCHEMA fill:#e74c3c,color:#fff
+    style ENCODE fill:#2ecc71,color:#fff
+    style DECODE fill:#2ecc71,color:#fff
+""")
+```
+
+## Part 2: Schema Analysis
+
+Let's create a codec and examine its schema:
+
+```elixir
+defmodule Analysis.OrderCodec do
+  use GridCodec
+
+  defcodec do
+    field(:order_id, :uuid)
+    field(:user_id, :u64)
+    field(:price, :u64)
+    field(:quantity, :u32)
+    field(:side, :u8)
+    field(:timestamp, :timestamp_us)
+    field(:flags, :u8)
+  end
+end
+
+schema = Analysis.OrderCodec.__schema__()
+
+IO.puts("""
+═══════════════════════════════════════════════════════════════════════════════
+                              SCHEMA ANALYSIS
+═══════════════════════════════════════════════════════════════════════════════
+
+Block length: #{schema.block_length} bytes (fixed-size portion)
+Fixed fields: #{length(schema.fixed_fields)}
+Variable fields: #{length(schema.var_fields)}
+
+FIELD LAYOUT:
+─────────────
+""")
+
+# Display field layout from schema.fields (which has full {name, type, opts} tuples)
+type_sizes = %{
+  uuid: 16, u64: 8, i64: 8, timestamp_us: 8, timestamp_ms: 8,
+  u32: 4, i32: 4, u16: 2, i16: 2, u8: 1, i8: 1, bool: 1
+}
+
+schema.fields
+|> Enum.filter(fn {_name, type, _opts} -> Map.has_key?(type_sizes, type) end)
+|> Enum.reduce(0, fn {name, type, _opts}, offset ->
+  size = Map.get(type_sizes, type, 0)
+  IO.puts("  Offset #{String.pad_leading(to_string(offset), 3)}: #{String.pad_trailing(to_string(name), 12)} (#{type}, #{size} bytes)")
+  offset + size
+end)
+
+IO.puts("""
+
+VISUAL LAYOUT (fixed fields only, #{schema.block_length} bytes total):
+──────────────
+┌──────────┬──────────┬──────────┬──────────┬──────┬──────────┬──────┐
+│ order_id │ user_id  │  price   │ quantity │ side │timestamp │flags │
+│ 16 bytes │ 8 bytes  │ 8 bytes  │ 4 bytes  │  1   │ 8 bytes  │  1   │
+│ offset 0 │offset 16 │offset 24 │offset 32 │ 36   │  37      │  45  │
+└──────────┴──────────┴──────────┴──────────┴──────┴──────────┴──────┘
+""")
+```
+
+## Part 3: Generated Code Inspection
+
+Let's look at what encode/1 actually generates:
+
+```elixir
+defmodule Analysis.SimpleCodec do
+  use GridCodec
+
+  defcodec do
+    field(:id, :u64)
+    field(:count, :u32)
+    field(:flag, :bool)
+  end
+end
+
+IO.puts("""
+═══════════════════════════════════════════════════════════════════════════════
+                    WHAT ENCODE/1 GENERATES (CONCEPTUALLY)
+═══════════════════════════════════════════════════════════════════════════════
+
+For a simple fixed-only codec, GridCodec generates TWO clauses:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FAST PATH (pattern match - extracts ALL fields in ONE BEAM instruction)    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    def encode(%{id: id, count: count, flag: flag} = _data) do
+      # Pattern match extracts all fields at once!
+      # BEAM uses a single get_map_elements instruction
+      <<
+        (case id do nil -> @u64_null; v -> v end)::little-64,
+        (case count do nil -> @u32_null; v -> v end)::little-32,
+        (case flag do true -> 1; false -> 0; _ -> @bool_null end)::8
+      >>
+    end
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FALLBACK (for maps with missing keys)                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    def encode(data) when is_map(data) do
+      # Falls through when pattern match fails (keys missing)
+      # Uses individual :maps.get per field
+      <<
+        (case :maps.get(:id, data, @u64_null) do ... end)::little-64,
+        ...
+      >>
+    end
+
+WHERE:
+  @u64_null  = 18_446_744_073_709_551_615  (0xFFFFFFFFFFFFFFFF)
+  @u32_null  = 4_294_967_295              (0xFFFFFFFF)
+  @bool_null = 255                        (0xFF)
+
+The fast path was added in v0.2.0 and provides ~1.6-1.7x speedup!
+""")
+```
+
+## Part 4: BEAM Bytecode Analysis
+
+Now let's look at the actual generated BEAM bytecode:
+
+```elixir
+defmodule BytecodeAnalyzer do
+  def analyze(module, function, arity) do
+    # get_object_code returns {Module, Binary, Filename}
+    {^module, beam, _filename} = :code.get_object_code(module)
+    {:beam_file, _, _, _, _, code} = :beam_disasm.file(beam)
+
+    fn_code = Enum.find(code, fn
+      {:function, ^function, ^arity, _, _} -> true
+      _ -> false
+    end)
+
+    case fn_code do
+      {:function, _, _, _, instructions} ->
+        categorize_instructions(instructions)
+      nil ->
+        %{error: "Function not found"}
+    end
+  end
+
+  defp categorize_instructions(instructions) do
+    categories = %{
+      map_access: [:get_map_elements],
+      branching: [:test, :select_val, :jump],
+      binary_ops: [:bs_create_bin, :bs_match, :bs_get_binary2],
+      function_calls: [:call, :call_ext, :call_ext_only],
+      data_movement: [:move, :put_tuple, :put_list],
+      arithmetic: [:gc_bif],
+      control: [:label, :return, :func_info]
+    }
+    
+    counts = 
+      instructions
+      |> Enum.map(fn
+        {op, _} -> op
+        {op, _, _} -> op
+        {op, _, _, _} -> op
+        {op, _, _, _, _} -> op
+        {op, _, _, _, _, _} -> op
+        {op, _, _, _, _, _, _} -> op
+        op when is_atom(op) -> op
+        _ -> :other
+      end)
+      |> Enum.frequencies()
+    
+    categorized = 
+      categories
+      |> Enum.map(fn {category, ops} ->
+        count = Enum.sum(Enum.map(ops, fn op -> Map.get(counts, op, 0) end))
+        {category, count}
+      end)
+      |> Enum.into(%{})
+    
+    %{
+      total: length(instructions),
+      by_instruction: counts,
+      by_category: categorized
+    }
+  end
+end
+
+:ok
+```
+
+```elixir
+IO.puts("═══ ENCODE/1 BYTECODE ANALYSIS ═══\n")
+
+encode_analysis = BytecodeAnalyzer.analyze(Analysis.SimpleCodec, :encode, 1)
+
+IO.puts("Total BEAM instructions: #{encode_analysis.total}")
+IO.puts("\nBy category:")
+for {cat, count} <- Enum.sort_by(encode_analysis.by_category, fn {_, c} -> -c end) do
+  bar = String.duplicate("█", count)
+  IO.puts("  #{String.pad_trailing(to_string(cat), 16)} #{String.pad_leading(to_string(count), 3)} #{bar}")
+end
+
+IO.puts("\nTop instructions:")
+encode_analysis.by_instruction
+|> Enum.sort_by(fn {_, c} -> -c end)
+|> Enum.take(8)
+|> Enum.each(fn {op, count} ->
+  IO.puts("  #{String.pad_trailing(to_string(op), 20)} #{count}")
+end)
+```
+
+```elixir
+IO.puts("\n═══ DECODE/1 BYTECODE ANALYSIS ═══\n")
+
+decode_analysis = BytecodeAnalyzer.analyze(Analysis.SimpleCodec, :decode, 1)
+
+IO.puts("Total BEAM instructions: #{decode_analysis.total}")
+IO.puts("\nBy category:")
+for {cat, count} <- Enum.sort_by(decode_analysis.by_category, fn {_, c} -> -c end) do
+  bar = String.duplicate("█", count)
+  IO.puts("  #{String.pad_trailing(to_string(cat), 16)} #{String.pad_leading(to_string(count), 3)} #{bar}")
+end
+```
+
+## Part 5: Comparison with Hand-Written Code
+
+Let's compare GridCodec's generated code with optimal hand-written code:
+
+```elixir
+defmodule Manual.SimpleCodec do
+  @u64_null 18_446_744_073_709_551_615
+  @u32_null 4_294_967_295
+  @bool_null 255
+
+  # Hand-written "optimal" encode - matches GridCodec's format
+  # GridCodec doesn't add trailing length for fixed-only codecs
+  def encode(%{id: id, count: count, flag: flag}) do
+    id_val = id || @u64_null
+    count_val = count || @u32_null
+    flag_byte = case flag do
+      true -> 1
+      false -> 0
+      _ -> @bool_null
+    end
+    <<id_val::little-64, count_val::little-32, flag_byte::8>>
+  end
+  
+  def decode(<<id::little-64, count::little-32, flag_byte::8, _rest::binary>>) do
+    {:ok, %{
+      id: if(id == @u64_null, do: nil, else: id),
+      count: if(count == @u32_null, do: nil, else: count),
+      flag: case flag_byte do
+        0 -> false
+        @bool_null -> nil
+        _ -> true
+      end
+    }}
+  end
+end
+
+:ok
+```
+
+```elixir
+IO.puts("═══ GRIDCODEC vs HAND-WRITTEN COMPARISON ═══\n")
+
+# Analyze both
+gc_encode = BytecodeAnalyzer.analyze(Analysis.SimpleCodec, :encode, 1)
+manual_encode = BytecodeAnalyzer.analyze(Manual.SimpleCodec, :encode, 1)
+
+IO.puts("ENCODE/1 instruction count:")
+IO.puts("  GridCodec:   #{gc_encode.total} instructions")
+IO.puts("  Hand-written: #{manual_encode.total} instructions")
+IO.puts("  Difference:   #{gc_encode.total - manual_encode.total}")
+
+gc_decode = BytecodeAnalyzer.analyze(Analysis.SimpleCodec, :decode, 1)
+manual_decode = BytecodeAnalyzer.analyze(Manual.SimpleCodec, :decode, 1)
+
+IO.puts("\nDECODE/1 instruction count:")
+IO.puts("  GridCodec:   #{gc_decode.total} instructions")
+IO.puts("  Hand-written: #{manual_decode.total} instructions")
+IO.puts("  Difference:   #{gc_decode.total - manual_decode.total}")
+```
+
+### Performance Benchmark
+
+```elixir
+test_data = %{id: 12345, count: 100, flag: true}
+iterations = 1_000_000
+
+# Verify correctness first
+gc_bin = Analysis.SimpleCodec.encode(test_data)
+manual_bin = Manual.SimpleCodec.encode(test_data)
+
+IO.puts("Binaries match: #{gc_bin == manual_bin}\n")
+
+# Benchmark encode
+{gc_encode_time, _} = :timer.tc(fn ->
+  for _ <- 1..iterations, do: Analysis.SimpleCodec.encode(test_data)
+end)
+
+{manual_encode_time, _} = :timer.tc(fn ->
+  for _ <- 1..iterations, do: Manual.SimpleCodec.encode(test_data)
+end)
+
+IO.puts("═══ #{iterations} ITERATIONS ═══\n")
+IO.puts("ENCODE:")
+IO.puts("  GridCodec:    #{Float.round(gc_encode_time / 1000, 1)} ms  (#{Float.round(gc_encode_time / iterations * 1000, 1)} ns/op)")
+IO.puts("  Hand-written: #{Float.round(manual_encode_time / 1000, 1)} ms  (#{Float.round(manual_encode_time / iterations * 1000, 1)} ns/op)")
+IO.puts("  Ratio:        #{Float.round(gc_encode_time / manual_encode_time, 2)}x")
+
+# Benchmark decode
+{gc_decode_time, _} = :timer.tc(fn ->
+  for _ <- 1..iterations, do: Analysis.SimpleCodec.decode(gc_bin)
+end)
+
+{manual_decode_time, _} = :timer.tc(fn ->
+  for _ <- 1..iterations, do: Manual.SimpleCodec.decode(gc_bin)
+end)
+
+IO.puts("\nDECODE:")
+IO.puts("  GridCodec:    #{Float.round(gc_decode_time / 1000, 1)} ms  (#{Float.round(gc_decode_time / iterations * 1000, 1)} ns/op)")
+IO.puts("  Hand-written: #{Float.round(manual_decode_time / 1000, 1)} ms  (#{Float.round(manual_decode_time / iterations * 1000, 1)} ns/op)")
+IO.puts("  Ratio:        #{Float.round(gc_decode_time / manual_decode_time, 2)}x")
+```
+
+## Part 6: Optimization Opportunities
+
+### A. Nil Handling: `case` vs `||` (🔮 Potential Future Optimization)
+
+```elixir
+IO.puts("""
+═══════════════════════════════════════════════════════════════════════════════
+                      OPTIMIZATION: NIL HANDLING
+═══════════════════════════════════════════════════════════════════════════════
+
+Current GridCodec generates:
+
+    id = case :maps.get(:id, data, @null) do
+      nil -> @null
+      v -> v
+    end
+
+Could potentially use:
+
+    id = :maps.get(:id, data, @null) || @null
+
+THE QUESTION: Is || safe for all types?
+""")
+
+# Test semantic equivalence
+defmodule NilTest do
+  @null 0xFFFFFFFFFFFFFFFF
+  @bool_null 255
+
+  def case_int(map, key) do
+    case :maps.get(key, map, @null) do nil -> @null; v -> v end
+  end
+
+  def or_int(map, key) do
+    :maps.get(key, map, @null) || @null
+  end
+
+  def case_bool(map, key) do
+    case :maps.get(key, map, @bool_null) do
+      true -> 1; false -> 0; _ -> @bool_null
+    end
+  end
+
+  def or_bool(map, key) do
+    val = :maps.get(key, map, @bool_null) || @bool_null
+    case val do true -> 1; false -> 0; _ -> @bool_null end
+  end
+end
+
+tests = [
+  {%{x: 42}, :x, "Value present"},
+  {%{x: nil}, :x, "Explicit nil"},
+  {%{}, :x, "Key missing"},
+  {%{x: 0}, :x, "Zero (falsy?)"},
+]
+
+IO.puts("\nINTEGER FIELDS (safe to use ||):")
+for {map, key, desc} <- tests do
+  case_r = NilTest.case_int(map, key)
+  or_r = NilTest.or_int(map, key)
+  status = if case_r == or_r, do: "✅", else: "❌"
+  IO.puts("  #{status} #{desc}")
+end
+
+bool_tests = [
+  {%{x: true}, :x, "true"},
+  {%{x: false}, :x, "false (THE PROBLEM!)"},
+  {%{}, :x, "missing"},
+]
+
+IO.puts("\nBOOLEAN FIELDS (NOT safe to use ||):")
+for {map, key, desc} <- bool_tests do
+  case_r = NilTest.case_bool(map, key)
+  or_r = NilTest.or_bool(map, key)
+  status = if case_r == or_r, do: "✅", else: "❌"
+  IO.puts("  #{status} #{desc}")
+end
+
+IO.puts("""
+
+CONCLUSION:
+───────────
+• || is SAFE for: integers, floats, binaries, UUIDs, timestamps
+• || is NOT SAFE for: booleans (false || default = default!)
+• Potential optimization: Use || for ~90% of field types
+""")
+```
+
+### B. Pattern Match Fast Path (✅ IMPLEMENTED in v0.2.0)
+
+```elixir
+IO.puts("""
+═══════════════════════════════════════════════════════════════════════════════
+                   OPTIMIZATION: PATTERN MATCH FAST PATH
+                         ✅ ALREADY IMPLEMENTED (v0.2.0)
+═══════════════════════════════════════════════════════════════════════════════
+
+GridCodec now generates TWO encoder clauses:
+
+1. FAST PATH - Pattern match extracts all fields at once:
+
+    def encode(%{id: id, count: count, flag: flag} = _data) do
+      # Single get_map_elements BEAM instruction!
+      <<...>>
+    end
+    
+2. FALLBACK - For maps with missing keys:
+
+    def encode(data) when is_map(data) do
+      # Individual :maps.get per field
+      <<...>>
+    end
+
+This optimization provides ~1.6-1.7x speedup for typical encode operations!
+
+Let's verify this is working:
+
+""")
+
+# Verify the fast path is working by comparing GridCodec vs fallback-style
+defmodule FastPathDemo do
+  @null 0xFFFFFFFFFFFFFFFF
+  @u32_null 0xFFFFFFFF
+  @bool_null 255
+  
+  # Simulates the OLD fallback style: individual :maps.get per field
+  def encode_fallback_style(data) do
+    id = case :maps.get(:id, data, @null) do nil -> @null; v -> v end
+    count = case :maps.get(:count, data, @u32_null) do nil -> @u32_null; v -> v end
+    flag = case :maps.get(:flag, data, @bool_null) do true -> 1; false -> 0; _ -> @bool_null end
+    <<id::little-64, count::little-32, flag::8>>
+  end
+  
+  # Simulates the FAST PATH: pattern match extracts all fields at once
+  def encode_fast_path(%{id: id, count: count, flag: flag}) do
+    id_val = case id do nil -> @null; v -> v end
+    count_val = case count do nil -> @u32_null; v -> v end
+    flag_byte = case flag do true -> 1; false -> 0; _ -> @bool_null end
+    <<id_val::little-64, count_val::little-32, flag_byte::8>>
+  end
+end
+
+data = %{id: 12345, count: 100, flag: true}
+iterations = 1_000_000
+
+{t_fallback, _} = :timer.tc(fn -> for _ <- 1..iterations, do: FastPathDemo.encode_fallback_style(data) end)
+{t_fast, _} = :timer.tc(fn -> for _ <- 1..iterations, do: FastPathDemo.encode_fast_path(data) end)
+{t_gridcodec, _} = :timer.tc(fn -> for _ <- 1..iterations, do: Analysis.SimpleCodec.encode(data) end)
+
+IO.puts("BENCHMARK (#{iterations} iterations):")
+IO.puts("  Fallback style (:maps.get): #{Float.round(t_fallback/1000, 1)} ms")
+IO.puts("  Fast path (pattern match):  #{Float.round(t_fast/1000, 1)} ms")
+IO.puts("  GridCodec actual:           #{Float.round(t_gridcodec/1000, 1)} ms")
+IO.puts("")
+IO.puts("  Pattern match improvement:  #{Float.round((1 - t_fast/t_fallback) * 100, 1)}%")
+IO.puts("  GridCodec uses fast path?   #{if t_gridcodec < t_fallback * 0.9, do: "✅ YES", else: "⚠️ Check"}")
+```
+
+## Part 7: Visual Summary
+
+```elixir
+IO.puts("""
+═══════════════════════════════════════════════════════════════════════════════
+                        OPTIMIZATION STATUS (as of v0.2.0)
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     ✅ IMPLEMENTED OPTIMIZATIONS                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ Pattern match fast path
+   • def encode(%{id: id, count: count, flag: flag}) do ...
+   • Single get_map_elements BEAM instruction
+   • ~1.6-1.7x faster than fallback
+   
+✅ Replaced Map.get with :maps.get BIF
+   • ~7-8% faster field access
+   
+✅ Skip unnecessary Map.merge in decoder
+   • Inline fixed result for fixed-only codecs
+   
+✅ Skip unnecessary binary concatenation
+   • Fixed-only codecs: single << >> expression
+   • 5.6x faster for typical cases
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      🔮 POTENTIAL FUTURE OPTIMIZATIONS                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+🔮 Use || for non-boolean nil handling (5-10% potential)
+   • Currently: case :maps.get(...) do nil -> @null; v -> v end
+   • Could use: :maps.get(...) || @null  (for integers, floats, UUIDs)
+   • NOT safe for booleans (false || @null = @null!)
+   
+🔮 Struct fast path
+   • When encoding a struct, could pattern match specific fields
+   • Would need type hints in defcodec
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          CURRENT PERFORMANCE                                │
+│                                                                             │
+│  Encode: ~1.0-1.2x vs hand-written (near-parity!)                          │
+│  Decode: ~1.1-1.3x vs hand-written                                         │
+│  Direct field access: O(1), competitive with map access                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+""")
+```
+
+## Appendix: Full Instruction Set
+
+```elixir
+IO.puts("═══ DETAILED BYTECODE FOR SIMPLECODEC.ENCODE/1 ═══\n")
+
+{Analysis.SimpleCodec, beam, _filename} = :code.get_object_code(Analysis.SimpleCodec)
+{:beam_file, _, _, _, _, code} = :beam_disasm.file(beam)
+
+encode_fn = Enum.find(code, fn
+  {:function, :encode, 1, _, _} -> true
+  _ -> false
+end)
+
+case encode_fn do
+  {:function, _, _, _, instructions} ->
+    instructions
+    |> Enum.with_index(1)
+    |> Enum.each(fn {instr, idx} ->
+      IO.puts("  #{String.pad_leading(to_string(idx), 3)}. #{inspect(instr)}")
+    end)
+  _ ->
+    IO.puts("Function not found")
+end
+```

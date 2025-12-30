@@ -2,11 +2,11 @@
 
 [![CI](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml/badge.svg)](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml)
 
-High-performance binary codec for BEAM/Elixir with zero-copy field access.
+High-performance binary codec for BEAM/Elixir with direct field access.
 
 ## Features
 
-- **Zero-copy field access** – Read fields directly from binary without full decode
+- **Direct field access** – Read fields directly from binary without full decode (O(1))
 - **Sub-binary sharing** – One encode, many readers with no memory copies
 - **Compile-time code generation** – No runtime reflection overhead
 - **Fixed-size optimization** – Known field offsets for O(1) access
@@ -47,7 +47,7 @@ binary = MyApp.Events.UserCreated.encode(%{
   created_at: System.system_time(:microsecond)
 })
 
-# Zero-copy field access (no full decode!)
+# Direct field access (no full decode!)
 env = MyApp.Events.UserCreated.wrap(binary)
 score = MyApp.Events.UserCreated.get(env, :score)
 # => 1500
@@ -68,17 +68,27 @@ open doc/index.html
 Key modules:
 
 - `GridCodec` – Main DSL for defining codecs
-- `GridCodec.Envelope` – Zero-copy wrapper for field access
+- `GridCodec.Envelope` – Wrapper for direct field access
 - `GridCodec.Group` – Repeating groups (variable-length collections)
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
 
 ## Benchmarks
 
-Run benchmarks against JSON, MessagePack, and Protobuf:
+See the interactive Livebooks in `livebooks/` for detailed performance comparisons:
 
 ```bash
-MIX_ENV=test mix run benchmarks/encode_decode_benchmark.exs
+# Install livebook if needed
+mix escript.install hex livebook
+
+# Start server
+livebook server
+```
+
+Or run a quick benchmark:
+
+```bash
+mix run benchmarks/quick_bench.exs
 ```
 
 ## License
