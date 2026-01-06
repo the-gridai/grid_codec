@@ -1,0 +1,316 @@
+defmodule Mix.Compilers.GridCodec do
+  @moduledoc """
+  Mix compiler for GridCodec registry consolidation.
+
+  This compiler runs after the Elixir compiler and:
+  1. Scans all loaded modules for GridCodec struct codecs
+  2. Collects {schema_id, template_id} => module mappings
+  3. Validates no conflicts (duplicate schema_id + template_id)
+  4. Generates a consolidated `GridCodec.Registry` module with pattern-match dispatch
+
+  ## Usage
+
+  Add to your `mix.exs`:
+
+      def project do
+        [
+          # ... other options
+          compilers: Mix.compilers() ++ [:grid_codec]
+        ]
+      end
+
+  ## Generated Registry
+
+  The compiler generates `_build/<env>/lib/<app>/consolidated/Elixir.GridCodec.Registry.beam`
+  with optimized pattern-match dispatch:
+
+      defmodule GridCodec.Registry do
+        def lookup(100, 1), do: {:ok, MyApp.Order}
+        def lookup(100, 2), do: {:ok, MyApp.Trade}
+        def lookup(_, _), do: {:error, :unknown_codec}
+
+        def encode(%MyApp.Order{} = s), do: MyApp.Order.encode!(s)
+        def encode(%MyApp.Trade{} = s), do: MyApp.Trade.encode!(s)
+        # ...
+      end
+  """
+
+  @behaviour Mix.Task.Compiler
+
+  @impl true
+  def run(_args) do
+    config = Mix.Project.config()
+    consolidation_path = consolidation_path(config)
+
+    # Ensure consolidation directory exists
+    File.mkdir_p!(consolidation_path)
+
+    # Collect all GridCodec struct modules
+    codecs = collect_codecs()
+
+    # Validate no conflicts
+    case validate_codecs(codecs) do
+      :ok ->
+        # Generate and compile the registry module
+        registry_path = Path.join(consolidation_path, "Elixir.GridCodec.Registry.beam")
+
+        if should_regenerate?(registry_path, codecs) do
+          generate_registry(codecs, registry_path)
+          Mix.shell().info("Generated GridCodec.Registry with #{length(codecs)} codec(s)")
+        end
+
+        {:ok, []}
+
+      {:error, conflicts} ->
+        for {key, modules} <- conflicts do
+          {schema_id, template_id} = key
+
+          Mix.shell().error("""
+          GridCodec conflict: Multiple codecs with same {schema_id, template_id}
+            schema_id: #{schema_id}
+            template_id: #{template_id}
+            modules: #{inspect(modules)}
+          """)
+        end
+
+        {:error, []}
+    end
+  end
+
+  @impl true
+  def manifests do
+    [manifest_path()]
+  end
+
+  @impl true
+  def clean do
+    config = Mix.Project.config()
+    consolidation_path = consolidation_path(config)
+    registry_path = Path.join(consolidation_path, "Elixir.GridCodec.Registry.beam")
+
+    File.rm(registry_path)
+    File.rm(manifest_path())
+    :ok
+  end
+
+  # ============================================================================
+  # Private Functions
+  # ============================================================================
+
+  defp consolidation_path(config) do
+    Mix.Project.consolidation_path(config)
+  end
+
+  defp manifest_path do
+    Path.join(Mix.Project.manifest_path(), "compile.grid_codec")
+  end
+
+  defp collect_codecs do
+    # Get all loaded modules
+    :code.all_loaded()
+    |> Enum.map(fn {mod, _} -> mod end)
+    |> Enum.filter(&is_gridcodec_struct?/1)
+    |> Enum.map(fn mod ->
+      %{
+        module: mod,
+        schema_id: mod.__schema_id__(),
+        template_id: mod.__template_id__()
+      }
+    end)
+    |> Enum.sort_by(fn %{schema_id: s, template_id: t} -> {s, t} end)
+  end
+
+  defp is_gridcodec_struct?(module) do
+    Code.ensure_loaded?(module) and
+      function_exported?(module, :__gridcodec_struct__?, 0) and
+      function_exported?(module, :__template_id__, 0) and
+      function_exported?(module, :__schema_id__, 0)
+  end
+
+  defp validate_codecs(codecs) do
+    conflicts =
+      codecs
+      |> Enum.group_by(fn %{schema_id: s, template_id: t} -> {s, t} end)
+      |> Enum.filter(fn {_key, mods} -> length(mods) > 1 end)
+      |> Enum.map(fn {key, mods} -> {key, Enum.map(mods, & &1.module)} end)
+
+    if conflicts == [] do
+      :ok
+    else
+      {:error, conflicts}
+    end
+  end
+
+  defp should_regenerate?(registry_path, codecs) do
+    if File.exists?(registry_path) do
+      # Check if any codec module was recompiled more recently
+      {:ok, %{mtime: registry_mtime}} = File.stat(registry_path)
+
+      Enum.any?(codecs, fn %{module: mod} ->
+        case :code.get_object_code(mod) do
+          {^mod, _binary, beam_path} when is_list(beam_path) ->
+            case File.stat(List.to_string(beam_path)) do
+              {:ok, %{mtime: mod_mtime}} -> mod_mtime > registry_mtime
+              _ -> true
+            end
+
+          _ ->
+            true
+        end
+      end)
+    else
+      true
+    end
+  end
+
+  defp generate_registry(codecs, output_path) do
+    # Build the module AST
+    module_ast = build_registry_ast(codecs)
+
+    # Compile and write the beam file
+    [{GridCodec.Registry, binary}] = Code.compile_quoted(module_ast)
+    File.write!(output_path, binary)
+
+    # Update manifest
+    manifest = %{
+      codecs: Enum.map(codecs, & &1.module),
+      generated_at: DateTime.utc_now()
+    }
+
+    File.write!(manifest_path(), :erlang.term_to_binary(manifest))
+  end
+
+  defp build_registry_ast(codecs) do
+    # Generate lookup/2 clauses
+    lookup_clauses =
+      Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
+        quote do
+          def lookup(unquote(sid), unquote(tid)), do: {:ok, unquote(mod)}
+        end
+      end)
+
+    lookup_fallback =
+      quote do
+        def lookup(_, _), do: {:error, :unknown_codec}
+      end
+
+    # Generate encode/1 clauses for each struct type
+    encode_clauses =
+      Enum.map(codecs, fn %{module: mod} ->
+        quote do
+          def encode(%unquote(mod){} = struct), do: unquote(mod).encode!(struct)
+        end
+      end)
+
+    encode_fallback =
+      quote do
+        def encode(struct) do
+          raise ArgumentError,
+                "Cannot encode #{inspect(struct.__struct__)} - not a registered GridCodec struct"
+        end
+      end
+
+    # Generate decode/1 that parses header and dispatches
+    decode_body = build_decode_body(codecs)
+
+    # Generate wrap/1
+    wrap_body = build_wrap_body(codecs)
+
+    # Generate list_codecs/0
+    codec_modules = Enum.map(codecs, & &1.module)
+
+    quote do
+      defmodule GridCodec.Registry do
+        @moduledoc """
+        Auto-generated GridCodec registry.
+
+        This module is generated by the `:grid_codec` Mix compiler
+        and provides optimized dispatch for encoding/decoding.
+
+        Do not edit this file manually - it will be regenerated.
+        """
+
+        @doc "Look up a codec module by schema_id and template_id"
+        unquote_splicing(lookup_clauses)
+        unquote(lookup_fallback)
+
+        @doc "Encode a struct (with header for dispatch)"
+        unquote_splicing(encode_clauses)
+        unquote(encode_fallback)
+
+        @doc "Decode a framed binary, dispatching to the correct codec"
+        unquote(decode_body)
+
+        @doc "Wrap a framed binary for zero-copy access"
+        unquote(wrap_body)
+
+        @doc "List all registered codec modules"
+        def list_codecs, do: unquote(codec_modules)
+
+        @doc "Check if this is a consolidated registry"
+        def consolidated?, do: true
+      end
+    end
+  end
+
+  defp build_decode_body(codecs) do
+    dispatch_clauses =
+      Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
+        quote do
+          {unquote(sid), unquote(tid)} -> unquote(mod).decode(payload)
+        end
+      end)
+
+    fallback_clause =
+      quote do
+        _ -> {:error, :unknown_codec}
+      end
+
+    all_clauses = dispatch_clauses ++ [fallback_clause]
+
+    quote do
+      def decode(binary) when is_binary(binary) do
+        case GridCodec.Header.decode(binary) do
+          {:ok, header, payload} ->
+            case {header.schema_id, header.template_id} do
+              unquote_splicing(all_clauses)
+            end
+
+          {:error, _} = error ->
+            error
+        end
+      end
+    end
+  end
+
+  defp build_wrap_body(codecs) do
+    dispatch_clauses =
+      Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
+        quote do
+          {unquote(sid), unquote(tid)} ->
+            {:ok, unquote(mod).wrap(payload), unquote(mod)}
+        end
+      end)
+
+    fallback_clause =
+      quote do
+        _ -> {:error, :unknown_codec}
+      end
+
+    all_clauses = dispatch_clauses ++ [fallback_clause]
+
+    quote do
+      def wrap(binary) when is_binary(binary) do
+        case GridCodec.Header.decode(binary) do
+          {:ok, header, payload} ->
+            case {header.schema_id, header.template_id} do
+              unquote_splicing(all_clauses)
+            end
+
+          {:error, _} = error ->
+            error
+        end
+      end
+    end
+  end
+end

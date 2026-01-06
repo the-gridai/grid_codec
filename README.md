@@ -2,14 +2,14 @@
 
 [![CI](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml/badge.svg)](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml)
 
-High-performance binary codec for BEAM/Elixir with direct field access.
+High-performance binary codec for BEAM/Elixir with zero-copy field access.
 
 ## Features
 
-- **Direct field access** – Read fields directly from binary without full decode (O(1))
+- **Zero-copy field access** – Read fields directly from binary without full decode (O(1))
 - **Sub-binary sharing** – One encode, many readers with no memory copies
 - **Compile-time code generation** – No runtime reflection overhead
-- **Fixed-size optimization** – Known field offsets for O(1) access
+- **Struct-based API** – Natural Elixir structs with binary serialization
 
 ## Installation
 
@@ -27,7 +27,7 @@ end
 
 ```elixir
 defmodule MyApp.Events.UserCreated do
-  use GridCodec
+  use GridCodec.Struct, template_id: 1, schema_id: 100
 
   defcodec do
     field :user_id, :uuid
@@ -38,23 +38,52 @@ defmodule MyApp.Events.UserCreated do
   end
 end
 
-# Encode
-binary = MyApp.Events.UserCreated.encode(%{
+# Create and encode
+user = %MyApp.Events.UserCreated{
   user_id: :crypto.strong_rand_bytes(16),
   score: 1500,
   level: 42,
   active: true,
   created_at: System.system_time(:microsecond)
-})
+}
 
-# Direct field access (no full decode!)
+binary = MyApp.Events.UserCreated.encode(user)
+
+# Zero-copy field access (no full decode!)
 env = MyApp.Events.UserCreated.wrap(binary)
 score = MyApp.Events.UserCreated.get(env, :score)
 # => 1500
 
 # Full decode when needed
 {:ok, decoded} = MyApp.Events.UserCreated.decode(binary)
+
+# Top-level dispatch (with framed binary)
+framed = GridCodec.encode(user)
+{:ok, decoded} = GridCodec.decode(framed)
 ```
+
+## Field Types
+
+### Fixed-Size Types
+
+| Type | Size | Description |
+|------|------|-------------|
+| `:u8`, `:u16`, `:u32`, `:u64` | 1-8 | Unsigned integers |
+| `:i8`, `:i16`, `:i32`, `:i64` | 1-8 | Signed integers |
+| `:f32`, `:f64` | 4, 8 | IEEE 754 floats |
+| `:uuid` | 16 | Binary UUID |
+| `:bool` | 1 | Boolean |
+| `:timestamp_us` | 8 | Microsecond timestamp |
+| `:timestamp_ns` | 8 | Nanosecond timestamp |
+| `:decimal` | 9 | Decimal (mantissa + exponent) |
+
+### Variable-Size Types
+
+| Type | Prefix | Description |
+|------|--------|-------------|
+| `:string8` | u8 | Short strings (max 255 bytes) |
+| `:string` / `:string16` | u16 | UTF-8 string (default) |
+| `:string32` | u32 | Large text |
 
 ## Documentation
 
@@ -67,29 +96,25 @@ open doc/index.html
 
 Key modules:
 
-- `GridCodec` – Main DSL for defining codecs
-- `GridCodec.Envelope` – Wrapper for direct field access
+- `GridCodec` – Top-level dispatch API
+- `GridCodec.Struct` – DSL for defining struct codecs
+- `GridCodec.Envelope` – Wrapper for zero-copy field access
 - `GridCodec.Group` – Repeating groups (variable-length collections)
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
 
-## Benchmarks
+## Example App
 
-See the interactive Livebooks in `livebooks/` for detailed performance comparisons:
-
-```bash
-# Install livebook if needed
-mix escript.install hex livebook
-
-# Start server
-livebook server
-```
-
-Or run a quick benchmark:
+For real-world usage examples and benchmarks:
 
 ```bash
-mix run benchmarks/quick_bench.exs
+cd example_app
+mix deps.get
+mix compile
+mix bench  # Run benchmarks
 ```
+
+See `example_app/README.md` for details.
 
 ## License
 

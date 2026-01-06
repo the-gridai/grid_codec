@@ -14,36 +14,42 @@ defmodule GridCodec do
   - **Compile-time code generation**: No runtime reflection overhead
   - **Fixed-size optimization**: Known field offsets for O(1) access
   - **Variable-length support**: Groups and strings with efficient iteration
-  - **Alignment-aware**: Optional field alignment for cache-friendly access
+  - **Struct-based API**: Natural Elixir struct syntax
 
   ## Quick Example
 
       defmodule MyApp.Events.OrderFilled do
-        use GridCodec
+        use GridCodec.Struct, template_id: 1, schema_id: 100
 
         defcodec do
           field :order_id, :uuid
           field :price, :u64
           field :quantity, :u32
-          field :timestamp, :i64
+          field :timestamp, :timestamp_us
         end
       end
 
-      # Encoding
-      event = %{
+      # Create a struct
+      order = %MyApp.Events.OrderFilled{
         order_id: <<1::128>>,
         price: 15000,
         quantity: 100,
-        timestamp: System.system_time(:microsecond)
+        timestamp: DateTime.utc_now()
       }
-      binary = MyApp.Events.OrderFilled.encode(event)
+
+      # Encode
+      binary = MyApp.Events.OrderFilled.encode(order)
+
+      # Decode
+      {:ok, decoded} = MyApp.Events.OrderFilled.decode(binary)
 
       # Zero-copy field access (O(1) for fixed-size types)
       env = MyApp.Events.OrderFilled.wrap(binary)
-      order_id = MyApp.Events.OrderFilled.get(env, :order_id)
+      price = MyApp.Events.OrderFilled.get(env, :price)
 
-      # Full decode when needed
-      {:ok, decoded} = MyApp.Events.OrderFilled.decode(binary)
+      # Dispatch via registry (with framed binary)
+      framed = GridCodec.encode(order)
+      {:ok, decoded} = GridCodec.decode(framed)
 
   ## Wire Format
 
@@ -79,6 +85,7 @@ defmodule GridCodec do
   | `:f64` | 8 | NaN | IEEE 754 double |
   | `:uuid` | 16 | zero | Binary UUID |
   | `:bool` | 1 | 255 | Boolean (0/1/255) |
+  | `:timestamp_us` | 8 | 0 | Microsecond timestamp |
 
   ### Variable-Size Types
 
@@ -126,7 +133,7 @@ defmodule GridCodec do
       end
 
       defmodule MyCodec do
-        use GridCodec, types: [money: MyApp.Types.Money]
+        use GridCodec.Struct, types: [money: MyApp.Types.Money]
 
         defcodec do
           field :price, :money
@@ -136,93 +143,9 @@ defmodule GridCodec do
   See `GridCodec.Type` for the behaviour specification.
   """
 
-  @doc """
-  Defines a codec module with the GridCodec DSL.
-
-  When you `use GridCodec`, the `defcodec/1` macro becomes available
-  for defining your binary schema.
-
-  ## Options
-
-  - `:template_id` - Unique message type identifier for dispatch (default: 0)
-  - `:schema_id` - Schema/application namespace identifier (default: 0)
-  - `:version` - Schema version for evolution (default: 1)
-  - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
-  - `:align` - Enable natural field alignment for performance (default: false)
-  - `:types` - Keyword list of custom type modules (default: [])
-
-  ## Message Framing
-
-  GridCodec supports two encoding modes:
-
-  - `encode/1` - Raw payload only (for internal use or custom framing)
-  - `encode!/1` - Includes 8-byte header (for dispatch/routing)
-
-  The header contains: `block_length | template_id | schema_id | version`
-
-  ## Example
-
-      defmodule MyApp.Events.OrderFilled do
-        use GridCodec,
-          template_id: 1,    # Unique within schema
-          schema_id: 100,    # Your app's schema namespace
-          version: 1
-
-        defcodec do
-          field :id, :u64
-          field :name, :string
-        end
-      end
-
-      # Define a dispatch module (compile-time registration)
-      defmodule MyApp.Events.Dispatch do
-        use GridCodec.Dispatch
-        codecs [MyApp.Events.OrderFilled]
-      end
-
-      # Encode with header
-      framed = MyApp.Events.OrderFilled.encode!(%{id: 1, name: "test"})
-
-      # Dispatch routes to correct decoder
-      {:ok, decoded, _codec} = MyApp.Events.Dispatch.decode(framed)
-  """
-  defmacro __using__(opts \\ []) do
-    quote do
-      import GridCodec, only: [defcodec: 1, field: 2, field: 3, group: 2, group: 3]
-      @gridcodec_opts unquote(opts)
-      Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
-      Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
-    end
-  end
-
-  @doc """
-  Defines the codec schema.
-
-  Inside the `defcodec` block, use `field/2`, `field/3`, and `group/2`
-  to define your binary structure.
-
-  ## Example
-
-      defcodec do
-        field :order_id, :uuid
-        field :price, :u64, default: 0
-        field :notes, :string
-
-        group :items, entry_encoder: &encode_item/1, entry_decoder: &decode_item/1 do
-          field :sku_id, :uuid
-          field :qty, :u32
-        end
-      end
-  """
-  defmacro defcodec(do: block) do
-    quote do
-      # Collect field definitions
-      unquote(block)
-
-      # Generate the codec implementation
-      @before_compile GridCodec.Compiler
-    end
-  end
+  # ============================================================================
+  # Field and Group Macros (used by GridCodec.Struct)
+  # ============================================================================
 
   @doc """
   Defines a field in the codec.
@@ -238,25 +161,7 @@ defmodule GridCodec do
       - `:required` - Field must have a value (raises on nil)
       - `:constant` - Field has constant value (must specify `:value`)
     - `:value` - Constant value (required when `presence: :constant`)
-    - `:since` - Schema version when this field was added (for documentation
-      and schema evolution). Must be <= codec's version.
-
-  ## Schema Evolution
-
-  Use `:since` to document when fields were added:
-
-      defmodule MyCodec do
-        use GridCodec, version: 2
-
-        defcodec do
-          field :id, :u64               # Original field (version 1)
-          field :count, :u32            # Original field (version 1)
-          field :status, :u8, since: 2  # Added in version 2
-        end
-      end
-
-  When decoding older messages (via `decode!/1`), fields added in newer
-  versions use their type's null_value if the binary is too short.
+    - `:since` - Schema version when this field was added
 
   ## Examples
 
@@ -265,7 +170,6 @@ defmodule GridCodec do
       field :price, :u64, presence: :required
       field :description, :string
       field :version, :u8, presence: :constant, value: 1
-      field :new_feature, :bool, since: 2  # Added in schema v2
   """
   defmacro field(name, type, opts \\ []) do
     quote do
@@ -327,4 +231,47 @@ defmodule GridCodec do
       @gridcodec_groups {unquote(name), unquote(Macro.escape(block)), unquote(opts)}
     end
   end
+
+  # ============================================================================
+  # Top-Level Struct API
+  # ============================================================================
+  # These functions delegate to the registry for struct codec dispatch.
+  # In production builds, the consolidated registry provides optimized
+  # pattern-match dispatch. In development, runtime discovery is used.
+
+  @doc """
+  Encode a GridCodec struct to binary (with header for dispatch).
+
+  ## Example
+
+      order = %MyApp.Order{id: <<1::128>>, price: 100, quantity: 5}
+      binary = GridCodec.encode(order)
+
+  The binary includes an 8-byte header with schema_id, template_id, and version,
+  allowing `GridCodec.decode/1` to dispatch to the correct codec.
+  """
+  defdelegate encode(struct), to: GridCodec.Registry
+
+  @doc """
+  Decode a framed binary, dispatching to the correct struct codec.
+
+  ## Example
+
+      {:ok, %MyApp.Order{}} = GridCodec.decode(binary)
+
+  The binary must include the 8-byte GridCodec header (from `encode/1` or `encode!/1`).
+  """
+  defdelegate decode(binary), to: GridCodec.Registry
+
+  @doc """
+  Wrap a framed binary for zero-copy field access.
+
+  Returns `{:ok, envelope, module}` where `module` is the codec module.
+
+  ## Example
+
+      {:ok, env, MyApp.Order} = GridCodec.wrap(binary)
+      price = MyApp.Order.get(env, :price)
+  """
+  defdelegate wrap(binary), to: GridCodec.Registry
 end

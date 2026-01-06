@@ -12,6 +12,8 @@ defmodule GridCodec.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Note: :grid_codec compiler will be enabled once Mix.Task registration is complete
+      # compilers: Mix.compilers() ++ [:grid_codec],
 
       # Hex
       description: "High-performance binary codec for BEAM/Elixir with direct field access",
@@ -62,22 +64,11 @@ defmodule GridCodec.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :test, runtime: false},
-      {:stream_data, "~> 1.1", only: [:dev, :test]},
+      {:stream_data, "~> 1.1", only: [:dev, :test]}
 
-      # Benchmarking
-      {:benchee, "~> 1.3", only: [:dev, :test]},
-      {:benchee_html, "~> 1.0", only: [:dev, :test]},
-
-      # Comparison codecs for benchmarks (test only)
-      # Note: ETF (term_to_binary) and OTP JSON (:json) are built into OTP
-      {:jason, "~> 1.4", only: [:dev, :test]},
-      {:msgpax, "~> 2.4", only: [:dev, :test]},
-      # Pure Elixir protobuf implementation (no protoc required)
-      {:protobuf, "~> 0.15", only: [:dev, :test]},
-      # ElixirProto - context-scoped schema serialization (for comparison)
-      {:elixir_proto, "~> 0.1", only: [:dev, :test]},
-      # NIF-based JSON encoder (for benchmark comparison)
-      {:jiffy, "~> 1.1", only: [:dev, :test]}
+      # Note: Benchmarking and comparison codec dependencies have been moved
+      # to the example_app/ directory to keep this library lightweight.
+      # See example_app/mix.exs for benchmark dependencies.
     ]
   end
 

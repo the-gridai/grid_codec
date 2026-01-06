@@ -3,7 +3,7 @@ defmodule GridCodec.FramingTest do
 
   describe "codec with template_id and schema_id" do
     defmodule OrderEvent do
-      use GridCodec, template_id: 42, schema_id: 100, version: 3
+      use GridCodec.Struct, template_id: 42, schema_id: 100, version: 3
 
       defcodec do
         field :order_id, :u64
@@ -25,7 +25,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "encode/1 produces payload only (no header)" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       binary = OrderEvent.encode(data)
 
       # Payload should be exactly block_length bytes (8 + 8 + 4 = 20)
@@ -33,7 +33,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "encode!/1 includes 8-byte header" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       framed = OrderEvent.encode!(data)
 
       # Framed = header (8) + payload (20) = 28 bytes
@@ -49,7 +49,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "decode/1 decodes payload only" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       payload = OrderEvent.encode(data)
 
       assert {:ok, decoded} = OrderEvent.decode(payload)
@@ -59,7 +59,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "decode!/1 validates and strips header" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       framed = OrderEvent.encode!(data)
 
       assert {:ok, decoded} = OrderEvent.decode!(framed)
@@ -132,7 +132,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "wrap/1 wraps payload for zero-copy access" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       payload = OrderEvent.encode(data)
 
       env = OrderEvent.wrap(payload)
@@ -141,28 +141,21 @@ defmodule GridCodec.FramingTest do
       assert OrderEvent.get(env, :quantity) == 50
     end
 
-    test "wrap!/1 strips header and wraps for zero-copy access" do
-      data = %{order_id: 123, price: 1000, quantity: 50}
-      framed = OrderEvent.encode!(data)
-
-      env = OrderEvent.wrap!(framed)
-      assert OrderEvent.get(env, :order_id) == 123
-      assert OrderEvent.get(env, :price) == 1000
-      assert OrderEvent.get(env, :quantity) == 50
-    end
+    # Note: wrap!/1 was removed - use wrap/1 with payload or decode header manually
   end
 
   describe "default template_id and schema_id" do
     defmodule SimpleCodec do
-      use GridCodec
+      use GridCodec.Struct
 
       defcodec do
         field :value, :u64
       end
     end
 
-    test "defaults to template_id: 0" do
-      assert SimpleCodec.__template_id__() == 0
+    test "defaults to auto-generated template_id" do
+      # Template ID is auto-generated from module name hash
+      assert is_integer(SimpleCodec.__template_id__())
     end
 
     test "defaults to schema_id: 0" do
@@ -174,10 +167,10 @@ defmodule GridCodec.FramingTest do
     end
 
     test "encode!/1 still works with defaults" do
-      framed = SimpleCodec.encode!(%{value: 42})
+      framed = SimpleCodec.encode!(%SimpleCodec{value: 42})
 
       {:ok, header, _} = GridCodec.Header.decode(framed)
-      assert header.template_id == 0
+      assert header.template_id == SimpleCodec.__template_id__()
       assert header.schema_id == 0
       assert header.version == 1
     end
@@ -185,7 +178,7 @@ defmodule GridCodec.FramingTest do
 
   describe "roundtrip with framing" do
     defmodule ComplexEvent do
-      use GridCodec, template_id: 10, schema_id: 50, version: 2
+      use GridCodec.Struct, template_id: 10, schema_id: 50, version: 2
 
       defcodec do
         field :id, :uuid
@@ -198,7 +191,7 @@ defmodule GridCodec.FramingTest do
     test "encode!/decode! roundtrip preserves data" do
       uuid = :crypto.strong_rand_bytes(16)
 
-      data = %{
+      data = %ComplexEvent{
         id: uuid,
         count: 100,
         price: 50000,
