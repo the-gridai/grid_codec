@@ -17,7 +17,7 @@ defmodule GridCodec.Types.CharArray do
   Then use it in your codec:
 
       defmodule MyApp.OrderEvent do
-        use GridCodec, types: [symbol: MyApp.Types.Symbol]
+        use GridCodec.Struct, types: [symbol: MyApp.Types.Symbol]
 
         defcodec do
           field :order_id, :u64

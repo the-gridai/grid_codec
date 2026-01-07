@@ -61,8 +61,9 @@ defmodule GridCodec.Type do
 
   | Type | Prefix | Max Length |
   |------|--------|------------|
-  | `:string` | u16 | 65535 bytes |
-  | `:bytes` | u16 | 65535 bytes |
+  | `:string8` | u8 | 255 bytes |
+  | `:string` / `:string16` | u16 | 65535 bytes |
+  | `:string32` | u32 | ~4GB |
 
   ## Alignment
 

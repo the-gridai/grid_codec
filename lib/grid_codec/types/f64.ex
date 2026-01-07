@@ -8,7 +8,7 @@ defmodule GridCodec.Types.F64 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :latitude, :f64

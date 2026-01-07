@@ -8,7 +8,7 @@ defmodule GridCodec.Types.U32 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :user_id, :u32

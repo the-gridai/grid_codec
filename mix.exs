@@ -12,8 +12,6 @@ defmodule GridCodec.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
-      # Note: :grid_codec compiler will be enabled once Mix.Task registration is complete
-      # compilers: Mix.compilers() ++ [:grid_codec],
 
       # Hex
       description: "High-performance binary codec for BEAM/Elixir with direct field access",
@@ -65,10 +63,6 @@ defmodule GridCodec.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :test, runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
-
-      # Note: Benchmarking and comparison codec dependencies have been moved
-      # to the example_app/ directory to keep this library lightweight.
-      # See example_app/mix.exs for benchmark dependencies.
     ]
   end
 
@@ -95,20 +89,23 @@ defmodule GridCodec.MixProject do
       groups_for_modules: [
         "Core DSL": [
           GridCodec,
-          GridCodec.Compiler
+          GridCodec.Struct
         ],
         Runtime: [
           GridCodec.Envelope,
           GridCodec.Group,
           GridCodec.Dispatch,
-          GridCodec.Header
+          GridCodec.Header,
+          GridCodec.Registry
         ],
         Types: [
           GridCodec.Type,
           GridCodec.Types.Bool,
           GridCodec.Types.Decimal,
           GridCodec.Types.String,
-          GridCodec.Types.Timestamp,
+          GridCodec.Types.UUID,
+          GridCodec.Types.TimestampMicros,
+          GridCodec.Types.TimestampNanos,
           GridCodec.Types.Enum,
           GridCodec.Types.Bitset,
           GridCodec.Types.CharArray

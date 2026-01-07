@@ -30,7 +30,7 @@ defmodule GridCodec.Types.Bitset do
   Then use it in your codec:
 
       defmodule MyApp.UserEvent do
-        use GridCodec, types: [permissions: MyApp.Permissions]
+        use GridCodec.Struct, types: [permissions: MyApp.Permissions]
 
         defcodec do
           field :user_id, :uuid

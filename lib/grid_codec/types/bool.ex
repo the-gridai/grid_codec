@@ -8,7 +8,7 @@ defmodule GridCodec.Types.Bool do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :is_active, :bool

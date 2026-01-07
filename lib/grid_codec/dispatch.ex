@@ -63,7 +63,7 @@ defmodule GridCodec.Dispatch do
 
       # Define codecs
       defmodule MyApp.Events.OrderCreated do
-        use GridCodec, template_id: 1, schema_id: 100, version: 1
+        use GridCodec.Struct, template_id: 1, schema_id: 100
 
         defcodec do
           field :order_id, :uuid
@@ -72,7 +72,7 @@ defmodule GridCodec.Dispatch do
       end
 
       defmodule MyApp.Events.OrderFilled do
-        use GridCodec, template_id: 2, schema_id: 100, version: 1
+        use GridCodec.Struct, template_id: 2, schema_id: 100
 
         defcodec do
           field :order_id, :uuid
@@ -90,8 +90,9 @@ defmodule GridCodec.Dispatch do
         ]
       end
 
-      # Encode
-      binary = MyApp.Events.OrderCreated.encode!(%{order_id: uuid, price: 100})
+      # Encode (struct required)
+      order = %MyApp.Events.OrderCreated{order_id: <<1::128>>, price: 100}
+      binary = MyApp.Events.OrderCreated.encode!(order)
 
       # Dispatch decode
       {:ok, data, MyApp.Events.OrderCreated} = MyApp.Events.Dispatch.decode(binary)

@@ -8,7 +8,7 @@ defmodule GridCodec.Types.UUID do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :id, :uuid

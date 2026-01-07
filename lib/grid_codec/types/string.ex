@@ -22,7 +22,7 @@ defmodule GridCodec.Types.String do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :id, :u64

@@ -99,14 +99,20 @@ defmodule GridCodec do
 
   Groups enable repeating collections of fixed-size entries:
 
-      defcodec do
-        field :order_id, :uuid
+      defmodule MyCodec do
+        use GridCodec.Struct, template_id: 1, schema_id: 100
 
-        group :fills, entry_encoder: &encode_fill/1, entry_decoder: &decode_fill/1 do
-          # Documentation for entry structure
-          field :price, :u64
-          field :quantity, :u32
+        defcodec do
+          field :order_id, :uuid
+
+          group :fills, entry_encoder: &encode_fill/1, entry_decoder: &decode_fill/1 do
+            field :price, :u64
+            field :quantity, :u32
+          end
         end
+
+        defp encode_fill(%{price: p, quantity: q}), do: <<p::little-64, q::little-32>>
+        defp decode_fill(<<p::little-64, q::little-32>>), do: {:ok, %{price: p, quantity: q}}
       end
 
   Groups use a 4-byte header (blockLength u16 + numInGroup u16) followed

@@ -7,7 +7,7 @@ defmodule GridCodec.Types.I8 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :temperature, :i8
