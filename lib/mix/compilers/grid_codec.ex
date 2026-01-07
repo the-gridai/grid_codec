@@ -273,7 +273,7 @@ defmodule Mix.Compilers.GridCodec do
         case GridCodec.Header.decode(binary) do
           {:ok, header, payload} ->
             case {header.schema_id, header.template_id} do
-              unquote_splicing(all_clauses)
+              (unquote_splicing(all_clauses))
             end
 
           {:error, _} = error ->
@@ -304,7 +304,7 @@ defmodule Mix.Compilers.GridCodec do
         case GridCodec.Header.decode(binary) do
           {:ok, header, payload} ->
             case {header.schema_id, header.template_id} do
-              unquote_splicing(all_clauses)
+              (unquote_splicing(all_clauses))
             end
 
           {:error, _} = error ->

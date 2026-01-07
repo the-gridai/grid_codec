@@ -80,12 +80,14 @@ defmodule GridCodec.TopLevelApiTest do
 
     test "returns error for unknown codec" do
       # Create a binary with unknown template_id
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 999,
-        schema_id: 999,
-        version: 1
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          template_id: 999,
+          schema_id: 999,
+          version: 1
+        )
+
       payload = <<0::64>>
       binary = <<header::binary, payload::binary>>
 
@@ -120,12 +122,14 @@ defmodule GridCodec.TopLevelApiTest do
     end
 
     test "returns error for unknown codec" do
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 999,
-        schema_id: 999,
-        version: 1
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          template_id: 999,
+          schema_id: 999,
+          version: 1
+        )
+
       payload = <<0::64>>
       binary = <<header::binary, payload::binary>>
 

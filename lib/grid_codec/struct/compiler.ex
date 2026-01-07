@@ -62,11 +62,15 @@ defmodule GridCodec.Struct.Compiler do
     # Generate encoder/decoder AST
     encoder_clauses = generate_encoder_clauses(fixed_fields, var_fields, groups, endian)
     # Direct struct encoder - pattern matches struct fields directly, no Map.from_struct
-    struct_encoder_body = generate_struct_encoder(fixed_fields, var_fields, groups, endian, env.module)
+    struct_encoder_body =
+      generate_struct_encoder(fixed_fields, var_fields, groups, endian, env.module)
+
     # Map-based decoder (for decode_map function)
     decoder_body = generate_decoder(fixed_fields, var_fields, groups, endian)
     # Direct struct decoder - builds struct directly, avoiding map->struct conversion
-    struct_decoder_body = generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
+    struct_decoder_body =
+      generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
+
     getter_clauses = generate_getters(fixed_fields, var_fields, groups, field_offsets, endian)
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
 
@@ -333,7 +337,8 @@ defmodule GridCodec.Struct.Compiler do
         Keyword.get(opts, :presence) == :constant
       end)
 
-    if can_use_fast_path and (not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)) do
+    if can_use_fast_path and
+         (not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)) do
       # Generate struct pattern with ALL field variables (fixed + var)
       all_fields = non_constant_fixed_fields ++ var_fields
 
@@ -631,11 +636,20 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp var_encode_ast(:string8, value_var), do: quote(do: GridCodec.Types.String.encode8(unquote(value_var)))
-  defp var_encode_ast(:string16, value_var), do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
-  defp var_encode_ast(:string32, value_var), do: quote(do: GridCodec.Types.String.encode32(unquote(value_var)))
-  defp var_encode_ast(:string, value_var), do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
-  defp var_encode_ast(_type, value_var), do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
+  defp var_encode_ast(:string8, value_var),
+    do: quote(do: GridCodec.Types.String.encode8(unquote(value_var)))
+
+  defp var_encode_ast(:string16, value_var),
+    do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
+
+  defp var_encode_ast(:string32, value_var),
+    do: quote(do: GridCodec.Types.String.encode32(unquote(value_var)))
+
+  defp var_encode_ast(:string, value_var),
+    do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
+
+  defp var_encode_ast(_type, value_var),
+    do: quote(do: GridCodec.Types.String.encode16(unquote(value_var)))
 
   # ============================================================================
   # Decoder Generation
@@ -795,7 +809,10 @@ defmodule GridCodec.Struct.Compiler do
               {groups_map, var_rest} = unquote(group_decoding)
               {var_map, _final_rest} = unquote(var_decoding)
 
-              struct!(unquote(struct_module), fixed_map |> Map.merge(groups_map) |> Map.merge(var_map))
+              struct!(
+                unquote(struct_module),
+                fixed_map |> Map.merge(groups_map) |> Map.merge(var_map)
+              )
             end
         end
 
@@ -818,15 +835,17 @@ defmodule GridCodec.Struct.Compiler do
     # Generate sequential decoding for each var field
     # Each step consumes part of 'rest' and produces a value
     {decode_bindings, final_rest_var} =
-      Enum.reduce(var_fields, {[], quote(do: rest)}, fn {name, type, _module, _opts}, {bindings, rest_var} ->
+      Enum.reduce(var_fields, {[], quote(do: rest)}, fn {name, type, _module, _opts},
+                                                        {bindings, rest_var} ->
         value_var = Macro.var(name, __MODULE__)
         new_rest_var = Macro.var(:"rest_after_#{name}", __MODULE__)
 
         decode_call = var_decode_ast(type, rest_var)
 
-        binding = quote do
-          {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
-        end
+        binding =
+          quote do
+            {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
+          end
 
         {bindings ++ [binding], new_rest_var}
       end)
@@ -851,11 +870,20 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   # Generate direct decode call (no apply!)
-  defp var_decode_ast(:string8, rest_var), do: quote(do: GridCodec.Types.String.decode8(unquote(rest_var)))
-  defp var_decode_ast(:string16, rest_var), do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
-  defp var_decode_ast(:string32, rest_var), do: quote(do: GridCodec.Types.String.decode32(unquote(rest_var)))
-  defp var_decode_ast(:string, rest_var), do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
-  defp var_decode_ast(_type, rest_var), do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
+  defp var_decode_ast(:string8, rest_var),
+    do: quote(do: GridCodec.Types.String.decode8(unquote(rest_var)))
+
+  defp var_decode_ast(:string16, rest_var),
+    do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
+
+  defp var_decode_ast(:string32, rest_var),
+    do: quote(do: GridCodec.Types.String.decode32(unquote(rest_var)))
+
+  defp var_decode_ast(:string, rest_var),
+    do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
+
+  defp var_decode_ast(_type, rest_var),
+    do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
 
   defp generate_group_decoder([]) do
     quote do

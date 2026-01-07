@@ -91,7 +91,8 @@ defmodule GridCodec.ConsolidationTest do
     test "validate_codecs detects duplicate template_ids" do
       codecs = [
         %{module: ModuleA, schema_id: 100, template_id: 1},
-        %{module: ModuleB, schema_id: 100, template_id: 1},  # conflict!
+        # conflict!
+        %{module: ModuleB, schema_id: 100, template_id: 1},
         %{module: ModuleC, schema_id: 100, template_id: 2}
       ]
 
@@ -109,7 +110,8 @@ defmodule GridCodec.ConsolidationTest do
     test "same template_id in different schemas is allowed" do
       codecs = [
         %{module: ModuleA, schema_id: 100, template_id: 1},
-        %{module: ModuleB, schema_id: 200, template_id: 1}  # OK - different schema
+        # OK - different schema
+        %{module: ModuleB, schema_id: 200, template_id: 1}
       ]
 
       conflicts =

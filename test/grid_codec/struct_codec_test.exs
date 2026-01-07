@@ -17,7 +17,8 @@ defmodule GridCodec.StructCodecTest do
       # Encode to payload (no header)
       binary = SimpleStruct.encode(original)
       assert is_binary(binary)
-      assert byte_size(binary) == 12  # 8 + 4
+      # 8 + 4
+      assert byte_size(binary) == 12
 
       # Decode payload back to struct
       {:ok, decoded} = SimpleStruct.decode(binary)
@@ -32,7 +33,8 @@ defmodule GridCodec.StructCodecTest do
       # Encode with header
       framed = SimpleStruct.encode!(original)
       assert is_binary(framed)
-      assert byte_size(framed) == 8 + 12  # header + payload
+      # header + payload
+      assert byte_size(framed) == 8 + 12
 
       # Decode framed binary
       {:ok, decoded} = SimpleStruct.decode!(framed)
@@ -75,14 +77,22 @@ defmodule GridCodec.StructCodecTest do
 
       # Note: Max values for unsigned types are null sentinels, so use max-1
       original = %AllTypesStruct{
-        f_u8: 254,                                     # max is null (255)
-        f_u16: 65534,                                  # max is null (65535)
-        f_u32: 4_294_967_294,                          # max is null
-        f_u64: 18_446_744_073_709_551_614,             # max is null
-        f_i8: -127,                                    # min is null (-128)
-        f_i16: -32767,                                 # min is null (-32768)
-        f_i32: -2_147_483_647,                         # min is null
-        f_i64: -9_223_372_036_854_775_807,             # min is null
+        # max is null (255)
+        f_u8: 254,
+        # max is null (65535)
+        f_u16: 65534,
+        # max is null
+        f_u32: 4_294_967_294,
+        # max is null
+        f_u64: 18_446_744_073_709_551_614,
+        # min is null (-128)
+        f_i8: -127,
+        # min is null (-32768)
+        f_i16: -32767,
+        # min is null
+        f_i32: -2_147_483_647,
+        # min is null
+        f_i64: -9_223_372_036_854_775_807,
         f_uuid: uuid,
         f_bool: true
       }
@@ -141,8 +151,10 @@ defmodule GridCodec.StructCodecTest do
       {:ok, decoded} = DefaultStruct.decode(binary)
 
       assert decoded.id == 123
-      assert decoded.count == 100  # default
-      assert decoded.status == 1   # default
+      # default
+      assert decoded.count == 100
+      # default
+      assert decoded.status == 1
     end
 
     test "explicit values override defaults" do
@@ -174,7 +186,8 @@ defmodule GridCodec.StructCodecTest do
       {:ok, decoded} = ConstantStruct.decode(binary)
 
       assert decoded.id == 123
-      assert decoded.msg_type == 42  # constant value, not 99
+      # constant value, not 99
+      assert decoded.msg_type == 42
     end
   end
 
@@ -259,12 +272,15 @@ defmodule GridCodec.StructCodecTest do
 
     test "decode! validates template_id" do
       # Create a valid binary with wrong template_id
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 999,  # wrong
-        schema_id: 100,
-        version: 2
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          # wrong
+          template_id: 999,
+          schema_id: 100,
+          version: 2
+        )
+
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
@@ -272,12 +288,15 @@ defmodule GridCodec.StructCodecTest do
     end
 
     test "decode! validates schema_id" do
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 7,
-        schema_id: 999,  # wrong
-        version: 2
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          template_id: 7,
+          # wrong
+          schema_id: 999,
+          version: 2
+        )
+
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
@@ -285,12 +304,15 @@ defmodule GridCodec.StructCodecTest do
     end
 
     test "decode! validates version" do
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 7,
-        schema_id: 100,
-        version: 99  # newer than codec version
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          template_id: 7,
+          schema_id: 100,
+          # newer than codec version
+          version: 99
+        )
+
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
@@ -298,12 +320,15 @@ defmodule GridCodec.StructCodecTest do
     end
 
     test "decode! accepts older versions" do
-      header = GridCodec.Header.encode(
-        block_length: 8,
-        template_id: 7,
-        schema_id: 100,
-        version: 1  # older is ok
-      )
+      header =
+        GridCodec.Header.encode(
+          block_length: 8,
+          template_id: 7,
+          schema_id: 100,
+          # older is ok
+          version: 1
+        )
+
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 

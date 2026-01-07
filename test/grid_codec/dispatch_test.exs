@@ -55,7 +55,9 @@ defmodule GridCodec.DispatchTest do
     test "routes to correct codec based on header" do
       # Create framed messages
       order_created = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
-      order_filled = OrderFilled.encode!(%OrderFilled{order_id: 123, fill_price: 1001, fill_qty: 50})
+
+      order_filled =
+        OrderFilled.encode!(%OrderFilled{order_id: 123, fill_price: 1001, fill_qty: 50})
 
       # Dispatch should route to correct decoder
       assert {:ok, %OrderCreated{order_id: 123, price: 1000}, OrderCreated} =
@@ -95,7 +97,8 @@ defmodule GridCodec.DispatchTest do
       payload = <<42::little-64, 5::8>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:ok, %OrderCancelled{order_id: 42, reason: 5}, OrderCancelled} = TestDispatch.decode(binary)
+      assert {:ok, %OrderCancelled{order_id: 42, reason: 5}, OrderCancelled} =
+               TestDispatch.decode(binary)
     end
 
     test "returns error for newer version than codec supports" do
@@ -114,8 +117,11 @@ defmodule GridCodec.DispatchTest do
       order = OrderCreated.encode!(%OrderCreated{order_id: 1, price: 100})
       other = OtherSchemaEvent.encode!(%OtherSchemaEvent{event_id: 999})
 
-      assert {:ok, %OrderCreated{order_id: 1, price: 100}, OrderCreated} = TestDispatch.decode(order)
-      assert {:ok, %OtherSchemaEvent{event_id: 999}, OtherSchemaEvent} = TestDispatch.decode(other)
+      assert {:ok, %OrderCreated{order_id: 1, price: 100}, OrderCreated} =
+               TestDispatch.decode(order)
+
+      assert {:ok, %OtherSchemaEvent{event_id: 999}, OtherSchemaEvent} =
+               TestDispatch.decode(other)
     end
   end
 
@@ -123,7 +129,8 @@ defmodule GridCodec.DispatchTest do
     test "returns tuple on success" do
       binary = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
 
-      assert {%OrderCreated{order_id: 123, price: 1000}, OrderCreated} = TestDispatch.decode!(binary)
+      assert {%OrderCreated{order_id: 123, price: 1000}, OrderCreated} =
+               TestDispatch.decode!(binary)
     end
 
     test "raises on error" do

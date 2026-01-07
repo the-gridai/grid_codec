@@ -167,8 +167,9 @@ defmodule GridCodec.StructAllTypesTest do
       original = %StringStruct{
         name: "Hello World",
         short_name: "Hi",
-        long_name: "This is a very long string that exceeds 255 characters " <>
-          String.duplicate("x", 200)
+        long_name:
+          "This is a very long string that exceeds 255 characters " <>
+            String.duplicate("x", 200)
       }
 
       binary = StringStruct.encode(original)
@@ -199,9 +200,9 @@ defmodule GridCodec.StructAllTypesTest do
       use GridCodec.Types.Enum, encoding: :u8
 
       defenum do
-        value :pending
-        value :filled
-        value :cancelled
+        value(:pending)
+        value(:filled)
+        value(:cancelled)
       end
     end
 

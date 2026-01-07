@@ -70,6 +70,7 @@ defmodule GridCodec.MultiCodecTest do
 
     test "encodes and decodes OrderFilled" do
       uuid = <<2::128>>
+
       fill = %Events.OrderFilled{
         order_id: uuid,
         fill_price: 1001,
@@ -127,7 +128,12 @@ defmodule GridCodec.MultiCodecTest do
     test "processes stream of mixed events" do
       events = [
         %Events.OrderCreated{order_id: <<1::128>>, price: 100, quantity: 1},
-        %Events.OrderFilled{order_id: <<1::128>>, fill_price: 101, fill_quantity: 1, timestamp: 1000},
+        %Events.OrderFilled{
+          order_id: <<1::128>>,
+          fill_price: 101,
+          fill_quantity: 1,
+          timestamp: 1000
+        },
         %Events.OrderCreated{order_id: <<2::128>>, price: 200, quantity: 2},
         %Events.OrderCancelled{order_id: <<2::128>>, reason_code: 1}
       ]
@@ -153,6 +159,7 @@ defmodule GridCodec.MultiCodecTest do
   describe "zero-copy wrap dispatch" do
     test "wraps different event types correctly" do
       order = %Events.OrderCreated{order_id: <<1::128>>, price: 100, quantity: 5}
+
       fill = %Events.OrderFilled{
         order_id: <<2::128>>,
         fill_price: 101,
@@ -177,14 +184,16 @@ defmodule GridCodec.MultiCodecTest do
       assert Events.OrderCreated.__template_id__() == 1
       assert Events.OrderFilled.__template_id__() == 2
       assert Events.OrderCancelled.__template_id__() == 3
-      assert Trades.TradeExecuted.__template_id__() == 1  # same, different schema
+      # same, different schema
+      assert Trades.TradeExecuted.__template_id__() == 1
     end
 
     test "each codec has correct schema_id" do
       assert Events.OrderCreated.__schema_id__() == 900
       assert Events.OrderFilled.__schema_id__() == 900
       assert Events.OrderCancelled.__schema_id__() == 900
-      assert Trades.TradeExecuted.__schema_id__() == 901  # different schema
+      # different schema
+      assert Trades.TradeExecuted.__schema_id__() == 901
     end
   end
 end
