@@ -3,7 +3,7 @@ defmodule ExampleApp.ProfileMarkers do
   Profile markers for identifying operations in perf profiles.
 
   These are specially-named functions that show up distinctly in perf output,
-  allowing AI agents and developers to identify specific code sections.
+  making it easy to identify specific code sections in flame graphs and reports.
 
   ## How It Works
 
