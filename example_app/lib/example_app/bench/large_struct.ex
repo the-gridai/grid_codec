@@ -40,4 +40,3 @@ defmodule ExampleApp.Bench.LargeStruct do
     field :field_33, :u64
   end
 end
-

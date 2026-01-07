@@ -15,4 +15,3 @@ defmodule ExampleApp.Bench.SmallStruct do
     field :field_8, :u64
   end
 end
-

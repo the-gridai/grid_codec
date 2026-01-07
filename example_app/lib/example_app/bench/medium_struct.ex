@@ -39,4 +39,3 @@ defmodule ExampleApp.Bench.MediumStruct do
     field :field_32, :u64
   end
 end
-
