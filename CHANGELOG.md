@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-07
+
+### Added
+- **Mix Compiler**: New `:grid_codec` Mix compiler for automatic registry consolidation
+  - Scans all loaded modules for GridCodec struct codecs at compile time
+  - Generates optimized `GridCodec.Registry` module with pattern-match dispatch
+  - Validates no conflicts (duplicate schema_id + template_id combinations)
+  - Add to your project with `compilers: Mix.compilers() ++ [:grid_codec]`
+- **Production Profiling Tools**: Docker-based profiling suite in `profile/`
+  - Two-phase profiling: JIT warmup without perf, then clean profiling
+  - JIT symbol resolution via `+JPperf true` for readable Elixir function names
+  - Generates flame graphs and detailed reports
+  - Profile markers for tagging specific operations in perf output
+- **Example Application**: New `example_app/` with benchmarks and sample codecs
+  - `OrderCreated` and `TradeExecuted` example events
+  - Parameterized benchmarks for different payload sizes
+  - Profile runner for integration with profiling tools
+- **AI Agent Instructions**: `AGENTS.md` with comprehensive profiling and optimization guide
+
+### Changed
+- **Breaking**: Removed legacy map-based codec API - now struct-only via `GridCodec.Struct`
+  - Use `use GridCodec.Struct` instead of `use GridCodec`
+  - All codecs now define Elixir structs with generated encode/decode functions
+  - Simplified API: `encode/1`, `decode/1`, `wrap/1`, `get/2`
+- Reorganized compiler into `GridCodec.Struct.Compiler`
+- Updated README with struct-only examples and usage
+
+### Fixed
+- Dialyzer errors for Mix compiler module (added `:mix` to PLT)
+- Bitset type warnings
+
+### Removed
+- Legacy `defcodec` macro and map-based codec API
+- Old Livebook documentation (moved to example_app benchmarks)
+- Planning docs and RFC documents
+
 ## [0.2.1] - 2025-12-31
 
 ### Added
