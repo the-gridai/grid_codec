@@ -125,6 +125,14 @@ defmodule GridCodec.Types.UUID do
     end
   end
 
+  @doc """
+  Extracts a UUID from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), value::binary-size(16), _::binary>> = binary
+    if value == @null_uuid, do: nil, else: value
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.uuid()

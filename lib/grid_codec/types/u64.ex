@@ -126,6 +126,31 @@ defmodule GridCodec.Types.U64 do
     end
   end
 
+  @doc """
+  Extracts a u64 value from a binary at the given offset.
+
+  Used by `GridCodec.get/2` with field specs.
+  """
+  def get_value(binary, offset, endian) when is_binary(binary) do
+    case endian do
+      :little ->
+        <<_::binary-size(offset), value::unsigned-little-64, _::binary>> = binary
+
+        case value do
+          @null_val -> nil
+          v -> v
+        end
+
+      :big ->
+        <<_::binary-size(offset), value::unsigned-big-64, _::binary>> = binary
+
+        case value do
+          @null_val -> nil
+          v -> v
+        end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.u64()

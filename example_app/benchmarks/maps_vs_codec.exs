@@ -124,6 +124,9 @@ defmodule Bench.MapsVsCodec do
     small_env = SmallStruct.wrap(small_bin)
     small_map = struct_to_map(small_struct, 8)
 
+    # Pre-compute field spec at compile time
+    field_spec = SmallStruct.field(:field_4)
+
     IO.puts("Comparing access methods on same data:\n")
 
     Benchee.run(
@@ -133,10 +136,13 @@ defmodule Bench.MapsVsCodec do
             SmallStruct.match(field_4: v) -> v
           end
         end,
-        "get(binary, field) - direct" => fn ->
+        "GridCodec.get(bin, field_spec)" => fn ->
+          GridCodec.get(small_bin, field_spec)
+        end,
+        "Codec.get(binary, :field)" => fn ->
           SmallStruct.get(small_bin, :field_4)
         end,
-        "get(envelope, field)" => fn ->
+        "Codec.get(envelope, :field)" => fn ->
           SmallStruct.get(small_env, :field_4)
         end,
         "Map.get" => fn ->

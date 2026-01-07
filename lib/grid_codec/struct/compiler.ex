@@ -73,6 +73,7 @@ defmodule GridCodec.Struct.Compiler do
 
     getter_clauses = generate_getters(fixed_fields, var_fields, groups, field_offsets, endian)
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
+    field_macro = generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian)
 
     # Header options for framed messages
     header_opts = [
@@ -204,6 +205,9 @@ defmodule GridCodec.Struct.Compiler do
 
       # Pattern matching macro
       unquote(match_macro)
+
+      # Field spec macro for GridCodec.get/2
+      unquote(field_macro)
     end
   end
 
@@ -1137,6 +1141,58 @@ defmodule GridCodec.Struct.Compiler do
       {8, :big} -> quote do: unquote(var) :: big - 64
       {16, _} -> quote do: unquote(var) :: binary - size(16)
       {_, _} -> quote do: unquote(var) :: binary - size(unquote(size))
+    end
+  end
+
+  # ============================================================================
+  # Field Spec Macro Generation
+  # ============================================================================
+
+  defp generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian) do
+    # Build field specs map: %{field_name => {type_module, offset, endian} | {:variable, name}}
+    fixed_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+        offset = Map.get(field_offsets, name)
+        {name, {module, offset, endian}}
+      end)
+
+    var_specs =
+      Enum.map(var_fields, fn {name, _type, _module, _opts} ->
+        {name, {:variable, name}}
+      end)
+
+    group_specs =
+      Enum.map(groups, fn {name, _block, _opts} ->
+        {name, {:group, name}}
+      end)
+
+    all_specs = Map.new(fixed_specs ++ var_specs ++ group_specs)
+
+    quote do
+      @doc """
+      Returns a field spec for use with `GridCodec.get/2`.
+
+      The macro expands at compile time to a tuple containing the type module,
+      offset, and endianness. This enables efficient field access:
+
+          value = GridCodec.get(binary, #{inspect(__MODULE__)}.field(:field_name))
+
+      For fixed-size fields, returns `{type_module, offset, endian}`.
+      For variable-length fields, returns `{:variable, field_name}`.
+      For groups, returns `{:group, group_name}`.
+      """
+      defmacro field(name) do
+        specs = unquote(Macro.escape(all_specs))
+
+        case Map.get(specs, name) do
+          nil ->
+            raise ArgumentError,
+                  "Unknown field #{inspect(name)}. Available: #{inspect(Map.keys(specs))}"
+
+          spec ->
+            Macro.escape(spec)
+        end
+      end
     end
   end
 end

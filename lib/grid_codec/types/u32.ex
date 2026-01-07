@@ -120,6 +120,21 @@ defmodule GridCodec.Types.U32 do
     end
   end
 
+  @doc """
+  Extracts a u32 value from a binary at the given offset.
+  """
+  def get_value(binary, offset, endian) when is_binary(binary) do
+    case endian do
+      :little ->
+        <<_::binary-size(offset), value::unsigned-little-32, _::binary>> = binary
+        if value == @null_val, do: nil, else: value
+
+      :big ->
+        <<_::binary-size(offset), value::unsigned-big-32, _::binary>> = binary
+        if value == @null_val, do: nil, else: value
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.u32()

@@ -280,4 +280,52 @@ defmodule GridCodec do
       price = MyApp.Order.get(env, :price)
   """
   defdelegate wrap(binary), to: GridCodec.Registry
+
+  # ============================================================================
+  # Generic Field Access with Field Specs
+  # ============================================================================
+
+  @doc """
+  Extract a field from a binary using a field spec.
+
+  The field spec is generated at compile time by the `field/1` macro in each codec:
+
+      require MyCodec
+      value = GridCodec.get(binary, MyCodec.field(:price))
+
+  This enables efficient field access with compile-time offset calculation
+  and runtime type dispatch.
+
+  ## Examples
+
+      # With field spec macro
+      require ExampleApp.Events.OrderCreated, as: Order
+      price = GridCodec.get(binary, Order.field(:price))
+
+      # The field/1 macro expands to a tuple at compile time:
+      # Order.field(:price) => {GridCodec.Types.U64, 16, :little}
+      # GridCodec.get then dispatches to the type's get_value/3
+
+  ## Performance
+
+  This approach is slightly slower than the direct `MyCodec.get(binary, :field)`
+  due to runtime type dispatch, but provides a cleaner generic API.
+  For maximum performance, use the `match` macro for known field names.
+  """
+  @spec get(binary(), {module(), non_neg_integer(), :little | :big}) :: term()
+  def get(binary, {type_module, offset, endian}) when is_binary(binary) do
+    type_module.get_value(binary, offset, endian)
+  end
+
+  def get(_binary, {:variable, field_name}) do
+    raise ArgumentError,
+          "Variable-length field #{inspect(field_name)} requires full decode. " <>
+            "Use MyCodec.decode/1 instead."
+  end
+
+  def get(_binary, {:group, group_name}) do
+    raise ArgumentError,
+          "Group #{inspect(group_name)} requires full decode. " <>
+            "Use MyCodec.decode/1 instead."
+  end
 end
