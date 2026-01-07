@@ -3,7 +3,7 @@ defmodule GridCodecTest do
   doctest GridCodec
 
   defmodule SimpleCodec do
-    use GridCodec
+    use GridCodec.Struct
 
     defcodec do
       field(:id, :u64)
@@ -13,7 +13,7 @@ defmodule GridCodecTest do
   end
 
   defmodule UUIDCodec do
-    use GridCodec
+    use GridCodec.Struct
 
     defcodec do
       field(:order_id, :uuid)
@@ -23,7 +23,7 @@ defmodule GridCodecTest do
   end
 
   defmodule SignedCodec do
-    use GridCodec
+    use GridCodec.Struct
 
     defcodec do
       field(:temp, :i32)
@@ -32,7 +32,7 @@ defmodule GridCodecTest do
   end
 
   defmodule FloatCodec do
-    use GridCodec
+    use GridCodec.Struct
 
     defcodec do
       field(:latitude, :f64)
@@ -43,7 +43,7 @@ defmodule GridCodecTest do
 
   describe "encode/decode roundtrip" do
     test "simple codec with integers and bool" do
-      data = %{id: 12345, count: 100, flag: true}
+      data = %SimpleCodec{id: 12345, count: 100, flag: true}
       binary = SimpleCodec.encode(data)
 
       assert {:ok, decoded} = SimpleCodec.decode(binary)
@@ -55,7 +55,7 @@ defmodule GridCodecTest do
 
     test "uuid codec" do
       uuid = :crypto.strong_rand_bytes(16)
-      data = %{order_id: uuid, price: 15000, quantity: 50}
+      data = %UUIDCodec{order_id: uuid, price: 15000, quantity: 50}
       binary = UUIDCodec.encode(data)
 
       assert {:ok, decoded} = UUIDCodec.decode(binary)
@@ -65,7 +65,7 @@ defmodule GridCodecTest do
     end
 
     test "signed integers" do
-      data = %{temp: -42, offset: -9_999_999}
+      data = %SignedCodec{temp: -42, offset: -9_999_999}
       binary = SignedCodec.encode(data)
 
       assert {:ok, decoded} = SignedCodec.decode(binary)
@@ -74,7 +74,7 @@ defmodule GridCodecTest do
     end
 
     test "float codec" do
-      data = %{latitude: 37.7749, longitude: -122.4194, altitude: 10.5}
+      data = %FloatCodec{latitude: 37.7749, longitude: -122.4194, altitude: 10.5}
       binary = FloatCodec.encode(data)
 
       assert {:ok, decoded} = FloatCodec.decode(binary)
@@ -86,7 +86,7 @@ defmodule GridCodecTest do
 
   describe "zero-copy field access" do
     test "get individual fields without full decode" do
-      data = %{id: 99999, count: 42, flag: false}
+      data = %SimpleCodec{id: 99999, count: 42, flag: false}
       binary = SimpleCodec.encode(data)
       env = SimpleCodec.wrap(binary)
 
@@ -97,7 +97,7 @@ defmodule GridCodecTest do
 
     test "uuid field returns sub-binary" do
       uuid = :crypto.strong_rand_bytes(16)
-      data = %{order_id: uuid, price: 15000, quantity: 50}
+      data = %UUIDCodec{order_id: uuid, price: 15000, quantity: 50}
       binary = UUIDCodec.encode(data)
       env = UUIDCodec.wrap(binary)
 
@@ -107,7 +107,7 @@ defmodule GridCodecTest do
     end
 
     test "raises on unknown field" do
-      binary = SimpleCodec.encode(%{id: 0, count: 0, flag: false})
+      binary = SimpleCodec.encode(%SimpleCodec{id: 0, count: 0, flag: false})
       env = SimpleCodec.wrap(binary)
 
       assert_raise ArgumentError, ~r/unknown field/, fn ->
@@ -118,7 +118,7 @@ defmodule GridCodecTest do
 
   describe "binary size" do
     test "simple codec produces expected size" do
-      data = %{id: 1, count: 1, flag: true}
+      data = %SimpleCodec{id: 1, count: 1, flag: true}
       binary = SimpleCodec.encode(data)
 
       # u64 (8) + u32 (4) + bool (1) = 13 bytes
@@ -126,7 +126,7 @@ defmodule GridCodecTest do
     end
 
     test "uuid codec produces expected size" do
-      data = %{order_id: <<0::128>>, price: 0, quantity: 0}
+      data = %UUIDCodec{order_id: <<0::128>>, price: 0, quantity: 0}
       binary = UUIDCodec.encode(data)
 
       # uuid (16) + u64 (8) + u32 (4) = 28 bytes
@@ -174,7 +174,7 @@ defmodule GridCodecTest do
 
   describe "envelope integration" do
     test "wrap returns GridCodec.Envelope struct" do
-      binary = SimpleCodec.encode(%{id: 1, count: 2, flag: true})
+      binary = SimpleCodec.encode(%SimpleCodec{id: 1, count: 2, flag: true})
       env = SimpleCodec.wrap(binary)
 
       assert %GridCodec.Envelope{} = env
@@ -182,14 +182,14 @@ defmodule GridCodecTest do
     end
 
     test "envelope provides byte_size" do
-      binary = SimpleCodec.encode(%{id: 1, count: 2, flag: true})
+      binary = SimpleCodec.encode(%SimpleCodec{id: 1, count: 2, flag: true})
       env = SimpleCodec.wrap(binary)
 
       assert GridCodec.Envelope.byte_size(env) == 13
     end
 
     test "envelope decode returns same as codec decode" do
-      data = %{id: 123, count: 456, flag: true}
+      data = %SimpleCodec{id: 123, count: 456, flag: true}
       binary = SimpleCodec.encode(data)
       env = SimpleCodec.wrap(binary)
 

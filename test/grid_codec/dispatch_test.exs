@@ -3,7 +3,7 @@ defmodule GridCodec.DispatchTest do
 
   # Define test codecs with unique template_ids
   defmodule OrderCreated do
-    use GridCodec, template_id: 1, schema_id: 100, version: 1
+    use GridCodec.Struct, template_id: 1, schema_id: 100, version: 1
 
     defcodec do
       field :order_id, :u64
@@ -12,7 +12,7 @@ defmodule GridCodec.DispatchTest do
   end
 
   defmodule OrderFilled do
-    use GridCodec, template_id: 2, schema_id: 100, version: 1
+    use GridCodec.Struct, template_id: 2, schema_id: 100, version: 1
 
     defcodec do
       field :order_id, :u64
@@ -22,7 +22,7 @@ defmodule GridCodec.DispatchTest do
   end
 
   defmodule OrderCancelled do
-    use GridCodec, template_id: 3, schema_id: 100, version: 2
+    use GridCodec.Struct, template_id: 3, schema_id: 100, version: 2
 
     defcodec do
       field :order_id, :u64
@@ -32,7 +32,7 @@ defmodule GridCodec.DispatchTest do
 
   # Different schema_id - no conflict with template_id: 1
   defmodule OtherSchemaEvent do
-    use GridCodec, template_id: 1, schema_id: 200, version: 1
+    use GridCodec.Struct, template_id: 1, schema_id: 200, version: 1
 
     defcodec do
       field :event_id, :u64
@@ -54,14 +54,16 @@ defmodule GridCodec.DispatchTest do
   describe "decode/1" do
     test "routes to correct codec based on header" do
       # Create framed messages
-      order_created = OrderCreated.encode!(%{order_id: 123, price: 1000})
-      order_filled = OrderFilled.encode!(%{order_id: 123, fill_price: 1001, fill_qty: 50})
+      order_created = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
+
+      order_filled =
+        OrderFilled.encode!(%OrderFilled{order_id: 123, fill_price: 1001, fill_qty: 50})
 
       # Dispatch should route to correct decoder
-      assert {:ok, %{order_id: 123, price: 1000}, OrderCreated} =
+      assert {:ok, %OrderCreated{order_id: 123, price: 1000}, OrderCreated} =
                TestDispatch.decode(order_created)
 
-      assert {:ok, %{order_id: 123, fill_price: 1001, fill_qty: 50}, OrderFilled} =
+      assert {:ok, %OrderFilled{order_id: 123, fill_price: 1001, fill_qty: 50}, OrderFilled} =
                TestDispatch.decode(order_filled)
     end
 
@@ -95,7 +97,8 @@ defmodule GridCodec.DispatchTest do
       payload = <<42::little-64, 5::8>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:ok, %{order_id: 42, reason: 5}, OrderCancelled} = TestDispatch.decode(binary)
+      assert {:ok, %OrderCancelled{order_id: 42, reason: 5}, OrderCancelled} =
+               TestDispatch.decode(binary)
     end
 
     test "returns error for newer version than codec supports" do
@@ -111,19 +114,23 @@ defmodule GridCodec.DispatchTest do
 
     test "handles different schema_ids with same template_id" do
       # Both have template_id: 1 but different schema_ids
-      order = OrderCreated.encode!(%{order_id: 1, price: 100})
-      other = OtherSchemaEvent.encode!(%{event_id: 999})
+      order = OrderCreated.encode!(%OrderCreated{order_id: 1, price: 100})
+      other = OtherSchemaEvent.encode!(%OtherSchemaEvent{event_id: 999})
 
-      assert {:ok, %{order_id: 1, price: 100}, OrderCreated} = TestDispatch.decode(order)
-      assert {:ok, %{event_id: 999}, OtherSchemaEvent} = TestDispatch.decode(other)
+      assert {:ok, %OrderCreated{order_id: 1, price: 100}, OrderCreated} =
+               TestDispatch.decode(order)
+
+      assert {:ok, %OtherSchemaEvent{event_id: 999}, OtherSchemaEvent} =
+               TestDispatch.decode(other)
     end
   end
 
   describe "decode!/1" do
     test "returns tuple on success" do
-      binary = OrderCreated.encode!(%{order_id: 123, price: 1000})
+      binary = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
 
-      assert {%{order_id: 123, price: 1000}, OrderCreated} = TestDispatch.decode!(binary)
+      assert {%OrderCreated{order_id: 123, price: 1000}, OrderCreated} =
+               TestDispatch.decode!(binary)
     end
 
     test "raises on error" do
@@ -141,7 +148,7 @@ defmodule GridCodec.DispatchTest do
 
   describe "wrap/1" do
     test "wraps and returns envelope with codec" do
-      binary = OrderCreated.encode!(%{order_id: 123, price: 1000})
+      binary = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
 
       assert {:ok, env, OrderCreated} = TestDispatch.wrap(binary)
 
@@ -198,7 +205,7 @@ defmodule GridCodec.DispatchTest do
 
   describe "peek_header/1" do
     test "returns header without decoding payload" do
-      binary = OrderCreated.encode!(%{order_id: 123, price: 1000})
+      binary = OrderCreated.encode!(%OrderCreated{order_id: 123, price: 1000})
 
       assert {:ok, header} = TestDispatch.peek_header(binary)
       assert header.template_id == 1

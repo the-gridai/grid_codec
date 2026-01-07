@@ -1,0 +1,458 @@
+# Agent Instructions for GridCodec
+
+This document provides instructions for AI agents working with the GridCodec library.
+
+## Project Overview
+
+GridCodec is a high-performance binary codec for BEAM/Elixir with direct field access. The library uses compile-time code generation to create optimized encode/decode functions for structs.
+
+### Key Directories
+
+- `lib/` - Main library code
+- `example_app/` - Example application with benchmarks and profiling
+- `profile/` - Production profiling tools (Docker-based)
+- `test/` - Test suite
+- `docs/` - Design documentation
+
+## Performance Profiling
+
+### When to Profile
+
+Profile code when:
+- Investigating performance bottlenecks
+- Evaluating optimization attempts
+- Comparing before/after changes
+- Understanding where time is spent in encode/decode
+
+### Running the Profiler
+
+```bash
+# Full profile (encode + decode)
+./profile/run.sh
+
+# Encode only
+./profile/run.sh --mode=encode
+
+# Decode only
+./profile/run.sh --mode=decode
+
+# Custom iterations
+./profile/run.sh --iterations=1000000 --warmup=50000
+```
+
+### How the Profiler Works
+
+The profiler uses a **two-phase approach** for accurate, noise-free profiling:
+
+1. **Phase 1: JIT Warmup (no perf)**
+   - Runs warmup iterations WITHOUT profiling
+   - Allows BEAM JIT to compile and optimize hot paths
+   - Eliminates warmup noise from profile data
+
+2. **Phase 2: Profile Only (with perf)**
+   - Starts `perf record` ONLY for actual encode/decode operations
+   - Uses `+JPperf true` OTP flag for JIT symbol resolution
+   - Captures clean, warmup-free performance data
+
+#### JIT Symbol Resolution (`+JPperf true` + `perf inject --jit`)
+
+OTP 24+ includes the `+JPperf true` flag which generates perf map files. Combined with `perf inject --jit`, this resolves JIT-compiled addresses to readable function names:
+
+```
+# Without JIT resolution: Unreadable hex addresses
+0xffff68216838 → ???
+
+# With JIT resolution: Full Elixir function names
+jitted-182-44445.so → 'Elixir.ExampleApp.Events.OrderCreated':decode/1
+jitted-182-44501.so → 'Elixir.GridCodec.Types.TimestampMicros':encode_value/1
+```
+
+This enables you to see **exactly which Elixir functions** are consuming CPU time.
+
+#### What's NOT Resolved (and why)
+
+Some `beam.smp` addresses may still appear as hex (e.g., `0x000000000027d7b8`). These are:
+- Internal BEAM runtime functions
+- Symbols stripped in release builds
+- Would require debug Erlang builds to resolve
+
+**These are rarely actionable** - focus on the named functions which represent your actual code.
+
+### Understanding Profile Output
+
+The profiler generates two outputs in `profile/output/`:
+
+1. **`report.txt`** - Text report with top CPU-consuming functions
+2. **`flamegraph.svg`** - Interactive visualization
+
+#### Reading the Text Report
+
+With JIT symbol resolution, you'll see both BEAM runtime functions AND your Elixir code:
+
+```
+# Overhead  Command   Shared Object     Symbol
+  3.67%     erts_..   libc.so.6         __memcpy_generic
+  2.89%     erts_..   beam.smp          beam_jit_get_map_elements
+  2.28%     erts_..   [JIT] tid 182     $'Elixir.ExampleApp.Events.OrderCreated':decode/1
+  1.64%     erts_..   [JIT] tid 182     $'Elixir.ExampleApp.Events.OrderCreated':encode/1
+```
+
+**Symbol Types:**
+- `[JIT] tid N` - JIT-compiled Elixir/Erlang code (your code!)
+- `beam.smp` - BEAM runtime internals
+- `libc.so.6` - System library calls
+
+**Key BEAM Runtime Functions:**
+
+| Function | What It Does | Optimization Target |
+|----------|--------------|---------------------|
+| `beam_jit_get_map_elements` | Reading struct fields | Reduce field access count |
+| `__memcpy_generic` | Copying bytes | Avoid intermediate binaries |
+| `erts_new_bs_put_binary_all` | Writing binary segments | Batch writes |
+| `erts_bs_append_checked` | Appending to binary | Pre-allocate size |
+| `iolist_to_binary_1` | IOList → binary conversion | Return iolist directly |
+| `erts_gc_update_map_exact` | Map/struct updates | Fewer struct updates |
+| `erts_bs_start_match_3` | Pattern match on binary | Reduce pattern matches |
+| `erts_extract_sub_binary` | Extract sub-binary | Avoid sub-binary creation |
+
+#### Reading the Flame Graph
+
+Open `profile/output/flamegraph.svg` in a browser:
+
+- **Width** represents time spent (wider = more CPU time)
+- **Height** represents call stack depth
+- **Colors** are random (not meaningful)
+- Click on a bar to zoom into that subtree
+- Look for wide bars at the bottom - those are hot paths
+- **Search**: Use Ctrl+F to find specific functions like "encode" or "decode"
+
+**What to Look For:**
+- Wide `$'Elixir.YourModule':function/N` bars = hot Elixir functions
+- Deep call stacks under encode/decode = potential inlining opportunities
+- Multiple calls to `erts_bs_append_checked` = binary fragmentation
+
+### Interactive Profiling
+
+For custom profiling scenarios:
+
+```bash
+# Enter container shell
+./profile/run.sh shell
+
+# Inside container:
+cd example_app
+MIX_ENV=prod mix compile
+
+# Run custom profile WITH JIT symbols
+ERL_FLAGS="+JPperf true" perf record -g -F 9999 -- mix run -e '
+  # Your test code here
+  order = %ExampleApp.Events.OrderCreated{...}
+  Enum.each(1..1_000_000, fn _ ->
+    ExampleApp.Events.OrderCreated.encode(order)
+  end)
+'
+
+# View results
+perf report --stdio --no-children --percent-limit 0.5
+
+# Generate flame graph
+perf script | stackcollapse-perf.pl | flamegraph.pl > /workspace/custom_flamegraph.svg
+```
+
+**Important:** Always use `ERL_FLAGS="+JPperf true"` for readable function names in custom profiles.
+
+### Output Files for Analysis
+
+The profiler generates multiple output files in `profile/output/`:
+
+| File | Description | Best For |
+|------|-------------|----------|
+| `report.txt` | Summary with call graphs | Quick overview |
+| `report_flat.txt` | Flat list, no call graphs | AI parsing, scripting |
+| `report_full.txt` | Complete data, no filtering | Deep analysis |
+| `report_callers.txt` | Caller/callee relationships | Understanding call chains |
+| `perf.data` | Raw perf data | Custom perf commands |
+| `flamegraph.svg` | Interactive visualization | Visual exploration |
+| `stacks.folded` | Collapsed stack traces | Programmatic analysis |
+| `jit.map` | JIT symbol map | Debugging symbol issues |
+
+### AI Agent Analysis Guide
+
+AI agents can use the profiling data to make optimization recommendations. Here's how:
+
+#### 1. Reading `report_flat.txt` (Recommended for AI)
+
+This file provides a clean, parseable format:
+
+```
+# Overhead  Samples  Command      Shared Object          Symbol
+  2.20%       32     erts_sched_1 libc.so.6              __memcpy_generic
+  2.06%       30     erts_sched_1 [JIT] tid 182          $'Elixir.ExampleApp.Events.OrderCreated':decode/1
+  1.99%       29     erts_sched_1 beam.smp               beam_jit_get_map_elements
+```
+
+**Key columns:**
+- `Overhead` - Percentage of total CPU time
+- `Shared Object` - Where the code lives (`[JIT]` = your Elixir code)
+- `Symbol` - Function name
+
+#### 2. Identifying Optimization Targets
+
+**Look for these patterns:**
+
+| Pattern | What It Means | Optimization |
+|---------|---------------|--------------|
+| High `beam_jit_get_map_elements` | Many struct field accesses | Reduce field access, cache values in variables |
+| High `__memcpy_generic` | Lots of binary copying | Use single binary construction, avoid concatenation |
+| High `erts_bs_append_checked` | Binary growing dynamically | Pre-allocate binary size |
+| High `iolist_to_binary_1` | Converting iolists to binary | Return iolist directly if possible |
+| High `erts_extract_sub_binary` | Creating sub-binaries | Avoid unnecessary slicing |
+| Your encode/decode function high | Function itself is hot | Look at what BEAM functions it calls |
+
+#### 3. Reading Call Chains (`report_callers.txt`)
+
+This shows what calls what:
+
+```
+$'Elixir.GridCodec.Types.String':encode16/1
+  <- erts_new_bs_put_binary_all (1.14%)
+  <- beam_jit_bs_init_bits (0.68%)
+```
+
+This tells you that `String.encode16/1` spends time in binary initialization and writing.
+
+#### 4. Using `stacks.folded` for Custom Analysis
+
+The folded stacks format is ideal for programmatic analysis:
+
+```
+beam.smp;$global::process_main;$'Elixir.ExampleApp.Events.OrderCreated':encode/1;erts_bs_append_checked 500
+```
+
+Each line is: `stack;trace;separated;by;semicolons count`
+
+#### 5. Running Custom Analysis in Container
+
+```bash
+./profile/run.sh shell
+
+# Inside container, the perf.data is available:
+cd /workspace/profile/output
+
+# Filter to only Elixir functions
+perf report -i perf.data --stdio -g none | grep "Elixir\."
+
+# Show only encode functions
+perf report -i perf.data --stdio -g none | grep -i "encode"
+
+# Get detailed call graph for a specific function
+perf report -i perf.data --stdio --call-graph=caller | grep -A20 "OrderCreated.*encode"
+```
+
+#### 6. Example AI Analysis Workflow
+
+1. **Read `report_flat.txt`** to identify top CPU consumers
+2. **Categorize** functions as: runtime (`beam_jit_*`, `erts_*`), system (`__memcpy*`), or application (`$'Elixir.*`)
+3. **Look for patterns** in runtime function names (see table above)
+4. **Examine call chains** in `report_callers.txt` to see which application code triggers expensive operations
+5. **Propose optimizations** based on patterns found
+6. **Re-profile after changes** to verify improvement
+
+#### 7. Example: DateTime Optimization Discovery
+
+From actual profiling, an AI agent might notice:
+
+```
+0.62%  $'Elixir.DateTime':to_unix/2
+0.48%  $'Elixir.Calendar.ISO':'ensure_day_in_month!'/3
+0.48%  $'Elixir.Calendar.ISO':days_in_previous_years/1
+≈2.6%  Total DateTime/Calendar overhead
+```
+
+**Analysis:** The `:timestamp_us` field triggers `DateTime.to_unix/2` which performs expensive calendar calculations.
+
+**Code inspection** (in `lib/grid_codec/types/timestamp.ex`):
+```elixir
+def encode_value(%DateTime{} = dt), do: <<DateTime.to_unix(dt, :microsecond)::little-signed-64>>
+def encode_value(n) when is_integer(n), do: <<n::little-signed-64>>  # Fast path!
+```
+
+**Optimization:** Use `System.system_time(:microsecond)` instead of `DateTime.utc_now()` to bypass calendar conversions.
+
+**Result:** ~2.6% CPU reduction by avoiding DateTime struct creation and conversion
+
+### Profile Markers (Tagging Operations)
+
+Profile markers let you tag specific operations with named identifiers that appear distinctly in perf output:
+
+```elixir
+require ExampleApp.ProfileMarkers, as: Markers
+
+# Tag an encode operation
+Markers.mark(:encode_order) do
+  OrderCreated.encode(order)
+end
+
+# In profiles, you'll see:
+# 'Elixir.ExampleApp.ProfileMarkers':'__profile_encode_order__'/1
+```
+
+**Finding markers in profiles:**
+
+```bash
+# In report_flat.txt
+grep "__profile_" profile/output/report_flat.txt
+
+# In flame graph (browser): Ctrl+F and search "profile_encode"
+```
+
+**Why markers are powerful:**
+
+- Show as distinct named functions in perf/flame graphs
+- Allow tracking time spent in specific code paths
+- Can be nested for hierarchical analysis
+- Low overhead (~1-2 function call overhead)
+
+**Available markers:**
+
+```elixir
+# Encoding
+:encode, :encode_order, :encode_header, :encode_payload, :encode_field
+
+# Decoding  
+:decode, :decode_order, :decode_header, :decode_payload, :decode_field
+
+# Roundtrip/Phase
+:roundtrip, :full_roundtrip, :encode_phase, :decode_phase
+
+# Custom
+:custom_1, :custom_2, :custom_3, :batch_operation, :single_operation
+```
+
+### Profile-Driven Optimization Workflow
+
+1. **Establish baseline**
+   ```bash
+   ./profile/run.sh
+   # Review profile/output/report.txt
+   ```
+
+2. **Make optimization changes**
+   - Edit code in `lib/` 
+   - Changes are immediately available (workspace is mounted)
+
+3. **Re-profile**
+   ```bash
+   ./profile/run.sh
+   ```
+
+4. **Compare results**
+   - Check if target function % decreased
+   - New bottlenecks may emerge - that's expected
+
+5. **Iterate until satisfied**
+
+### Common Optimization Opportunities
+
+Based on profiling data, common optimization patterns:
+
+#### 1. Reduce Struct Field Access
+```elixir
+# Before: Multiple field accesses
+<<struct.field1::32, struct.field1::32>>  # field1 accessed twice
+
+# After: Single access
+field1 = struct.field1
+<<field1::32, field1::32>>
+```
+
+#### 2. Pre-allocate Binary Size
+```elixir
+# Before: Dynamic growth
+acc <> <<field1::32>> <> <<field2::64>>
+
+# After: Single allocation
+<<field1::32, field2::64>>
+```
+
+#### 3. Use IOLists When Possible
+```elixir
+# Before: Force binary
+IO.iodata_to_binary([header, body, footer])
+
+# After: Keep as iolist (if consumer accepts it)
+[header, body, footer]
+```
+
+## Running Tests
+
+```bash
+# All tests
+mix test
+
+# Specific test file
+mix test test/grid_codec/struct_test.exs
+
+# With coverage
+mix test --cover
+```
+
+## Code Quality
+
+```bash
+# Format check
+mix format --check-formatted
+
+# Static analysis
+mix credo --strict
+
+# Type checking
+mix dialyzer
+```
+
+## Benchmarks
+
+Benchmarks live in `example_app/benchmarks/`:
+
+```bash
+cd example_app
+mix run benchmarks/encode_decode.exs
+mix run benchmarks/parameterized_bench.exs
+```
+
+Note: Benchmarks measure throughput. Use profiling for understanding WHERE time is spent.
+
+## Architecture Notes
+
+### Compile-Time Code Generation
+
+GridCodec generates encode/decode functions at compile time based on the struct definition:
+
+```elixir
+defmodule MyEvent do
+  use GridCodec.Struct
+
+  gridcodec do
+    field :id, :u64
+    field :name, GridCodec.Types.String
+  end
+end
+```
+
+This generates:
+- `MyEvent.encode/1` - Convert struct → binary
+- `MyEvent.decode/1` - Convert binary → struct
+
+### Key Modules
+
+- `GridCodec.Struct.Compiler` - Generates encode/decode AST
+- `GridCodec.Types.*` - Type implementations
+- `GridCodec.Header` - Binary header handling
+
+### Type System
+
+Each type implements callbacks:
+- `encode_ast/2` - Generate encoding AST
+- `decode_pattern_ast/2` - Generate decode pattern
+- `size/0` - Fixed size (if known)
+

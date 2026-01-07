@@ -62,22 +62,7 @@ defmodule GridCodec.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :test, runtime: false},
-      {:stream_data, "~> 1.1", only: [:dev, :test]},
-
-      # Benchmarking
-      {:benchee, "~> 1.3", only: [:dev, :test]},
-      {:benchee_html, "~> 1.0", only: [:dev, :test]},
-
-      # Comparison codecs for benchmarks (test only)
-      # Note: ETF (term_to_binary) and OTP JSON (:json) are built into OTP
-      {:jason, "~> 1.4", only: [:dev, :test]},
-      {:msgpax, "~> 2.4", only: [:dev, :test]},
-      # Pure Elixir protobuf implementation (no protoc required)
-      {:protobuf, "~> 0.15", only: [:dev, :test]},
-      # ElixirProto - context-scoped schema serialization (for comparison)
-      {:elixir_proto, "~> 0.1", only: [:dev, :test]},
-      # NIF-based JSON encoder (for benchmark comparison)
-      {:jiffy, "~> 1.1", only: [:dev, :test]}
+      {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
   end
 
@@ -104,20 +89,23 @@ defmodule GridCodec.MixProject do
       groups_for_modules: [
         "Core DSL": [
           GridCodec,
-          GridCodec.Compiler
+          GridCodec.Struct
         ],
         Runtime: [
           GridCodec.Envelope,
           GridCodec.Group,
           GridCodec.Dispatch,
-          GridCodec.Header
+          GridCodec.Header,
+          GridCodec.Registry
         ],
         Types: [
           GridCodec.Type,
           GridCodec.Types.Bool,
           GridCodec.Types.Decimal,
           GridCodec.Types.String,
-          GridCodec.Types.Timestamp,
+          GridCodec.Types.UUID,
+          GridCodec.Types.TimestampMicros,
+          GridCodec.Types.TimestampNanos,
           GridCodec.Types.Enum,
           GridCodec.Types.Bitset,
           GridCodec.Types.CharArray

@@ -8,7 +8,7 @@ defmodule GridCodec.Types.I64 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :timestamp, :i64

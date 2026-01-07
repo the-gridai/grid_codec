@@ -30,10 +30,11 @@ defmodule GridCodec.Envelope do
 
   | Operation | Fixed Field | Variable Field | Group |
   |-----------|-------------|----------------|-------|
-  | get/2     | O(1)        | O(k)*          | O(1)  |
+  | get/2     | O(1)        | Requires decode | Requires decode |
   | decode/1  | O(n)        | O(n)           | O(n)  |
 
-  *k = position in var-data section
+  Variable-length fields and groups cannot be accessed via `get/2` without
+  a full decode, as their positions depend on preceding variable-length data.
 
   ## Fan-out Optimization
 

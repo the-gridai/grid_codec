@@ -37,12 +37,12 @@ defmodule GridCodec.Types.Enum do
   ## Using in Codecs
 
       defmodule OrderEvent do
-        use GridCodec
+        use GridCodec.Struct, types: [side: OrderSide, status: OrderStatus]
 
         defcodec do
           field :id, :u64
-          field :side, OrderSide
-          field :status, OrderStatus
+          field :side, :side
+          field :status, :status
         end
       end
 

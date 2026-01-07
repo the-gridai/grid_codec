@@ -1,32 +1,64 @@
-# GridCodec Benchmarks
+# Benchmarks Directory
 
-## Quick Benchmark
+This directory contains development and profiling benchmarks for GridCodec.
 
-For fast development iteration:
+## Note: Example App Benchmarks
+
+For **real-world usage examples** and **benchmarks with consolidated code**, see the `example_app/` directory:
 
 ```bash
+cd example_app
+mix bench
+```
+
+The example app provides:
+- Real-world event codecs
+- Benchmarks with consolidated registry (when compiler is enabled)
+- Comparison with other serialization formats
+- Production-like usage patterns
+
+## Development Benchmarks
+
+These benchmarks are for development, profiling, and internal analysis:
+
+### Quick Benchmarks
+- `quick_bench.exs` - Fast iteration benchmark (~1 second)
+
+### Comprehensive Benchmarks
+- `struct_vs_legacy_bench.exs` - Compare Struct vs Legacy vs Hand-rolled
+- `comprehensive_bench.exs` - Various codec scenarios
+- `struct_bench.exs` - Struct-specific benchmarks
+
+### Profiling Tools
+- `c_level_profiling.exs` - Erlang-level profiling (:fprof, :eprof)
+- `jit_analysis.exs` - JIT (BeamAsm) analysis
+- `PROFILING.md` - Profiling guide
+- `README_PROFILING.md` - Quick profiling reference
+
+### Verification
+- `ast_verification.exs` - Verify generated AST is optimal
+
+## Running Benchmarks
+
+```bash
+# Quick benchmark
 mix run benchmarks/quick_bench.exs
+
+# Comprehensive comparison
+mix run benchmarks/struct_vs_legacy_bench.exs
+
+# Profiling
+mix run benchmarks/c_level_profiling.exs
+mix run benchmarks/jit_analysis.exs
 ```
 
-This runs a simple encode/decode/get benchmark with timing output.
+## Future Migration
 
-## Comprehensive Benchmarks
+Some of these benchmarks may be migrated to `example_app/` in the future to:
+- Keep the library lightweight
+- Provide real-world usage examples
+- Test with consolidated code
 
-For detailed, interactive benchmarks with visualizations, use the **Livebooks** in the `livebooks/` directory:
-
-| Livebook | Description |
-|----------|-------------|
-| `livebooks/01_performance_comparison.livemd` | GridCodec vs JSON, ETF, Protobuf, MessagePack |
-| `livebooks/02_subbinary_fanout.livemd` | Direct field access & memory-efficient fan-out |
-| `livebooks/03_internal_analysis.livemd` | BEAM bytecode analysis (for maintainers) |
-
-To run Livebooks:
-```bash
-# Install livebook if needed
-mix escript.install hex livebook
-
-# Start server
-livebook server
-```
-
-Then open http://localhost:8080 and navigate to the `livebooks/` folder.
+For now, both locations serve different purposes:
+- `benchmarks/` - Development and profiling
+- `example_app/benchmarks/` - Real-world usage and consolidated code testing

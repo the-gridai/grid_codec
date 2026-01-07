@@ -7,7 +7,7 @@ defmodule GridCodec.Types.U16 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :port, :u16

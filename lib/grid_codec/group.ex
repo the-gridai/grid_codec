@@ -70,32 +70,35 @@ defmodule GridCodec.Group do
   ## Usage Example
 
       defmodule OrderBook do
-        use GridCodec
+        use GridCodec.Struct, template_id: 1, schema_id: 100
 
         defcodec do
           field :symbol, :uuid
           field :timestamp, :u64
 
-          group :bids do
+          group :bids, entry_encoder: &encode_level/1, entry_decoder: &decode_level/1 do
             field :price, :u64
             field :quantity, :u32
           end
 
-          group :asks do
+          group :asks, entry_encoder: &encode_level/1, entry_decoder: &decode_level/1 do
             field :price, :u64
             field :quantity, :u32
           end
         end
+
+        defp encode_level(%{price: p, quantity: q}), do: <<p::little-64, q::little-32>>
+        defp decode_level(<<p::little-64, q::little-32>>), do: {:ok, %{price: p, quantity: q}}
       end
 
-      # Access bids directly
-      {:ok, env} = OrderBook.decode(binary)
-      bids = OrderBook.get(env, :bids)
+      # Decode fully to access groups
+      {:ok, order_book} = OrderBook.decode(binary)
+      bids = order_book.bids
 
-      # Count without iteration
+      # Count without full iteration
       count = GridCodec.Group.count(bids)
 
-      # Random access
+      # Random access to entries
       {:ok, top_bid} = GridCodec.Group.get_entry(bids, 0)
   """
 

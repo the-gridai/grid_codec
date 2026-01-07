@@ -4,7 +4,7 @@ defmodule GridCodec.EnvelopeTest do
   alias GridCodec.Envelope
 
   defmodule TestCodec do
-    use GridCodec
+    use GridCodec.Struct
 
     defcodec do
       field :id, :u64
@@ -15,7 +15,7 @@ defmodule GridCodec.EnvelopeTest do
 
   describe "wrap/2" do
     test "creates envelope with binary and codec" do
-      binary = TestCodec.encode(%{id: 123, price: 456, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 123, price: 456, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       assert %Envelope{} = env
@@ -24,7 +24,7 @@ defmodule GridCodec.EnvelopeTest do
     end
 
     test "captures schema metadata" do
-      binary = TestCodec.encode(%{id: 1, price: 2, active: false})
+      binary = TestCodec.encode(%TestCodec{id: 1, price: 2, active: false})
       env = Envelope.wrap(binary, TestCodec)
 
       assert env.schema != nil
@@ -34,7 +34,7 @@ defmodule GridCodec.EnvelopeTest do
 
   describe "get/2" do
     test "retrieves field values" do
-      binary = TestCodec.encode(%{id: 999, price: 100, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 999, price: 100, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       assert Envelope.get(env, :id) == 999
@@ -45,7 +45,7 @@ defmodule GridCodec.EnvelopeTest do
 
   describe "get_many/2" do
     test "retrieves multiple fields" do
-      binary = TestCodec.encode(%{id: 999, price: 100, active: false})
+      binary = TestCodec.encode(%TestCodec{id: 999, price: 100, active: false})
       env = Envelope.wrap(binary, TestCodec)
 
       result = Envelope.get_many(env, [:id, :price])
@@ -55,7 +55,7 @@ defmodule GridCodec.EnvelopeTest do
 
   describe "decode/1" do
     test "fully decodes the binary" do
-      data = %{id: 123, price: 456, active: true}
+      data = %TestCodec{id: 123, price: 456, active: true}
       binary = TestCodec.encode(data)
       env = Envelope.wrap(binary, TestCodec)
 
@@ -65,8 +65,8 @@ defmodule GridCodec.EnvelopeTest do
   end
 
   describe "decode!/1" do
-    test "returns map on success" do
-      data = %{id: 1, price: 2, active: false}
+    test "returns struct on success" do
+      data = %TestCodec{id: 1, price: 2, active: false}
       binary = TestCodec.encode(data)
       env = Envelope.wrap(binary, TestCodec)
 
@@ -77,21 +77,21 @@ defmodule GridCodec.EnvelopeTest do
 
   describe "accessors" do
     test "binary/1 returns raw binary" do
-      binary = TestCodec.encode(%{id: 1, price: 2, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 1, price: 2, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       assert Envelope.binary(env) == binary
     end
 
     test "codec/1 returns codec module" do
-      binary = TestCodec.encode(%{id: 1, price: 2, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 1, price: 2, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       assert Envelope.codec(env) == TestCodec
     end
 
     test "byte_size/1 returns binary size" do
-      binary = TestCodec.encode(%{id: 1, price: 2, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 1, price: 2, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       # u64 (8) + u32 (4) + bool (1) = 13
@@ -99,7 +99,7 @@ defmodule GridCodec.EnvelopeTest do
     end
 
     test "schema/1 returns schema metadata" do
-      binary = TestCodec.encode(%{id: 1, price: 2, active: true})
+      binary = TestCodec.encode(%TestCodec{id: 1, price: 2, active: true})
       env = Envelope.wrap(binary, TestCodec)
 
       schema = Envelope.schema(env)

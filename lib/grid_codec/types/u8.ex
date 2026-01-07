@@ -8,7 +8,7 @@ defmodule GridCodec.Types.U8 do
   ## Examples
 
       defmodule MyCodec do
-        use GridCodec
+        use GridCodec.Struct
 
         defcodec do
           field :status, :u8
