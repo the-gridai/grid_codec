@@ -72,6 +72,7 @@ defmodule GridCodec.Struct.Compiler do
       generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
 
     getter_clauses = generate_getters(fixed_fields, var_fields, groups, field_offsets, endian)
+    getter_macro = generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian)
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
     field_macro = generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian)
 
@@ -202,6 +203,9 @@ defmodule GridCodec.Struct.Compiler do
 
       # Zero-copy getters
       unquote(getter_clauses)
+
+      # Inline get macro (fastest - expands at compile time)
+      unquote(getter_macro)
 
       # Pattern matching macro
       unquote(match_macro)
@@ -1037,6 +1041,110 @@ defmodule GridCodec.Struct.Compiler do
         raise ArgumentError,
               "group field #{inspect(unquote(name))} requires full decode"
       end
+    end
+  end
+
+  # ============================================================================
+  # Inline Getter Macro Generation
+  # ============================================================================
+
+  defp generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian) do
+    # Build a map of field_name => {module, offset} for fixed fields
+    fixed_field_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+        offset = Map.get(field_offsets, name)
+        {name, {module, offset}}
+      end)
+      |> Map.new()
+
+    var_field_names = Enum.map(var_fields, fn {name, _, _, _} -> name end)
+    group_names = Enum.map(groups, fn {name, _, _} -> name end)
+
+    quote do
+      @doc """
+      Inline field access macro.
+
+      When called with a literal atom field name, expands at compile time
+      to direct binary pattern matching - as fast as the `match` macro.
+
+          require #{inspect(__MODULE__)}
+          value = #{inspect(__MODULE__)}.get!(binary, :price)
+
+      If the field name is a variable, falls back to function dispatch.
+      """
+      defmacro get!(binary_expr, field_name) do
+        fixed_specs = unquote(Macro.escape(fixed_field_specs))
+        var_fields = unquote(var_field_names)
+        groups = unquote(group_names)
+        endian = unquote(endian)
+        module = __MODULE__
+
+        GridCodec.Struct.Compiler.__build_inline_getter__(
+          binary_expr,
+          field_name,
+          fixed_specs,
+          var_fields,
+          groups,
+          endian,
+          module
+        )
+      end
+    end
+  end
+
+  @doc false
+  def __build_inline_getter__(binary_expr, field_name, fixed_specs, var_fields, groups, endian, module) do
+    case field_name do
+      # Literal atom - inline the binary pattern
+      name when is_atom(name) ->
+        cond do
+          Map.has_key?(fixed_specs, name) ->
+            {type_module, offset} = Map.get(fixed_specs, name)
+            # Use the binary_expr directly in the pattern if it's a simple var
+            # Otherwise bind it first
+            getter_body = type_module.getter_ast(offset, endian, binary_expr)
+
+            # Check if binary_expr is already a simple variable
+            case binary_expr do
+              {var_name, _, context} when is_atom(var_name) and is_atom(context) ->
+                # Simple variable - use directly
+                getter_body
+
+              _ ->
+                # Complex expression - bind to temp var first
+                temp_var = Macro.var(:__binary__, __MODULE__)
+                temp_body = type_module.getter_ast(offset, endian, temp_var)
+
+                quote do
+                  unquote(temp_var) = unquote(binary_expr)
+                  unquote(temp_body)
+                end
+            end
+
+          name in var_fields ->
+            quote do
+              raise ArgumentError,
+                    "variable-length field #{inspect(unquote(name))} requires full decode"
+            end
+
+          name in groups ->
+            quote do
+              raise ArgumentError,
+                    "group #{inspect(unquote(name))} requires full decode"
+            end
+
+          true ->
+            quote do
+              raise ArgumentError,
+                    "unknown field: #{inspect(unquote(name))}"
+            end
+        end
+
+      # Variable or expression - fall back to function
+      _ ->
+        quote do
+          unquote(module).get(unquote(binary_expr), unquote(field_name))
+        end
     end
   end
 

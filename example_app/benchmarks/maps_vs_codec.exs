@@ -7,7 +7,7 @@ defmodule Bench.MapsVsCodec do
   Focus:
   - Small (8 fields), Medium (32 fields - flat map limit), Large (33 fields - HAMT)
   - Field positions: start, middle, end
-  - Access methods: Map.get, match macro, Codec.get, GridCodec.get
+  - Access methods: Map.get, match macro, get! macro
   """
 
   alias ExampleApp.Bench.{SmallStruct, MediumStruct, LargeStruct}
@@ -20,6 +20,9 @@ defmodule Bench.MapsVsCodec do
     IO.puts("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║           Maps vs GridCodec Binary Access Benchmark              ║
+    ╠══════════════════════════════════════════════════════════════════╣
+    ║  match  = raw binary pattern (no null check)                     ║
+    ║  get!   = inline binary pattern (with null check)                ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
@@ -41,11 +44,6 @@ defmodule Bench.MapsVsCodec do
     binary = SmallStruct.encode(struct)
     map = struct_to_map(struct, 8)
 
-    # Field specs for GridCodec.get
-    spec_start = SmallStruct.field(:field_1)
-    spec_mid = SmallStruct.field(:field_4)
-    spec_end = SmallStruct.field(:field_8)
-
     IO.puts("Binary size: #{byte_size(binary)} bytes\n")
 
     Benchee.run(
@@ -54,21 +52,17 @@ defmodule Bench.MapsVsCodec do
         "Map.get (start)" => fn -> Map.get(map, :field_1) end,
         "Map.get (mid)" => fn -> Map.get(map, :field_4) end,
         "Map.get (end)" => fn -> Map.get(map, :field_8) end,
-        # GridCodec match macro (inline binary pattern)
+        # match macro - raw binary pattern (no null check)
         "match (start)" => fn -> case binary do SmallStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do SmallStruct.match(field_4: v) -> v end end,
         "match (end)" => fn -> case binary do SmallStruct.match(field_8: v) -> v end end,
-        # Codec.get(binary, :field) - direct module dispatch
-        "Codec.get (start)" => fn -> SmallStruct.get(binary, :field_1) end,
-        "Codec.get (mid)" => fn -> SmallStruct.get(binary, :field_4) end,
-        "Codec.get (end)" => fn -> SmallStruct.get(binary, :field_8) end,
-        # GridCodec.get with field spec - generic dispatch
-        "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
-        "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
-        "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
+        # get! macro - inline binary pattern (with null check)
+        "get! (start)" => fn -> SmallStruct.get!(binary, :field_1) end,
+        "get! (mid)" => fn -> SmallStruct.get!(binary, :field_4) end,
+        "get! (end)" => fn -> SmallStruct.get!(binary, :field_8) end
       },
-      warmup: 1,
-      time: 3,
+      warmup: 2,
+      time: 5,
       print: [configuration: false, fast_warning: false]
     )
   end
@@ -86,10 +80,6 @@ defmodule Bench.MapsVsCodec do
     binary = MediumStruct.encode(struct)
     map = struct_to_map(struct, 32)
 
-    spec_start = MediumStruct.field(:field_1)
-    spec_mid = MediumStruct.field(:field_16)
-    spec_end = MediumStruct.field(:field_32)
-
     IO.puts("Binary size: #{byte_size(binary)} bytes\n")
 
     Benchee.run(
@@ -100,15 +90,12 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do MediumStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do MediumStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do MediumStruct.match(field_32: v) -> v end end,
-        "Codec.get (start)" => fn -> MediumStruct.get(binary, :field_1) end,
-        "Codec.get (mid)" => fn -> MediumStruct.get(binary, :field_16) end,
-        "Codec.get (end)" => fn -> MediumStruct.get(binary, :field_32) end,
-        "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
-        "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
-        "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
+        "get! (start)" => fn -> MediumStruct.get!(binary, :field_1) end,
+        "get! (mid)" => fn -> MediumStruct.get!(binary, :field_16) end,
+        "get! (end)" => fn -> MediumStruct.get!(binary, :field_32) end
       },
-      warmup: 1,
-      time: 3,
+      warmup: 2,
+      time: 5,
       print: [configuration: false, fast_warning: false]
     )
   end
@@ -126,10 +113,6 @@ defmodule Bench.MapsVsCodec do
     binary = LargeStruct.encode(struct)
     map = struct_to_map(struct, 33)
 
-    spec_start = LargeStruct.field(:field_1)
-    spec_mid = LargeStruct.field(:field_16)
-    spec_end = LargeStruct.field(:field_33)
-
     IO.puts("Binary size: #{byte_size(binary)} bytes\n")
 
     Benchee.run(
@@ -140,15 +123,12 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do LargeStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do LargeStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do LargeStruct.match(field_33: v) -> v end end,
-        "Codec.get (start)" => fn -> LargeStruct.get(binary, :field_1) end,
-        "Codec.get (mid)" => fn -> LargeStruct.get(binary, :field_16) end,
-        "Codec.get (end)" => fn -> LargeStruct.get(binary, :field_33) end,
-        "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
-        "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
-        "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
+        "get! (start)" => fn -> LargeStruct.get!(binary, :field_1) end,
+        "get! (mid)" => fn -> LargeStruct.get!(binary, :field_16) end,
+        "get! (end)" => fn -> LargeStruct.get!(binary, :field_33) end
       },
-      warmup: 1,
-      time: 3,
+      warmup: 2,
+      time: 5,
       print: [configuration: false, fast_warning: false]
     )
   end
