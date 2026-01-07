@@ -7,7 +7,7 @@ defmodule Bench.MapsVsCodec do
   Focus:
   - Small (8 fields), Medium (32 fields - flat map limit), Large (33 fields - HAMT)
   - Field positions: start, middle, end
-  - Access methods: Map.get vs GridCodec match macro vs GridCodec.get
+  - Access methods: Map.get, match macro, Codec.get, GridCodec.get
   """
 
   alias ExampleApp.Bench.{SmallStruct, MediumStruct, LargeStruct}
@@ -26,7 +26,6 @@ defmodule Bench.MapsVsCodec do
     run_small()
     run_medium()
     run_large()
-    run_batch_comparison()
   end
 
   # ============================================================================
@@ -59,7 +58,11 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do SmallStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do SmallStruct.match(field_4: v) -> v end end,
         "match (end)" => fn -> case binary do SmallStruct.match(field_8: v) -> v end end,
-        # GridCodec.get with field spec
+        # Codec.get(binary, :field) - direct module dispatch
+        "Codec.get (start)" => fn -> SmallStruct.get(binary, :field_1) end,
+        "Codec.get (mid)" => fn -> SmallStruct.get(binary, :field_4) end,
+        "Codec.get (end)" => fn -> SmallStruct.get(binary, :field_8) end,
+        # GridCodec.get with field spec - generic dispatch
         "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
         "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
         "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
@@ -97,6 +100,9 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do MediumStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do MediumStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do MediumStruct.match(field_32: v) -> v end end,
+        "Codec.get (start)" => fn -> MediumStruct.get(binary, :field_1) end,
+        "Codec.get (mid)" => fn -> MediumStruct.get(binary, :field_16) end,
+        "Codec.get (end)" => fn -> MediumStruct.get(binary, :field_32) end,
         "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
         "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
         "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
@@ -134,53 +140,12 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do LargeStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do LargeStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do LargeStruct.match(field_33: v) -> v end end,
+        "Codec.get (start)" => fn -> LargeStruct.get(binary, :field_1) end,
+        "Codec.get (mid)" => fn -> LargeStruct.get(binary, :field_16) end,
+        "Codec.get (end)" => fn -> LargeStruct.get(binary, :field_33) end,
         "GridCodec.get (start)" => fn -> GridCodec.get(binary, spec_start) end,
         "GridCodec.get (mid)" => fn -> GridCodec.get(binary, spec_mid) end,
         "GridCodec.get (end)" => fn -> GridCodec.get(binary, spec_end) end
-      },
-      warmup: 1,
-      time: 3,
-      print: [configuration: false, fast_warning: false]
-    )
-  end
-
-  # ============================================================================
-  # Batch Access - Multiple fields at once
-  # ============================================================================
-
-  defp run_batch_comparison do
-    IO.puts("\n" <> String.duplicate("═", 70))
-    IO.puts("BATCH ACCESS - Reading multiple fields")
-    IO.puts(String.duplicate("═", 70) <> "\n")
-
-    struct = build_medium_struct()
-    binary = MediumStruct.encode(struct)
-    map = struct_to_map(struct, 32)
-
-    spec_1 = MediumStruct.field(:field_1)
-    spec_16 = MediumStruct.field(:field_16)
-    spec_32 = MediumStruct.field(:field_32)
-
-    IO.puts("Reading 3 fields from 32-field structure:\n")
-
-    Benchee.run(
-      %{
-        "Map.get x3" => fn ->
-          {Map.get(map, :field_1), Map.get(map, :field_16), Map.get(map, :field_32)}
-        end,
-        "match (3 fields)" => fn ->
-          case binary do
-            MediumStruct.match(field_1: a, field_16: b, field_32: c) -> {a, b, c}
-          end
-        end,
-        "GridCodec.get x3" => fn ->
-          {GridCodec.get(binary, spec_1),
-           GridCodec.get(binary, spec_16),
-           GridCodec.get(binary, spec_32)}
-        end,
-        "full decode" => fn ->
-          MediumStruct.decode(binary)
-        end
       },
       warmup: 1,
       time: 3,

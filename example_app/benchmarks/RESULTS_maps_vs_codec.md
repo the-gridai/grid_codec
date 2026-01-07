@@ -2,19 +2,14 @@
 
 Based on [Elixir Forum discussion](https://elixirforum.com/t/big-maps-versus-small-maps-performance/31909)
 
-## Summary
+## Access Methods Compared
 
-| Size | Map.get | match macro | GridCodec.get |
-|------|---------|-------------|---------------|
-| Small (8) | 26-28M ips | 24-40M ips | 19-21M ips |
-| Medium (32) | 21-26M ips | 12-21M ips | 19-23M ips |
-| Large (33 HAMT) | 22M ips | 19M ips | 15-16M ips |
-
-**Key findings:**
-- `match` macro is fastest for small binaries (inline pattern match)
-- GridCodec shows consistent O(1) performance regardless of field position
-- Map.get varies with key position in large maps
-- For batch access (3 fields), `match` is 1.46x faster than Map.get x3
+| Method | Description |
+|--------|-------------|
+| `Map.get` | Standard Elixir map access |
+| `match` | Inline binary pattern match via macro |
+| `Codec.get` | `MyCodec.get(binary, :field)` - direct module dispatch |
+| `GridCodec.get` | `GridCodec.get(binary, spec)` - generic dispatch |
 
 ---
 
@@ -24,13 +19,13 @@ Binary size: 64 bytes
 
 | Benchmark | ips | avg (ns) |
 |-----------|-----|----------|
-| match (start) | 39.63 M | 25.24 |
-| Map.get (end) | 27.87 M | 35.88 |
-| Map.get (mid) | 27.42 M | 36.47 |
-| Map.get (start) | 25.76 M | 38.81 |
-| match (mid) | 24.93 M | 40.11 |
-| match (end) | 23.82 M | 41.97 |
-| GridCodec.get | 19-21 M | 47-51 |
+| match (end) | 128M | 7.8 |
+| Map.get (start) | 120M | 8.3 |
+| Map.get (mid) | 76M | 13.2 |
+| Map.get (end) | 32M | 31.1 |
+| match (start/mid) | 28M | 35 |
+| Codec.get | 21-29M | 35-47 |
+| GridCodec.get | 26M | 39 |
 
 ---
 
@@ -40,13 +35,13 @@ Binary size: 256 bytes
 
 | Benchmark | ips | avg (ns) |
 |-----------|-----|----------|
-| Map.get (end) | 25.57 M | 39.10 |
-| GridCodec.get (start) | 23.39 M | 42.76 |
-| Map.get (mid) | 22.17 M | 45.11 |
-| match (end) | 21.23 M | 47.10 |
-| Map.get (start) | 20.84 M | 47.98 |
-| GridCodec.get (mid/end) | 19-20 M | 51 |
-| match (start/mid) | 12-18 M | 57-81 |
+| match (start) | 115M | 8.7 |
+| match (mid) | 61M | 16.5 |
+| match (end) | 45M | 22.1 |
+| Map.get (mid/end) | 30M | 33 |
+| Codec.get | 23-29M | 35-44 |
+| GridCodec.get | 21-24M | 41-48 |
+| Map.get (start) | 22M | 45 |
 
 ---
 
@@ -56,31 +51,30 @@ Binary size: 264 bytes
 
 | Benchmark | ips | avg (ns) |
 |-----------|-----|----------|
-| Map.get | 22 M | 44-46 |
-| match | 19 M | 51-53 |
-| GridCodec.get | 15-16 M | 61-65 |
+| Map.get (end) | 113M | 8.9 |
+| Codec.get (start) | 99M | 10.1 |
+| match | 28-29M | 35 |
+| Map.get (mid/start) | 27M | 36-37 |
+| Codec.get (mid/end) | 27-29M | 34-36 |
+| GridCodec.get | 23-25M | 39-43 |
 
 ---
 
-## BATCH ACCESS - 3 fields from 32-field structure
+## Key Findings
 
-| Method | ips | vs fastest |
-|--------|-----|------------|
-| match (3 fields) | 17.00 M | baseline |
-| Map.get x3 | 11.64 M | 1.46x slower |
-| GridCodec.get x3 | 7.52 M | 2.26x slower |
-| full decode | 0.81 M | 21x slower |
-
----
+1. **match macro** - Fastest for small binaries (115-128M ips) due to inline pattern match
+2. **Map.get** - Varies significantly by key position (8-120M ips)
+3. **Codec.get** - Consistent performance, comparable to match (~28M ips)
+4. **GridCodec.get** - ~15% slower than Codec.get due to type dispatch (~23-26M ips)
 
 ## Recommendations
 
 | Use Case | Best Method |
 |----------|-------------|
-| Known field(s) at compile time | `match` macro |
-| In-memory data access | `Map.get` |
-| Runtime field selection | `GridCodec.get(bin, Codec.field(:name))` |
-| Need most/all fields | Full decode |
+| Known field at compile time | `match` macro |
+| Direct module access | `Codec.get(binary, :field)` |
+| Generic/runtime field access | `GridCodec.get(binary, spec)` |
+| In-memory data | `Map.get` |
 
 ## Usage
 
@@ -88,9 +82,12 @@ Binary size: 264 bytes
 # Match macro (fastest for known fields)
 require MyCodec
 case binary do
-  MyCodec.match(price: p, quantity: q) -> {p, q}
+  MyCodec.match(price: p, qty: q) -> {p, q}
 end
 
-# GridCodec.get with field spec
+# Direct module access
+value = MyCodec.get(binary, :price)
+
+# Generic access with field spec
 value = GridCodec.get(binary, MyCodec.field(:price))
 ```
