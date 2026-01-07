@@ -984,7 +984,8 @@ defmodule GridCodec.Struct.Compiler do
     quote do
       (unquote_splicing(all_clauses))
 
-      def get(_env, field) do
+      # Fallback for unknown fields
+      def get(_binary_or_env, field) do
         raise ArgumentError, "unknown field: #{inspect(field)}"
       end
     end
@@ -995,6 +996,12 @@ defmodule GridCodec.Struct.Compiler do
     getter_body = module.getter_ast(offset, endian, payload_var)
 
     quote do
+      # Direct binary getter - fastest path (no envelope overhead)
+      def get(var!(payload), unquote(name)) when is_binary(var!(payload)) do
+        unquote(getter_body)
+      end
+
+      # Envelope getter - for API compatibility
       def get(%GridCodec.Envelope{binary: var!(payload)}, unquote(name)) do
         unquote(getter_body)
       end
@@ -1003,6 +1010,11 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_var_getter(name) do
     quote do
+      def get(payload, unquote(name)) when is_binary(payload) do
+        raise ArgumentError,
+              "variable-length field #{inspect(unquote(name))} requires full decode"
+      end
+
       def get(%GridCodec.Envelope{binary: _payload}, unquote(name)) do
         raise ArgumentError,
               "variable-length field #{inspect(unquote(name))} requires full decode"
@@ -1012,6 +1024,11 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_group_getter(name) do
     quote do
+      def get(payload, unquote(name)) when is_binary(payload) do
+        raise ArgumentError,
+              "group field #{inspect(unquote(name))} requires full decode"
+      end
+
       def get(%GridCodec.Envelope{binary: _payload}, unquote(name)) do
         raise ArgumentError,
               "group field #{inspect(unquote(name))} requires full decode"

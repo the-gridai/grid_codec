@@ -39,8 +39,8 @@ defmodule Bench.MapsVsCodec do
 
   defp run_direct_match_vs_map do
     IO.puts("\n" <> String.duplicate("═", 70))
-    IO.puts("PART 1: Direct Binary Match (match macro) vs Map.get")
-    IO.puts("This is the true zero-overhead binary access!")
+    IO.puts("PART 1: GridCodec get(binary, field) vs Map.get")
+    IO.puts("Direct binary access with compile-time offsets")
     IO.puts(String.duplicate("═", 70) <> "\n")
 
     # Prepare codec binaries
@@ -63,22 +63,10 @@ defmodule Bench.MapsVsCodec do
 
     Benchee.run(
       %{
-        # Direct binary match - should be fastest!
-        "match field_1" => fn ->
-          case small_bin do
-            SmallStruct.match(field_1: v) -> v
-          end
-        end,
-        "match field_4" => fn ->
-          case small_bin do
-            SmallStruct.match(field_4: v) -> v
-          end
-        end,
-        "match field_8" => fn ->
-          case small_bin do
-            SmallStruct.match(field_8: v) -> v
-          end
-        end,
+        # Direct binary get - function API
+        "get(bin, :field_1)" => fn -> SmallStruct.get(small_bin, :field_1) end,
+        "get(bin, :field_4)" => fn -> SmallStruct.get(small_bin, :field_4) end,
+        "get(bin, :field_8)" => fn -> SmallStruct.get(small_bin, :field_8) end,
         # Map access for comparison
         "Map.get field_1" => fn -> Map.get(small_map, :field_1) end,
         "Map.get field_4" => fn -> Map.get(small_map, :field_4) end,
@@ -93,21 +81,9 @@ defmodule Bench.MapsVsCodec do
 
     Benchee.run(
       %{
-        "match field_1" => fn ->
-          case medium_bin do
-            MediumStruct.match(field_1: v) -> v
-          end
-        end,
-        "match field_16" => fn ->
-          case medium_bin do
-            MediumStruct.match(field_16: v) -> v
-          end
-        end,
-        "match field_32" => fn ->
-          case medium_bin do
-            MediumStruct.match(field_32: v) -> v
-          end
-        end,
+        "get(bin, :field_1)" => fn -> MediumStruct.get(medium_bin, :field_1) end,
+        "get(bin, :field_16)" => fn -> MediumStruct.get(medium_bin, :field_16) end,
+        "get(bin, :field_32)" => fn -> MediumStruct.get(medium_bin, :field_32) end,
         "Map.get field_1" => fn -> Map.get(medium_map, :field_1) end,
         "Map.get field_16" => fn -> Map.get(medium_map, :field_16) end,
         "Map.get field_32" => fn -> Map.get(medium_map, :field_32) end
@@ -121,21 +97,9 @@ defmodule Bench.MapsVsCodec do
 
     Benchee.run(
       %{
-        "match field_1" => fn ->
-          case large_bin do
-            LargeStruct.match(field_1: v) -> v
-          end
-        end,
-        "match field_16" => fn ->
-          case large_bin do
-            LargeStruct.match(field_16: v) -> v
-          end
-        end,
-        "match field_33" => fn ->
-          case large_bin do
-            LargeStruct.match(field_33: v) -> v
-          end
-        end,
+        "get(bin, :field_1)" => fn -> LargeStruct.get(large_bin, :field_1) end,
+        "get(bin, :field_16)" => fn -> LargeStruct.get(large_bin, :field_16) end,
+        "get(bin, :field_33)" => fn -> LargeStruct.get(large_bin, :field_33) end,
         "Map.get field_1" => fn -> Map.get(large_map, :field_1) end,
         "Map.get field_16" => fn -> Map.get(large_map, :field_16) end,
         "Map.get field_33" => fn -> Map.get(large_map, :field_33) end
@@ -147,29 +111,36 @@ defmodule Bench.MapsVsCodec do
   end
 
   # ============================================================================
-  # Part 2: Match vs Envelope get (showing envelope overhead)
+  # Part 2: Comparing all get methods
   # ============================================================================
 
   defp run_envelope_comparison do
     IO.puts("\n" <> String.duplicate("═", 70))
-    IO.puts("PART 2: Match Macro vs Envelope get/2 (measuring overhead)")
+    IO.puts("PART 2: Comparing All Access Methods")
     IO.puts(String.duplicate("═", 70) <> "\n")
 
     small_struct = build_small_struct()
     small_bin = SmallStruct.encode(small_struct)
     small_env = SmallStruct.wrap(small_bin)
+    small_map = struct_to_map(small_struct, 8)
 
-    IO.puts("Comparing access methods on same binary:\n")
+    IO.puts("Comparing access methods on same data:\n")
 
     Benchee.run(
       %{
-        "match (direct binary)" => fn ->
+        "match macro" => fn ->
           case small_bin do
             SmallStruct.match(field_4: v) -> v
           end
         end,
-        "Envelope.get (with struct dispatch)" => fn ->
+        "get(binary, field) - direct" => fn ->
+          SmallStruct.get(small_bin, :field_4)
+        end,
+        "get(envelope, field)" => fn ->
           SmallStruct.get(small_env, :field_4)
+        end,
+        "Map.get" => fn ->
+          Map.get(small_map, :field_4)
         end
       },
       warmup: 1,
@@ -189,25 +160,24 @@ defmodule Bench.MapsVsCodec do
 
     small_struct = build_small_struct()
     small_bin = SmallStruct.encode(small_struct)
-    small_env = SmallStruct.wrap(small_bin)
     small_map = struct_to_map(small_struct, 8)
 
     Benchee.run(
       %{
-        "match 3 fields (direct)" => fn ->
+        "get(bin, field) x3" => fn ->
+          {SmallStruct.get(small_bin, :field_1),
+           SmallStruct.get(small_bin, :field_4),
+           SmallStruct.get(small_bin, :field_8)}
+        end,
+        "match 3 fields" => fn ->
           case small_bin do
             SmallStruct.match(field_1: f1, field_4: f4, field_8: f8) -> {f1, f4, f8}
           end
         end,
-        "Map.get 3 fields" => fn ->
+        "Map.get x3" => fn ->
           {Map.get(small_map, :field_1),
            Map.get(small_map, :field_4),
            Map.get(small_map, :field_8)}
-        end,
-        "Envelope get 3 fields" => fn ->
-          {SmallStruct.get(small_env, :field_1),
-           SmallStruct.get(small_env, :field_4),
-           SmallStruct.get(small_env, :field_8)}
         end,
         "full decode" => fn ->
           SmallStruct.decode(small_bin)
@@ -222,7 +192,17 @@ defmodule Bench.MapsVsCodec do
 
     Benchee.run(
       %{
-        "match all 8 fields (direct)" => fn ->
+        "get(bin, field) x8" => fn ->
+          {SmallStruct.get(small_bin, :field_1),
+           SmallStruct.get(small_bin, :field_2),
+           SmallStruct.get(small_bin, :field_3),
+           SmallStruct.get(small_bin, :field_4),
+           SmallStruct.get(small_bin, :field_5),
+           SmallStruct.get(small_bin, :field_6),
+           SmallStruct.get(small_bin, :field_7),
+           SmallStruct.get(small_bin, :field_8)}
+        end,
+        "match all 8 fields" => fn ->
           case small_bin do
             SmallStruct.match(
               field_1: f1,
@@ -237,7 +217,7 @@ defmodule Bench.MapsVsCodec do
               {f1, f2, f3, f4, f5, f6, f7, f8}
           end
         end,
-        "Map.get all 8 fields" => fn ->
+        "Map.get x8" => fn ->
           {Map.get(small_map, :field_1),
            Map.get(small_map, :field_2),
            Map.get(small_map, :field_3),
