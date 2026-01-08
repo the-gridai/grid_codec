@@ -1093,7 +1093,15 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   @doc false
-  def __build_inline_getter__(binary_expr, field_name, fixed_specs, var_fields, groups, endian, module) do
+  def __build_inline_getter__(
+        binary_expr,
+        field_name,
+        fixed_specs,
+        var_fields,
+        groups,
+        endian,
+        module
+      ) do
     case field_name do
       # Literal atom - inline the binary pattern
       name when is_atom(name) ->
