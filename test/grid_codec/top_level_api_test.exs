@@ -1,5 +1,7 @@
 defmodule GridCodec.TopLevelApiTest do
-  use ExUnit.Case, async: true
+  # async: false because these tests use GridCodec.decode/1 which relies
+  # on the global registry, and parallel test execution can cause race conditions
+  use ExUnit.Case, async: false
 
   # Define test codecs with unique IDs
   defmodule Order do

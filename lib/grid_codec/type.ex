@@ -256,6 +256,7 @@ defmodule GridCodec.Type do
       f64: GridCodec.Types.F64,
       # Special types
       uuid: GridCodec.Types.UUID,
+      uuid_string: GridCodec.Types.UUIDString,
       bool: GridCodec.Types.Bool,
       # Variable-length strings with length prefixes
       string: GridCodec.Types.String16,

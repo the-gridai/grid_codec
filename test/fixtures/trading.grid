@@ -1,0 +1,21 @@
+# Test schema file for GridCodec
+
+schema Trading {
+  id: 100
+  version: 1
+}
+
+struct Order (template_id: 1001) {
+  id: uuid_string
+  user_id: u64
+  symbol: string16
+  quantity: u32
+  active: bool
+}
+
+struct Trade (template_id: 1002) {
+  trade_id: uuid_string
+  order_id: uuid_string
+  price: u64
+  quantity: u32
+}

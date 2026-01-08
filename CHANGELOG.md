@@ -7,11 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-09
+
 ### Added
+- **`.grid` schema files**: Define GridCodec structs in external schema files
+  - Protobuf-inspired syntax with `.grid` file extension
+  - New `struct` keyword with explicit header parameters: `struct Order (template_id: 1001) { ... }`
+  - Support for per-struct version overrides: `struct Trade (template_id: 1002, version: 2) { ... }`
+  - Schema-level metadata: `schema Trading { id: 100 version: 1 }`
+  - Composite types: `type Price { mantissa: i64 exponent: i8 }`
+  - Enums: `enum Side : u8 { buy = 1 sell = 2 }`
+  - Optional fields with `?` suffix
+  - Repeating groups support
+  - Parser in `GridCodec.Schema.Parser`
+- **Sigils for inline schemas**: `~g` (runtime) and `~G` (compile-time) sigils
+  - Define schemas directly in Elixir code for tests and prototyping
+  - `import GridCodec.Schema.Sigil` to use
+- **Load structs from `.grid` files**: `use GridCodec.Struct, grid_file: "path/to/schema.grid", message: :Order`
+- **Load structs from sigils**: `use GridCodec.Struct, grid_schema: ~G"...", message: :Order`
+- **`:uuid_string` type**: UUID stored as 16 bytes but decoded to human-readable string format
+  - JSON-safe: no need for custom encoder protocols
+  - Same binary efficiency as `:uuid` type
+- **`GridCodec.Json` module**: Simple JSON transcoder wrapper
+  - `GridCodec.Json.encode(binary, Schema)` - binary → JSON string
+  - `GridCodec.Json.decode(json, Schema)` - JSON string → binary
+  - Works with structs that have JSON-safe types (use `:uuid_string` instead of `:uuid`)
 - **Compile-time safety for `match/1,2` macro**: Matching on literal `nil` now raises
-  a `CompileError` with a helpful message. This prevents a common gotcha where users
-  expect `match(field: nil)` to match null values, but `match` returns raw sentinel
-  values, not `nil`.
+  a `CompileError` with a helpful message
 
 ### Changed
 - Improved documentation for `match/1,2` macro to clearly explain that it returns

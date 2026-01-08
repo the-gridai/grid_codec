@@ -31,6 +31,33 @@ defmodule GridCodec.Struct do
       # - MyApp.Order.get/2 macro for zero-copy field access
       # - Registered for dispatch via GridCodec.decode/1
 
+  ## From .grid Schema File
+
+  You can also define your codec from a `.grid` schema file:
+
+      # priv/schemas/trading.grid
+      schema Trading {
+        id: 100
+        version: 1
+      }
+
+      message Order (1001) {
+        id: uuid_string
+        price: u64
+        quantity: u32
+      }
+
+      # lib/my_app/order.ex
+      defmodule MyApp.Order do
+        use GridCodec.Struct,
+          grid_file: "priv/schemas/trading.grid",
+          message: :Order
+
+        # You can add custom functions here
+        def validate(%__MODULE__{quantity: q}) when q > 0, do: :ok
+        def validate(_), do: {:error, :invalid}
+      end
+
   ## Options
 
   - `:template_id` - Unique message type identifier (default: hash of module name)
@@ -39,6 +66,8 @@ defmodule GridCodec.Struct do
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
   - `:types` - Custom type modules (default: [])
+  - `:grid_file` - Path to `.grid` schema file (optional)
+  - `:message` - Message name in schema file (required with `:grid_file`)
 
   ## Usage
 
@@ -87,15 +116,151 @@ defmodule GridCodec.Struct do
 
   @doc false
   defmacro __using__(opts \\ []) do
+    grid_file = Keyword.get(opts, :grid_file)
+    grid_schema = Keyword.get(opts, :grid_schema)
+    message_name = Keyword.get(opts, :message)
+
+    # Handle grid_schema which might be a sigil AST or already-parsed schema
+    resolved_schema = resolve_grid_schema(grid_schema)
+
+    cond do
+      grid_file ->
+        # Load schema from .grid file at compile time
+        generate_from_grid_file(grid_file, message_name, opts)
+
+      resolved_schema ->
+        # Use inline schema (from sigil or parsed)
+        generate_from_schema(resolved_schema, message_name, opts)
+
+      true ->
+        # Standard defcodec approach
+        quote do
+          import GridCodec.Struct, only: [defcodec: 1]
+          import GridCodec, only: [field: 2, field: 3, group: 2, group: 3]
+
+          @gridcodec_opts unquote(opts)
+          @gridcodec_is_struct true
+
+          Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
+          Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
+        end
+    end
+  end
+
+  # Resolve grid_schema which might be:
+  # - nil
+  # - A sigil AST like {:sigil_G, _, [[string], []]}
+  # - An already-parsed schema struct
+  defp resolve_grid_schema(nil), do: nil
+
+  defp resolve_grid_schema(%GridCodec.Schema.Parser.Schema{} = schema), do: schema
+
+  defp resolve_grid_schema({:sigil_G, _meta, [{:<<>>, _, [string]}, []]}) when is_binary(string) do
+    case GridCodec.Schema.Parser.parse(string) do
+      {:ok, schema} -> schema
+      {:error, reason} -> raise ArgumentError, "Invalid grid schema: #{inspect(reason)}"
+    end
+  end
+
+  defp resolve_grid_schema({:sigil_g, _meta, [{:<<>>, _, [string]}, []]}) when is_binary(string) do
+    case GridCodec.Schema.Parser.parse(string) do
+      {:ok, schema} -> schema
+      {:error, reason} -> raise ArgumentError, "Invalid grid schema: #{inspect(reason)}"
+    end
+  end
+
+  defp resolve_grid_schema(other) do
+    raise ArgumentError,
+          "Invalid grid_schema option. Expected ~G sigil or parsed schema, got: #{inspect(other)}"
+  end
+
+  defp generate_from_grid_file(grid_file, message_name, opts) do
+    # Parse the file at compile time
+    case GridCodec.Schema.Parser.parse_file(grid_file) do
+      {:ok, schema} ->
+        generate_from_schema(schema, message_name, opts)
+
+      {:error, {:file_error, path, reason}} ->
+        raise ArgumentError,
+              "Could not read grid file #{path}: #{inspect(reason)}"
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "Could not parse grid file #{grid_file}: #{inspect(reason)}"
+    end
+  end
+
+  defp generate_from_schema(schema, struct_name, opts) do
+    # Support both .structs (new) and .messages (legacy)
+    structs = Map.get(schema, :structs) || Map.get(schema, :messages) || %{}
+    struct_def = Map.get(structs, struct_name)
+
+    if struct_def do
+      generate_from_struct_def(schema, struct_def, opts)
+    else
+      available = Map.keys(structs) |> Enum.join(", ")
+
+      raise ArgumentError,
+            "Struct :#{struct_name} not found in schema. " <>
+              "Available structs: #{available}"
+    end
+  end
+
+  defp generate_from_struct_def(schema, struct_def, opts) do
+    # Build field definitions from parsed struct
+    field_defs =
+      Enum.map(struct_def.fields, fn field ->
+        field_opts = if field.optional, do: [presence: :optional], else: []
+        {field.name, field.type, field_opts}
+      end)
+
+    # Build group definitions
+    group_defs =
+      Enum.map(struct_def.groups, fn group ->
+        group_fields =
+          Enum.map(group.fields, fn field ->
+            field_opts = if field.optional, do: [presence: :optional], else: []
+            {field.name, field.type, field_opts}
+          end)
+
+        {group.name, group_fields, []}
+      end)
+
+    # Merge schema-level options with user opts
+    # Struct-level version overrides schema-level version
+    version = struct_def.version || schema.version || 1
+
+    merged_opts =
+      opts
+      |> Keyword.put_new(:template_id, struct_def.template_id)
+      |> Keyword.put_new(:schema_id, schema.id || 0)
+      |> Keyword.put_new(:version, version)
+      |> Keyword.delete(:grid_file)
+      |> Keyword.delete(:grid_schema)
+      |> Keyword.delete(:message)
+
     quote do
       import GridCodec.Struct, only: [defcodec: 1]
       import GridCodec, only: [field: 2, field: 3, group: 2, group: 3]
 
-      @gridcodec_opts unquote(opts)
+      @gridcodec_opts unquote(Macro.escape(merged_opts))
       @gridcodec_is_struct true
 
       Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
+
+      # Register fields from .grid file
+      for {name, type, field_opts} <- unquote(Macro.escape(field_defs)) do
+        @gridcodec_fields {name, type, field_opts}
+      end
+
+      # Register groups from .grid file
+      for {name, fields, group_opts} <- unquote(Macro.escape(group_defs)) do
+        @gridcodec_groups {name, fields, group_opts}
+      end
+
+      # Trigger compilation
+      @before_compile GridCodec.Struct.Compiler
     end
   end
 

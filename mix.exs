@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.6.0"
+  @version "0.7.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -79,6 +79,9 @@ defmodule GridCodec.MixProject do
     [
       # Runtime - Decimal type support
       {:decimal, "~> 2.0"},
+
+      # Optional - JSON transcoder support
+      {:jason, "~> 1.4", optional: true},
 
       # Dev/Test - Code quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},

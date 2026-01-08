@@ -23,6 +23,9 @@ defmodule ExampleApp.MixProject do
       # GridCodec library (path dependency)
       {:grid_codec, path: ".."},
 
+      # JSON support (for transcoder)
+      {:jason, "~> 1.4"},
+
       # Benchmarking
       {:benchee, "~> 1.3"}
     ]
