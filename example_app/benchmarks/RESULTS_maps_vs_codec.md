@@ -68,8 +68,8 @@ At nanosecond scales, variance is high (~8000%+ deviation). Results are represen
    - Maps transition from flat to HAMT above 32 keys
    - Binary access performance is unaffected by field count
 
-4. **Envelope.get uses runtime dispatch** via GridCodec.get/2
-   - Slower than `get` macro but works dynamically
+4. **GridCodec.get/2 uses runtime dispatch** via field specs
+   - Slower than `get` macro but works with dynamic field names
    - For hot paths, use `get` macro with `require`
 
 ---
@@ -80,7 +80,7 @@ At nanosecond scales, variance is high (~8000%+ deviation). Results are represen
 |----------|--------|
 | Raw binary extraction (performance critical, no nulls) | `match` macro |
 | Normal field access (handles nulls) | `get` macro |
-| Envelope field access (runtime dispatch) | `Envelope.get` function |
+| Dynamic field access (runtime dispatch) | `GridCodec.get/2` with field specs |
 | Data in maps already | `Map.get` |
 
 ## Example Usage
@@ -96,9 +96,8 @@ end
 # get macro - with null handling
 price = MyCodec.get(binary, :price)
 
-# Envelope.get (for envelope access, uses runtime dispatch)
-env = MyCodec.wrap(binary)
-price = GridCodec.Envelope.get(env, :price)
+# GridCodec.get/2 (runtime dispatch via field specs)
+price = GridCodec.get(binary, MyCodec.field(:price))
 ```
 
 ---

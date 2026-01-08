@@ -18,11 +18,11 @@ defmodule GridCodec.Types.UUID do
 
       # With raw UUID bytes
       id = :crypto.strong_rand_bytes(16)
-      MyCodec.encode(%{id: id, parent_id: <<0::128>>})
+      binary = MyCodec.encode(%MyCodec{id: id, parent_id: <<0::128>>})
 
       # Zero-copy access returns a sub-binary reference
-      env = MyCodec.wrap(binary)
-      id = MyCodec.get(env, :id)  # Sub-binary, no copy!
+      require MyCodec
+      id = MyCodec.get(binary, :id)  # Sub-binary, no copy!
 
   ## Wire Format
 
@@ -55,8 +55,8 @@ defmodule GridCodec.Types.UUID do
   ## Zero-Copy Benefits
 
   The UUID type is particularly suited for GridCodec's zero-copy access.
-  When you call `get(env, :uuid_field)`, you receive a sub-binary reference
-  to the original payload—no memory allocation or copy occurs.
+  When you call `MyCodec.get(binary, :uuid_field)`, you receive a sub-binary
+  reference to the original payload—no memory allocation or copy occurs.
 
   This is ideal for high-throughput scenarios where you need to extract
   IDs for routing or filtering without full message decode.

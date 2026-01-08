@@ -7,7 +7,7 @@ defmodule GridCodec.Dispatch do
 
   ## Overview
 
-  When messages are encoded with `encode!/1`, they include an 8-byte header
+  When messages are encoded with `encode/1`, they include an 8-byte header
   containing `{schema_id, template_id}`. The dispatch table uses these to
   route to the correct codec at runtime.
 
@@ -92,7 +92,7 @@ defmodule GridCodec.Dispatch do
 
       # Encode (struct required)
       order = %MyApp.Events.OrderCreated{order_id: <<1::128>>, price: 100}
-      binary = MyApp.Events.OrderCreated.encode!(order)
+      binary = MyApp.Events.OrderCreated.encode(order)
 
       # Dispatch decode
       {:ok, data, MyApp.Events.OrderCreated} = MyApp.Events.Dispatch.decode(binary)
@@ -124,7 +124,7 @@ defmodule GridCodec.Dispatch do
   1. Validates all codecs implement required callbacks
   2. Checks for `{schema_id, template_id}` conflicts
   3. Generates a compile-time lookup table
-  4. Defines `decode/1`, `decode!/1`, `wrap/1`, `lookup/2`, and `list_codecs/0`
+  4. Defines `decode/1`, `decode!/1`, `lookup/2`, and `list_codecs/0`
 
   ## Compile-Time Errors
 

@@ -89,7 +89,8 @@ defmodule GridCodec.MixProject do
       source_ref: "v#{@version}",
       extras: [
         "README.md": [title: "Overview"],
-        "CHANGELOG.md": [title: "Changelog"]
+        "CHANGELOG.md": [title: "Changelog"],
+        "LICENSE": [title: "License"]
       ],
       groups_for_modules: [
         "Core DSL": [
@@ -97,7 +98,6 @@ defmodule GridCodec.MixProject do
           GridCodec.Struct
         ],
         Runtime: [
-          GridCodec.Envelope,
           GridCodec.Group,
           GridCodec.Dispatch,
           GridCodec.Header,

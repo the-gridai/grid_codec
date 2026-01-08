@@ -94,9 +94,9 @@ binary = ExampleApp.Events.OrderCreated.encode(order)
 # Decode
 {:ok, decoded} = ExampleApp.Events.OrderCreated.decode(binary)
 
-# Zero-copy field access
-{:ok, env} = ExampleApp.Events.OrderCreated.wrap(binary)
-price = ExampleApp.Events.OrderCreated.get(env, :price)
+# Zero-copy field access (no full decode!)
+require ExampleApp.Events.OrderCreated
+price = ExampleApp.Events.OrderCreated.get(binary, :price)
 
 # Dispatch (with consolidated registry)
 framed = GridCodec.encode(order)

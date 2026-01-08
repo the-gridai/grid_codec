@@ -16,11 +16,11 @@ defmodule GridCodec.Types.Bool do
         end
       end
 
-      MyCodec.encode(%{is_active: true, is_verified: false})
-      # => <<1, 0>>
+      # Encode (includes 8-byte header by default)
+      binary = MyCodec.encode(%MyCodec{is_active: true, is_verified: false})
 
-      {:ok, decoded} = MyCodec.decode(<<1, 0>>)
-      # => {:ok, %{is_active: true, is_verified: false}}
+      # Decode
+      {:ok, %MyCodec{is_active: true, is_verified: false}} = MyCodec.decode(binary)
 
   ## Wire Format
 

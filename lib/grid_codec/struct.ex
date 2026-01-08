@@ -11,7 +11,7 @@ defmodule GridCodec.Struct do
   - **Auto-generated `defstruct`**: Field definitions in `defcodec` become struct fields
   - **Enforced keys**: Fields with `presence: :required` are added to `@enforce_keys`
   - **Compile-time registration**: Codecs register for dispatch via template_id/schema_id
-  - **Zero-copy access**: Same `wrap/1` and `get/2` APIs for efficient field access
+  - **Zero-copy access**: Use `get/2` macro for O(1) field access without full decode
 
   ## Quick Example
 
@@ -27,7 +27,8 @@ defmodule GridCodec.Struct do
 
       # Creates:
       # - %MyApp.Order{} struct with @enforce_keys [:id]
-      # - MyApp.Order.encode/1, decode/1, encode!/1, decode!/1
+      # - MyApp.Order.encode/1, decode/1
+      # - MyApp.Order.get/2 macro for zero-copy field access
       # - Registered for dispatch via GridCodec.decode/1
 
   ## Options
@@ -63,15 +64,15 @@ defmodule GridCodec.Struct do
 
       # Encode with header (for dispatch)
       binary = GridCodec.encode(trade)
-      # or: binary = MyApp.Trade.encode!(trade)
+      # or: binary = MyApp.Trade.encode(trade)
 
       # Decode (dispatch finds correct module)
       {:ok, %MyApp.Trade{}} = GridCodec.decode(binary)
-      # or: {:ok, %MyApp.Trade{}} = MyApp.Trade.decode!(binary)
+      # or: {:ok, %MyApp.Trade{}} = MyApp.Trade.decode(binary)
 
-      # Zero-copy field access
-      env = MyApp.Trade.wrap(payload)
-      price = MyApp.Trade.get(env, :price)
+      # Zero-copy field access (no full decode!)
+      require MyApp.Trade
+      price = MyApp.Trade.get(binary, :price)
 
   ## Template ID
 
@@ -122,12 +123,11 @@ defmodule GridCodec.Struct do
 
   ## Generated Functions
 
-  - `encode/1` - Encodes struct to binary (payload only)
-  - `encode!/1` - Encodes struct with 8-byte header (for dispatch)
-  - `decode/1` - Decodes binary payload to struct
-  - `decode!/1` - Decodes framed binary (validates header)
-  - `wrap/1` - Wraps binary for zero-copy access
-  - `get/2` - Gets field from wrapped binary
+  - `encode/1,2` - Encodes struct to binary (with header by default)
+  - `decode/1,2` - Decodes binary to struct (expects header by default)
+  - `get/2,3` macro - Zero-copy field access via binary pattern matching
+  - `match/1,2` macro - Multi-field pattern matching
+  - `field/1` macro - Returns field spec for `GridCodec.get/2`
   - `__schema__/0` - Returns schema metadata
   - `__template_id__/0` - Returns template ID
   - `__schema_id__/0` - Returns schema ID

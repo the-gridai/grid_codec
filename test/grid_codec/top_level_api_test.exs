@@ -100,7 +100,7 @@ defmodule GridCodec.TopLevelApiTest do
   end
 
   describe "module encode/decode equivalence" do
-    test "GridCodec.encode equals Module.encode!" do
+    test "GridCodec.encode equals Module.encode" do
       order = %Order{id: 12345, price: 999, quantity: 50}
 
       via_gridcodec = GridCodec.encode(order)
@@ -109,7 +109,7 @@ defmodule GridCodec.TopLevelApiTest do
       assert via_gridcodec == via_module
     end
 
-    test "both GridCodec.decode and Module.decode! return same struct" do
+    test "both GridCodec.decode and Module.decode return same struct" do
       order = %Order{id: 12345, price: 999, quantity: 50}
       binary = GridCodec.encode(order)
 

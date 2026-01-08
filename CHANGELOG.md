@@ -101,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Use `use GridCodec.Struct` instead of `use GridCodec`
   - All codecs now define Elixir structs with generated encode/decode functions
   - Simplified API: `encode/1`, `decode/1`, `wrap/1`, `get/2`
-- Reorganized compiler into `GridCodec.Struct.Compiler`
+- Reorganized compiler into GridCodec.Struct.Compiler (internal module)
 - Updated README with struct-only examples and usage
 
 ### Fixed

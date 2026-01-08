@@ -18,9 +18,6 @@ defmodule GridCodec.Registry do
       # Decode using header dispatch
       {:ok, decoded_struct} = GridCodec.decode(binary)
 
-      # Zero-copy wrap
-      {:ok, env, codec} = GridCodec.wrap(binary)
-
   ## Direct API
 
       # Look up codec by schema_id and template_id

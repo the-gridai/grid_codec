@@ -50,8 +50,8 @@ user = %MyApp.Events.UserCreated{
 binary = MyApp.Events.UserCreated.encode(user)
 
 # Zero-copy field access (no full decode!)
-env = MyApp.Events.UserCreated.wrap(binary)
-score = MyApp.Events.UserCreated.get(env, :score)
+require MyApp.Events.UserCreated
+score = MyApp.Events.UserCreated.get(binary, :score)
 # => 1500
 
 # Full decode when needed
@@ -98,7 +98,6 @@ Key modules:
 
 - `GridCodec` – Top-level dispatch API
 - `GridCodec.Struct` – DSL for defining struct codecs
-- `GridCodec.Envelope` – Wrapper for zero-copy field access
 - `GridCodec.Group` – Repeating groups (variable-length collections)
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
