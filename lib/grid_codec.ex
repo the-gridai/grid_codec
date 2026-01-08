@@ -44,12 +44,45 @@ defmodule GridCodec do
       {:ok, decoded} = MyApp.Events.OrderFilled.decode(binary)
 
       # Zero-copy field access (O(1) for fixed-size types)
-      env = MyApp.Events.OrderFilled.wrap(binary)
-      price = MyApp.Events.OrderFilled.get(env, :price)
+      require MyApp.Events.OrderFilled, as: Order
+
+      # Fastest: get! macro (inline binary pattern with null handling)
+      price = Order.get!(binary, :price)
+
+      # Or: match macro for multi-field extraction (raw bytes, no null check)
+      case binary do
+        Order.match(price: p, quantity: q) -> {p, q}
+      end
 
       # Dispatch via registry (with framed binary)
       framed = GridCodec.encode(order)
       {:ok, decoded} = GridCodec.decode(framed)
+
+  ## Field Access Methods
+
+  GridCodec provides multiple ways to access fields, with different performance/convenience tradeoffs:
+
+  | Method | Speed | Use Case |
+  |--------|-------|----------|
+  | `get!/2` macro | ~70M ips | Inline access, handles nulls |
+  | `match/1` macro | ~70M ips | Multi-field extraction, raw bytes |
+  | `get/2` function | ~25M ips | Dynamic field names |
+
+  ```elixir
+  require MyCodec
+
+  # get! macro - fastest single-field access with null handling
+  price = MyCodec.get!(binary, :price)
+
+  # match macro - fastest multi-field, but returns raw bytes (no null check)
+  case binary do
+    MyCodec.match(price: p, qty: q) -> {p, q}
+  end
+
+  # get function - for dynamic field names
+  field_name = :price
+  price = MyCodec.get(binary, field_name)
+  ```
 
   ## Wire Format
 
