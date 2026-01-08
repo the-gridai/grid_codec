@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-08
+
+### Added
+- **`get!/2` macro**: Inline field access with compile-time binary pattern matching
+  - Expands at compile time to direct binary pattern, achieving ~70M ops/sec
+  - Handles null values automatically (returns `nil` for sentinel values)
+  - Use: `require MyCodec; MyCodec.get!(binary, :field_name)`
+- **`field/1` macro**: Generate field specs for generic access
+  - Returns `{type_module, offset, endian}` tuple at compile time
+  - Use: `GridCodec.get(binary, MyCodec.field(:price))`
+- **`GridCodec.get/2`**: Generic field access with field specs
+  - Runtime dispatch via type module's `get_value/3` callback
+  - Useful for building generic tools on top of GridCodec
+- **`get_value/3` callback**: Added to `GridCodec.Type` behaviour
+  - Implemented for `:u64`, `:i64`, `:u32`, `:uuid` types
+  - Enables runtime field extraction with null handling
+- **Benchmark suite**: Maps vs binary field access comparison
+  - `example_app/benchmarks/maps_vs_codec.exs`
+  - Results documented in `RESULTS_maps_vs_codec.md`
+
+### Changed
+- Updated moduledoc with Field Access Methods section documenting performance hierarchy:
+  - `get!/2` macro: ~70M ips (inline binary pattern with null handling)
+  - `match/1` macro: ~70M ips (multi-field extraction, raw bytes)
+  - `get/2` function: ~25M ips (dynamic field names)
+
 ## [0.3.0] - 2026-01-07
 
 ### Added
