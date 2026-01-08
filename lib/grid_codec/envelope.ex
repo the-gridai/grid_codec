@@ -134,7 +134,8 @@ defmodule GridCodec.Envelope do
   """
   @spec decode(t()) :: {:ok, map()} | {:error, term()}
   def decode(%__MODULE__{binary: binary, codec: codec}) do
-    codec.decode(binary)
+    # Envelope stores payload without header
+    codec.decode(binary, header: false)
   end
 
   @doc """

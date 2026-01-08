@@ -29,8 +29,8 @@ defmodule Mix.Compilers.GridCodec do
         def lookup(100, 2), do: {:ok, MyApp.Trade}
         def lookup(_, _), do: {:error, :unknown_codec}
 
-        def encode(%MyApp.Order{} = s), do: MyApp.Order.encode!(s)
-        def encode(%MyApp.Trade{} = s), do: MyApp.Trade.encode!(s)
+        def encode(%MyApp.Order{} = s, opts \\ []), do: MyApp.Order.encode(s, opts)
+        def encode(%MyApp.Trade{} = s, opts \\ []), do: MyApp.Trade.encode(s, opts)
         # ...
       end
   """
@@ -194,17 +194,17 @@ defmodule Mix.Compilers.GridCodec do
         def lookup(_, _), do: {:error, :unknown_codec}
       end
 
-    # Generate encode/1 clauses for each struct type
+    # Generate encode/2 clauses for each struct type
     encode_clauses =
       Enum.map(codecs, fn %{module: mod} ->
         quote do
-          def encode(%unquote(mod){} = struct), do: unquote(mod).encode!(struct)
+          def encode(%unquote(mod){} = struct, opts \\ []), do: unquote(mod).encode(struct, opts)
         end
       end)
 
     encode_fallback =
       quote do
-        def encode(struct) do
+        def encode(struct, _opts \\ []) do
           raise ArgumentError,
                 "Cannot encode #{inspect(struct.__struct__)} - not a registered GridCodec struct"
         end
@@ -234,11 +234,11 @@ defmodule Mix.Compilers.GridCodec do
         unquote_splicing(lookup_clauses)
         unquote(lookup_fallback)
 
-        @doc "Encode a struct (with header for dispatch)"
+        @doc "Encode a struct to binary (with header by default)"
         unquote_splicing(encode_clauses)
         unquote(encode_fallback)
 
-        @doc "Decode a framed binary, dispatching to the correct codec"
+        @doc "Decode a binary, dispatching to the correct codec (expects header by default)"
         unquote(decode_body)
 
         @doc "Wrap a framed binary for zero-copy access"
@@ -257,7 +257,7 @@ defmodule Mix.Compilers.GridCodec do
     dispatch_clauses =
       Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
         quote do
-          {unquote(sid), unquote(tid)} -> unquote(mod).decode(payload)
+          {unquote(sid), unquote(tid)} -> unquote(mod).decode(payload, header: false)
         end
       end)
 
@@ -269,7 +269,9 @@ defmodule Mix.Compilers.GridCodec do
     all_clauses = dispatch_clauses ++ [fallback_clause]
 
     quote do
-      def decode(binary) when is_binary(binary) do
+      def decode(binary, opts \\ [])
+
+      def decode(binary, []) when is_binary(binary) do
         case GridCodec.Header.decode(binary) do
           {:ok, header, payload} ->
             case {header.schema_id, header.template_id} do
@@ -278,6 +280,28 @@ defmodule Mix.Compilers.GridCodec do
 
           {:error, _} = error ->
             error
+        end
+      end
+
+      def decode(binary, opts) when is_binary(binary) do
+        if Keyword.get(opts, :header, true) do
+          case GridCodec.Header.decode(binary) do
+            {:ok, header, payload} ->
+              case {header.schema_id, header.template_id} do
+                (unquote_splicing(all_clauses))
+              end
+
+            {:error, _} = error ->
+              error
+          end
+        else
+          case Keyword.fetch(opts, :module) do
+            {:ok, module} ->
+              module.decode(binary, header: false)
+
+            :error ->
+              {:error, :module_required_without_header}
+          end
         end
       end
     end

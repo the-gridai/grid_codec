@@ -106,43 +106,110 @@ defmodule GridCodec.Struct.Compiler do
       # Mark this as a struct codec for registry discovery
       def __gridcodec_struct__?, do: true
 
-      # Encode struct to binary (payload only)
+      # Store header for encode/decode
+      @__gridcodec_header_opts__ unquote(header_opts)
+      @__gridcodec_header_size__ 8
+
+      # ========================================================================
+      # Encode API
+      # ========================================================================
+
       @doc """
-      Encodes a struct to binary (payload only, no header).
+      Encodes a struct to binary.
 
-      ## Example
+      By default, includes an 8-byte header for dispatch via `GridCodec.decode/1`.
 
+      ## Options
+
+      - `:header` - Include header (default: `true`)
+
+      ## Examples
+
+          # With header (default) - can be decoded by GridCodec.decode/1
           binary = #{inspect(unquote(module))}.encode(struct)
+
+          # Without header - payload only
+          payload = #{inspect(unquote(module))}.encode(struct, header: false)
       """
+      def encode(struct, opts \\ [])
+
+      def encode(%unquote(module){} = struct, []) do
+        # Default: include header
+        header = GridCodec.Header.encode(@__gridcodec_header_opts__)
+        payload = encode_payload(struct)
+        <<header::binary, payload::binary>>
+      end
+
+      def encode(%unquote(module){} = struct, opts) do
+        if Keyword.get(opts, :header, true) do
+          header = GridCodec.Header.encode(@__gridcodec_header_opts__)
+          payload = encode_payload(struct)
+          <<header::binary, payload::binary>>
+        else
+          encode_payload(struct)
+        end
+      end
+
+      # Internal: encode payload only (no header)
       unquote(struct_encoder_body)
 
       # Internal encoder that works with maps (for compatibility)
       unquote(encoder_clauses)
 
-      # Encode with header
+      # ========================================================================
+      # Decode API
+      # ========================================================================
+
       @doc """
-      Encodes a struct to binary WITH message header (for dispatch).
+      Decodes binary to a #{inspect(unquote(module))} struct.
 
-      ## Example
+      By default, expects an 8-byte header (from `encode/1` or `GridCodec.encode/1`).
 
-          binary = #{inspect(unquote(module))}.encode!(struct)
+      ## Options
+
+      - `:header` - Expect header (default: `true`)
+
+      ## Examples
+
+          # With header (default)
+          {:ok, struct} = #{inspect(unquote(module))}.decode(binary)
+
+          # Without header - payload only
+          {:ok, struct} = #{inspect(unquote(module))}.decode(payload, header: false)
       """
-      def encode!(%unquote(module){} = struct) do
-        header = GridCodec.Header.encode(unquote(header_opts))
-        payload = encode(struct)
-        <<header::binary, payload::binary>>
+      def decode(binary, opts \\ [])
+
+      def decode(binary, []) when is_binary(binary) do
+        # Default: expect header
+        case GridCodec.Header.decode(binary) do
+          {:ok, header, payload} ->
+            with :ok <- validate_header(header) do
+              decode_payload(payload)
+            end
+
+          {:error, _} = error ->
+            error
+        end
       end
 
-      # Decode binary to struct (payload only)
-      @doc """
-      Decodes binary payload to a #{inspect(unquote(module))} struct.
+      def decode(binary, opts) when is_binary(binary) do
+        if Keyword.get(opts, :header, true) do
+          case GridCodec.Header.decode(binary) do
+            {:ok, header, payload} ->
+              with :ok <- validate_header(header) do
+                decode_payload(payload)
+              end
 
-      ## Example
+            {:error, _} = error ->
+              error
+          end
+        else
+          decode_payload(binary)
+        end
+      end
 
-          {:ok, %#{inspect(unquote(module))}{}} = #{inspect(unquote(module))}.decode(binary)
-      """
-      def decode(binary) when is_binary(binary) do
-        # Direct struct decoder - avoids map->struct conversion overhead
+      # Internal: decode payload only (no header)
+      defp decode_payload(binary) when is_binary(binary) do
         unquote(struct_decoder_body)
       end
 
@@ -150,26 +217,6 @@ defmodule GridCodec.Struct.Compiler do
       @doc false
       def decode_map(binary) when is_binary(binary) do
         unquote(decoder_body)
-      end
-
-      # Decode framed binary with header validation
-      @doc """
-      Decodes framed binary (with header) to a #{inspect(unquote(module))} struct.
-
-      ## Example
-
-          {:ok, %#{inspect(unquote(module))}{}} = #{inspect(unquote(module))}.decode!(binary)
-      """
-      def decode!(binary) when is_binary(binary) do
-        case GridCodec.Header.decode(binary) do
-          {:ok, header, payload} ->
-            with :ok <- validate_header(header) do
-              decode(payload)
-            end
-
-          {:error, _} = error ->
-            error
-        end
       end
 
       defp validate_header(header) do
@@ -190,15 +237,47 @@ defmodule GridCodec.Struct.Compiler do
 
       # Zero-copy wrap
       @doc """
-      Wraps a binary payload for zero-copy field access.
+      Wraps a binary for zero-copy field access.
 
-      ## Example
+      By default, expects a framed binary (with header from `encode/1`).
+      Use `header: false` for payload-only binaries.
 
+      ## Examples
+
+          # Framed binary (default)
           env = #{inspect(unquote(module))}.wrap(binary)
           value = #{inspect(unquote(module))}.get(env, :field_name)
+
+          # Payload only
+          env = #{inspect(unquote(module))}.wrap(payload, header: false)
       """
-      def wrap(binary) when is_binary(binary) do
-        GridCodec.Envelope.wrap(binary, unquote(module))
+      def wrap(binary, opts \\ [])
+
+      def wrap(binary, []) when is_binary(binary) do
+        # Default: strip header from framed binary
+        case GridCodec.Header.decode(binary) do
+          {:ok, _header, payload} ->
+            GridCodec.Envelope.wrap(payload, unquote(module))
+
+          {:error, _} ->
+            raise ArgumentError,
+                  "Expected framed binary with header. Use wrap(binary, header: false) for payload-only."
+        end
+      end
+
+      def wrap(binary, opts) when is_binary(binary) do
+        if Keyword.get(opts, :header, true) do
+          case GridCodec.Header.decode(binary) do
+            {:ok, _header, payload} ->
+              GridCodec.Envelope.wrap(payload, unquote(module))
+
+            {:error, _} ->
+              raise ArgumentError,
+                    "Expected framed binary with header. Use wrap(binary, header: false) for payload-only."
+          end
+        else
+          GridCodec.Envelope.wrap(binary, unquote(module))
+        end
       end
 
       # Zero-copy getters
@@ -412,7 +491,7 @@ defmodule GridCodec.Struct.Compiler do
       # Generate var field encoding (if any)
       if var_fields == [] do
         quote do
-          def encode(unquote(struct_pattern)) do
+          defp encode_payload(unquote(struct_pattern)) do
             unquote(fixed_binary_ast)
           end
         end
@@ -420,7 +499,7 @@ defmodule GridCodec.Struct.Compiler do
         var_encoding_ast = generate_inline_var_encoder(var_fields)
 
         quote do
-          def encode(unquote(struct_pattern)) do
+          defp encode_payload(unquote(struct_pattern)) do
             fixed_block = unquote(fixed_binary_ast)
             var_data = unquote(var_encoding_ast)
             <<fixed_block::binary, var_data::binary>>
@@ -430,7 +509,7 @@ defmodule GridCodec.Struct.Compiler do
     else
       # Fall back to map-based encoding for complex codecs with groups or required fields
       quote do
-        def encode(%unquote(struct_module){} = struct) do
+        defp encode_payload(%unquote(struct_module){} = struct) do
           data = Map.from_struct(struct)
           encode_map(data)
         end
@@ -971,10 +1050,15 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
 
   defp generate_getters(fixed_fields, var_fields, groups, offsets, endian) do
+    # Header size for framed binaries
+    header_size = 8
+
     fixed_clauses =
       Enum.map(fixed_fields, fn {name, _type, module, _opts} ->
-        offset = Map.get(offsets, name)
-        generate_fixed_getter(name, module, offset, endian)
+        payload_offset = Map.get(offsets, name)
+        # Add header size for framed binary access
+        framed_offset = payload_offset + header_size
+        generate_fixed_getter(name, module, framed_offset, payload_offset, endian)
       end)
 
     var_clauses =
@@ -993,25 +1077,30 @@ defmodule GridCodec.Struct.Compiler do
       (unquote_splicing(all_clauses))
 
       # Fallback for unknown fields
-      def get(_binary_or_env, field) do
+      def get(_binary_or_env, field, _opts \\ []) do
         raise ArgumentError, "unknown field: #{inspect(field)}"
       end
     end
   end
 
-  defp generate_fixed_getter(name, module, offset, endian) when is_integer(offset) do
+  defp generate_fixed_getter(name, module, framed_offset, payload_offset, endian) do
+    binary_var = quote do: var!(binary)
     payload_var = quote do: var!(payload)
-    getter_body = module.getter_ast(offset, endian, payload_var)
+
+    # Default getter uses framed offset (binary with header)
+    framed_getter_body = module.getter_ast(framed_offset, endian, binary_var)
+    # Envelope getter uses payload offset (envelope stores payload only)
+    envelope_getter_body = module.getter_ast(payload_offset, endian, payload_var)
 
     quote do
-      # Direct binary getter - fastest path (no envelope overhead)
-      def get(var!(payload), unquote(name)) when is_binary(var!(payload)) do
-        unquote(getter_body)
+      # Direct binary getter - expects framed binary (with header) by default
+      def get(var!(binary), unquote(name)) when is_binary(var!(binary)) do
+        unquote(framed_getter_body)
       end
 
-      # Envelope getter - for API compatibility
+      # Envelope getter - for API compatibility (envelope stores payload)
       def get(%GridCodec.Envelope{binary: var!(payload)}, unquote(name)) do
-        unquote(getter_body)
+        unquote(envelope_getter_body)
       end
     end
   end
@@ -1049,8 +1138,22 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
 
   defp generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian) do
+    # Header size for framed binaries (encode includes header by default)
+    header_size = 8
+
     # Build a map of field_name => {module, offset} for fixed fields
+    # Offsets include header_size since encode/1 includes header by default
     fixed_field_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+        payload_offset = Map.get(field_offsets, name)
+        # Add header size for framed binary access
+        framed_offset = payload_offset + header_size
+        {name, {module, framed_offset}}
+      end)
+      |> Map.new()
+
+    # Also store payload-only offsets for header: false option
+    payload_field_specs =
       Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
         offset = Map.get(field_offsets, name)
         {name, {module, offset}}
@@ -1067,13 +1170,28 @@ defmodule GridCodec.Struct.Compiler do
       When called with a literal atom field name, expands at compile time
       to direct binary pattern matching - as fast as the `match` macro.
 
+      By default, expects a framed binary (with header from `encode/1`).
+      Use `header: false` option for payload-only binaries.
+
           require #{inspect(__MODULE__)}
+
+          # Framed binary (default)
           value = #{inspect(__MODULE__)}.get!(binary, :price)
+
+          # Payload only (from encode(struct, header: false))
+          value = #{inspect(__MODULE__)}.get!(payload, :price, header: false)
 
       If the field name is a variable, falls back to function dispatch.
       """
-      defmacro get!(binary_expr, field_name) do
-        fixed_specs = unquote(Macro.escape(fixed_field_specs))
+      defmacro get!(binary_expr, field_name, opts \\ []) do
+        # Choose offsets based on header option
+        fixed_specs =
+          if Keyword.get(opts, :header, true) do
+            unquote(Macro.escape(fixed_field_specs))
+          else
+            unquote(Macro.escape(payload_field_specs))
+          end
+
         var_fields = unquote(var_field_names)
         groups = unquote(group_names)
         endian = unquote(endian)
@@ -1172,36 +1290,52 @@ defmodule GridCodec.Struct.Compiler do
       @doc """
       Pattern matching macro for binary data.
 
-      Use this macro to pattern match on GridCodec binaries.
+      By default, expects a framed binary (with header from `encode/1`).
+      Use `header: false` option for payload-only binaries.
 
-      ## Example
+      ## Examples
 
           require #{inspect(__MODULE__)}
 
+          # Framed binary (default) - works with encode/1
           case binary do
             #{inspect(__MODULE__)}.match(id: id) when id > 100 ->
               {:high, id}
             _ ->
               :other
           end
+
+          # Payload only - works with encode(struct, header: false)
+          case payload do
+            #{inspect(__MODULE__)}.match([id: id], header: false) ->
+              {:found, id}
+          end
       """
-      defmacro match(field_bindings \\ []) do
+      defmacro match(field_bindings \\ [], opts \\ []) do
         field_info = unquote(Macro.escape(field_info))
         block_length = unquote(block_length)
         endian = unquote(endian)
+        has_header = Keyword.get(opts, :header, true)
 
         GridCodec.Struct.Compiler.__build_match_pattern__(
           field_bindings,
           field_info,
           block_length,
-          endian
+          endian,
+          has_header
         )
       end
     end
   end
 
   @doc false
-  def __build_match_pattern__(field_bindings, field_info, _block_length, endian) do
+  def __build_match_pattern__(
+        field_bindings,
+        field_info,
+        _block_length,
+        endian,
+        has_header \\ true
+      ) do
     requested_fields = Keyword.keys(field_bindings)
     available_fields = Enum.map(field_info, fn {name, _, _, _, _} -> name end)
 
@@ -1213,14 +1347,20 @@ defmodule GridCodec.Struct.Compiler do
               "Available fixed fields: #{inspect(available_fields)}"
     end
 
+    # Header offset: 8 bytes for framed binaries, 0 for payload-only
+    header_offset = if has_header, do: 8, else: 0
+
     sorted_fields = Enum.sort_by(field_info, fn {_, _, _, offset, _} -> offset end)
 
     {segments, _} =
       Enum.reduce(sorted_fields, {[], 0}, fn {name, _type_atom, _module, offset, size},
                                              {segs, current_pos} ->
+        # Add header offset to all field offsets
+        adjusted_offset = offset + header_offset
+
         segs =
-          if offset > current_pos do
-            skip_size = offset - current_pos
+          if adjusted_offset > current_pos do
+            skip_size = adjusted_offset - current_pos
             skip_seg = quote do: _ :: binary - size(unquote(skip_size))
             segs ++ [skip_seg]
           else
@@ -1236,7 +1376,7 @@ defmodule GridCodec.Struct.Compiler do
             quote do: _ :: binary - size(unquote(size))
           end
 
-        {segs ++ [seg], offset + size}
+        {segs ++ [seg], adjusted_offset + size}
       end)
 
     final_segments = segments ++ [quote(do: _ :: binary)]
@@ -1265,11 +1405,16 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
 
   defp generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian) do
+    # Header size for framed binaries
+    header_size = 8
+
     # Build field specs map: %{field_name => {type_module, offset, endian} | {:variable, name}}
+    # Offsets include header_size since encode/1 includes header by default
     fixed_specs =
       Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
-        offset = Map.get(field_offsets, name)
-        {name, {module, offset, endian}}
+        payload_offset = Map.get(field_offsets, name)
+        framed_offset = payload_offset + header_size
+        {name, {module, framed_offset, endian}}
       end)
 
     var_specs =

@@ -117,23 +117,31 @@ defmodule GridCodecTest do
   end
 
   describe "binary size" do
-    test "simple codec produces expected size" do
+    test "simple codec produces expected size with header" do
       data = %SimpleCodec{id: 1, count: 1, flag: true}
       binary = SimpleCodec.encode(data)
 
-      # u64 (8) + u32 (4) + bool (1) = 13 bytes
-      assert byte_size(binary) == 13
+      # header (8) + u64 (8) + u32 (4) + bool (1) = 21 bytes
+      assert byte_size(binary) == 21
     end
 
-    test "uuid codec produces expected size" do
+    test "simple codec payload size without header" do
+      data = %SimpleCodec{id: 1, count: 1, flag: true}
+      payload = SimpleCodec.encode(data, header: false)
+
+      # u64 (8) + u32 (4) + bool (1) = 13 bytes
+      assert byte_size(payload) == 13
+    end
+
+    test "uuid codec produces expected size with header" do
       data = %UUIDCodec{order_id: <<0::128>>, price: 0, quantity: 0}
       binary = UUIDCodec.encode(data)
 
-      # uuid (16) + u64 (8) + u32 (4) = 28 bytes
-      assert byte_size(binary) == 28
+      # header (8) + uuid (16) + u64 (8) + u32 (4) = 36 bytes
+      assert byte_size(binary) == 36
     end
 
-    test "block_length/0 returns fixed block size" do
+    test "block_length/0 returns fixed block size (payload only)" do
       assert SimpleCodec.block_length() == 13
       assert UUIDCodec.block_length() == 28
     end

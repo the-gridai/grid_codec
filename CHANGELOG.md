@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-08
+
+### Changed
+- **Breaking: New encode/decode API** - Header is now included by default
+  - `encode(struct)` → includes 8-byte header (was payload only)
+  - `encode(struct, header: false)` → payload only (new)
+  - `decode(binary)` → expects header (was payload only)
+  - `decode(binary, header: false)` → expects payload only (new)
+  - Removed `encode!/1` and `decode!/1` (use `encode/1` and `decode/1` instead)
+- **Zero-copy access updated for header-by-default**
+  - `get!/2` macro now expects framed binary with header by default
+  - `get!(binary, :field, header: false)` for payload-only access
+  - `match/1` macro expects framed binary by default
+  - `match([field: v], header: false)` for payload-only patterns
+  - `wrap/1` strips header from framed binary automatically
+  - `wrap(binary, header: false)` for payload-only wrapping
+- `Envelope.decode/1` updated to use `header: false` internally
+- `Dispatch.decode/1` and `wrap/1` updated for new API
+- `GridCodec.Registry.encode/2` now accepts options
+- Updated moduledoc with new API examples
+
+### Rationale
+- **Consistency**: `GridCodec.encode(struct)` and `MyCodec.encode(struct)` now produce identical binaries
+- **Usability**: Follows pattern from popular libraries like Jason (`encode/2` with options)
+- **Performance**: Fast path for `encode(struct)` (no options) has zero overhead
+- **Dispatch**: Header enables `GridCodec.decode/1` to route to correct codec automatically
+
 ## [0.4.0] - 2026-01-08
 
 ### Added

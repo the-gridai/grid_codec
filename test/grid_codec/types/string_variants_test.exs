@@ -54,19 +54,20 @@ defmodule GridCodec.Types.StringVariantsTest do
 
   describe "string8 codec" do
     test "uses 1-byte length prefix" do
-      binary = String8Codec.encode(%String8Codec{name: "hello"})
+      # Use header: false to get payload only for exact binary comparison
+      payload = String8Codec.encode(%String8Codec{name: "hello"}, header: false)
       # string8: 1-byte prefix + data
-      assert binary == <<5, "hello">>
+      assert payload == <<5, "hello">>
     end
 
     test "nil encodes as 1-byte zero" do
-      binary = String8Codec.encode(%String8Codec{name: nil})
-      assert binary == <<0>>
+      payload = String8Codec.encode(%String8Codec{name: nil}, header: false)
+      assert payload == <<0>>
     end
 
     test "decodes correctly" do
-      binary = <<5, "hello">>
-      {:ok, decoded} = String8Codec.decode(binary)
+      payload = <<5, "hello">>
+      {:ok, decoded} = String8Codec.decode(payload, header: false)
       assert decoded.name == "hello"
     end
 
@@ -79,19 +80,19 @@ defmodule GridCodec.Types.StringVariantsTest do
 
   describe "string16 codec" do
     test "uses 2-byte length prefix (little-endian)" do
-      binary = String16Codec.encode(%String16Codec{name: "hello"})
+      payload = String16Codec.encode(%String16Codec{name: "hello"}, header: false)
       # string16: 2-byte LE prefix + data
-      assert binary == <<5, 0, "hello">>
+      assert payload == <<5, 0, "hello">>
     end
 
     test "nil encodes as 2-byte zero" do
-      binary = String16Codec.encode(%String16Codec{name: nil})
-      assert binary == <<0, 0>>
+      payload = String16Codec.encode(%String16Codec{name: nil}, header: false)
+      assert payload == <<0, 0>>
     end
 
     test "decodes correctly" do
-      binary = <<5, 0, "hello">>
-      {:ok, decoded} = String16Codec.decode(binary)
+      payload = <<5, 0, "hello">>
+      {:ok, decoded} = String16Codec.decode(payload, header: false)
       assert decoded.name == "hello"
     end
 
@@ -104,27 +105,27 @@ defmodule GridCodec.Types.StringVariantsTest do
 
   describe "default :string type" do
     test "uses string16 encoding by default" do
-      binary = DefaultStringCodec.encode(%DefaultStringCodec{name: "hello"})
+      payload = DefaultStringCodec.encode(%DefaultStringCodec{name: "hello"}, header: false)
       # Should be same as string16: 2-byte LE prefix + data
-      assert binary == <<5, 0, "hello">>
+      assert payload == <<5, 0, "hello">>
     end
   end
 
   describe "string32 codec" do
     test "uses 4-byte length prefix (little-endian)" do
-      binary = String32Codec.encode(%String32Codec{name: "hello"})
+      payload = String32Codec.encode(%String32Codec{name: "hello"}, header: false)
       # string32: 4-byte LE prefix + data
-      assert binary == <<5, 0, 0, 0, "hello">>
+      assert payload == <<5, 0, 0, 0, "hello">>
     end
 
     test "nil encodes as 4-byte zero" do
-      binary = String32Codec.encode(%String32Codec{name: nil})
-      assert binary == <<0, 0, 0, 0>>
+      payload = String32Codec.encode(%String32Codec{name: nil}, header: false)
+      assert payload == <<0, 0, 0, 0>>
     end
 
     test "decodes correctly" do
-      binary = <<5, 0, 0, 0, "hello">>
-      {:ok, decoded} = String32Codec.decode(binary)
+      payload = <<5, 0, 0, 0, "hello">>
+      {:ok, decoded} = String32Codec.decode(payload, header: false)
       assert decoded.name == "hello"
     end
 
@@ -210,9 +211,9 @@ defmodule GridCodec.Types.StringVariantsTest do
 
   describe "empty strings" do
     test "empty string8 encodes as zero-length" do
-      binary = String8Codec.encode(%String8Codec{name: ""})
+      payload = String8Codec.encode(%String8Codec{name: ""}, header: false)
       # Empty string is length 0, which is same as nil
-      assert binary == <<0>>
+      assert payload == <<0>>
     end
 
     test "empty string roundtrips as nil" do

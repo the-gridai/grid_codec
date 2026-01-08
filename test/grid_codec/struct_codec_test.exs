@@ -14,30 +14,46 @@ defmodule GridCodec.StructCodecTest do
     test "encodes and decodes a simple struct" do
       original = %SimpleStruct{id: 12345, value: 999}
 
-      # Encode to payload (no header)
+      # Encode with header (default)
       binary = SimpleStruct.encode(original)
       assert is_binary(binary)
-      # 8 + 4
-      assert byte_size(binary) == 12
+      # header (8) + payload (12) = 20
+      assert byte_size(binary) == 20
 
-      # Decode payload back to struct
+      # Decode framed binary back to struct
       {:ok, decoded} = SimpleStruct.decode(binary)
       assert %SimpleStruct{} = decoded
       assert decoded.id == 12345
       assert decoded.value == 999
     end
 
-    test "encode!/decode! with header" do
+    test "encode/decode with header: false for payload only" do
       original = %SimpleStruct{id: 12345, value: 999}
 
-      # Encode with header
-      framed = SimpleStruct.encode!(original)
+      # Encode without header
+      payload = SimpleStruct.encode(original, header: false)
+      assert is_binary(payload)
+      # payload only: 8 + 4 = 12
+      assert byte_size(payload) == 12
+
+      # Decode payload
+      {:ok, decoded} = SimpleStruct.decode(payload, header: false)
+      assert %SimpleStruct{} = decoded
+      assert decoded.id == 12345
+      assert decoded.value == 999
+    end
+
+    test "encode/decode roundtrip with default header" do
+      original = %SimpleStruct{id: 12345, value: 999}
+
+      # Encode with header (default)
+      framed = SimpleStruct.encode(original)
       assert is_binary(framed)
       # header + payload
       assert byte_size(framed) == 8 + 12
 
       # Decode framed binary
-      {:ok, decoded} = SimpleStruct.decode!(framed)
+      {:ok, decoded} = SimpleStruct.decode(framed)
       assert decoded.id == 12345
       assert decoded.value == 999
     end
@@ -284,7 +300,7 @@ defmodule GridCodec.StructCodecTest do
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:template_id_mismatch, 999, 7}} = HeaderStruct.decode!(binary)
+      assert {:error, {:template_id_mismatch, 999, 7}} = HeaderStruct.decode(binary)
     end
 
     test "decode! validates schema_id" do
@@ -300,7 +316,7 @@ defmodule GridCodec.StructCodecTest do
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:schema_id_mismatch, 999, 100}} = HeaderStruct.decode!(binary)
+      assert {:error, {:schema_id_mismatch, 999, 100}} = HeaderStruct.decode(binary)
     end
 
     test "decode! validates version" do
@@ -316,7 +332,7 @@ defmodule GridCodec.StructCodecTest do
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:version_too_new, 99, 2}} = HeaderStruct.decode!(binary)
+      assert {:error, {:version_too_new, 99, 2}} = HeaderStruct.decode(binary)
     end
 
     test "decode! accepts older versions" do
@@ -332,7 +348,7 @@ defmodule GridCodec.StructCodecTest do
       payload = <<12345::little-64>>
       binary = <<header::binary, payload::binary>>
 
-      {:ok, decoded} = HeaderStruct.decode!(binary)
+      {:ok, decoded} = HeaderStruct.decode(binary)
       assert decoded.id == 12345
     end
   end

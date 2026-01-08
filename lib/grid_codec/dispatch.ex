@@ -217,7 +217,8 @@ defmodule GridCodec.Dispatch do
                 if header.version > max_version do
                   {:error, {:version_too_new, header.version, max_version}}
                 else
-                  case module.decode(payload) do
+                  # Payload doesn't have header, use header: false
+                  case module.decode(payload, header: false) do
                     {:ok, data} -> {:ok, data, module}
                     {:error, _} = error -> error
                   end
@@ -268,7 +269,8 @@ defmodule GridCodec.Dispatch do
                 {:error, :unknown_message}
 
               %{module: module} ->
-                envelope = module.wrap(payload)
+                # Payload doesn't have header, use header: false
+                envelope = module.wrap(payload, header: false)
                 {:ok, envelope, module}
             end
 

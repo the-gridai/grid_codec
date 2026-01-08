@@ -135,8 +135,8 @@ defmodule GridCodec.OptionalityTest do
       data = %ConstantCodec{id: 1}
       binary = ConstantCodec.encode(data)
 
-      # version (u8) + id (u64) + type (u16) = 1 + 8 + 2 = 11 bytes
-      assert byte_size(binary) == 11
+      # header (8) + version (u8) + id (u64) + type (u16) = 8 + 1 + 8 + 2 = 19 bytes
+      assert byte_size(binary) == 19
     end
   end
 

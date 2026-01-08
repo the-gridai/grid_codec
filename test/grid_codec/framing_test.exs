@@ -24,23 +24,15 @@ defmodule GridCodec.FramingTest do
       assert OrderEvent.__version__() == 3
     end
 
-    test "encode/1 produces payload only (no header)" do
+    test "encode/1 includes header by default" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       binary = OrderEvent.encode(data)
 
-      # Payload should be exactly block_length bytes (8 + 8 + 4 = 20)
-      assert byte_size(binary) == 20
-    end
-
-    test "encode!/1 includes 8-byte header" do
-      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      framed = OrderEvent.encode!(data)
-
       # Framed = header (8) + payload (20) = 28 bytes
-      assert byte_size(framed) == 28
+      assert byte_size(binary) == 28
 
       # Verify header is correct
-      {:ok, header, payload} = GridCodec.Header.decode(framed)
+      {:ok, header, payload} = GridCodec.Header.decode(binary)
       assert header.block_length == 20
       assert header.template_id == 42
       assert header.schema_id == 100
@@ -48,27 +40,35 @@ defmodule GridCodec.FramingTest do
       assert byte_size(payload) == 20
     end
 
-    test "decode/1 decodes payload only" do
+    test "encode/2 with header: false produces payload only" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      payload = OrderEvent.encode(data)
+      payload = OrderEvent.encode(data, header: false)
 
-      assert {:ok, decoded} = OrderEvent.decode(payload)
+      # Payload should be exactly block_length bytes (8 + 8 + 4 = 20)
+      assert byte_size(payload) == 20
+    end
+
+    test "decode/1 expects header by default" do
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
+      framed = OrderEvent.encode(data)
+
+      assert {:ok, decoded} = OrderEvent.decode(framed)
       assert decoded.order_id == 123
       assert decoded.price == 1000
       assert decoded.quantity == 50
     end
 
-    test "decode!/1 validates and strips header" do
+    test "decode/2 with header: false decodes payload only" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      framed = OrderEvent.encode!(data)
+      payload = OrderEvent.encode(data, header: false)
 
-      assert {:ok, decoded} = OrderEvent.decode!(framed)
+      assert {:ok, decoded} = OrderEvent.decode(payload, header: false)
       assert decoded.order_id == 123
       assert decoded.price == 1000
       assert decoded.quantity == 50
     end
 
-    test "decode!/1 rejects wrong template_id" do
+    test "decode/1 rejects wrong template_id" do
       # Create a message with wrong template_id
       header =
         GridCodec.Header.encode(
@@ -81,10 +81,10 @@ defmodule GridCodec.FramingTest do
       payload = <<0::160>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:template_id_mismatch, 999, 42}} = OrderEvent.decode!(binary)
+      assert {:error, {:template_id_mismatch, 999, 42}} = OrderEvent.decode(binary)
     end
 
-    test "decode!/1 rejects wrong schema_id" do
+    test "decode/1 rejects wrong schema_id" do
       header =
         GridCodec.Header.encode(
           block_length: 20,
@@ -96,10 +96,10 @@ defmodule GridCodec.FramingTest do
       payload = <<0::160>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:schema_id_mismatch, 999, 100}} = OrderEvent.decode!(binary)
+      assert {:error, {:schema_id_mismatch, 999, 100}} = OrderEvent.decode(binary)
     end
 
-    test "decode!/1 rejects version newer than codec" do
+    test "decode/1 rejects version newer than codec" do
       header =
         GridCodec.Header.encode(
           block_length: 20,
@@ -111,10 +111,10 @@ defmodule GridCodec.FramingTest do
       payload = <<0::160>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:error, {:version_too_new, 4, 3}} = OrderEvent.decode!(binary)
+      assert {:error, {:version_too_new, 4, 3}} = OrderEvent.decode(binary)
     end
 
-    test "decode!/1 accepts older version" do
+    test "decode/1 accepts older version" do
       # Version 1 message should be decodable by version 3 codec
       header =
         GridCodec.Header.encode(
@@ -127,21 +127,29 @@ defmodule GridCodec.FramingTest do
       payload = <<123::little-64, 1000::little-64, 50::little-32>>
       binary = <<header::binary, payload::binary>>
 
-      assert {:ok, decoded} = OrderEvent.decode!(binary)
+      assert {:ok, decoded} = OrderEvent.decode(binary)
       assert decoded.order_id == 123
     end
 
-    test "wrap/1 wraps payload for zero-copy access" do
+    test "wrap/1 wraps framed binary for zero-copy access" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      payload = OrderEvent.encode(data)
+      framed = OrderEvent.encode(data)
 
-      env = OrderEvent.wrap(payload)
+      env = OrderEvent.wrap(framed)
       assert OrderEvent.get(env, :order_id) == 123
       assert OrderEvent.get(env, :price) == 1000
       assert OrderEvent.get(env, :quantity) == 50
     end
 
-    # Note: wrap!/1 was removed - use wrap/1 with payload or decode header manually
+    test "wrap/2 with header: false wraps payload directly" do
+      data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
+      payload = OrderEvent.encode(data, header: false)
+
+      env = OrderEvent.wrap(payload, header: false)
+      assert OrderEvent.get(env, :order_id) == 123
+      assert OrderEvent.get(env, :price) == 1000
+      assert OrderEvent.get(env, :quantity) == 50
+    end
   end
 
   describe "default template_id and schema_id" do
@@ -166,8 +174,8 @@ defmodule GridCodec.FramingTest do
       assert SimpleCodec.__version__() == 1
     end
 
-    test "encode!/1 still works with defaults" do
-      framed = SimpleCodec.encode!(%SimpleCodec{value: 42})
+    test "encode/1 includes header with defaults" do
+      framed = SimpleCodec.encode(%SimpleCodec{value: 42})
 
       {:ok, header, _} = GridCodec.Header.decode(framed)
       assert header.template_id == SimpleCodec.__template_id__()
@@ -188,7 +196,7 @@ defmodule GridCodec.FramingTest do
       end
     end
 
-    test "encode!/decode! roundtrip preserves data" do
+    test "encode/decode roundtrip preserves data" do
       uuid = :crypto.strong_rand_bytes(16)
 
       data = %ComplexEvent{
@@ -198,8 +206,8 @@ defmodule GridCodec.FramingTest do
         active: true
       }
 
-      framed = ComplexEvent.encode!(data)
-      {:ok, decoded} = ComplexEvent.decode!(framed)
+      framed = ComplexEvent.encode(data)
+      {:ok, decoded} = ComplexEvent.decode(framed)
 
       assert decoded.id == uuid
       assert decoded.count == 100

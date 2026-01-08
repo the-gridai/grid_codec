@@ -37,10 +37,10 @@ defmodule GridCodec do
         timestamp: DateTime.utc_now()
       }
 
-      # Encode
+      # Encode (includes 8-byte header by default)
       binary = MyApp.Events.OrderFilled.encode(order)
 
-      # Decode
+      # Decode (expects header by default)
       {:ok, decoded} = MyApp.Events.OrderFilled.decode(binary)
 
       # Zero-copy field access (O(1) for fixed-size types)
@@ -54,9 +54,12 @@ defmodule GridCodec do
         Order.match(price: p, quantity: q) -> {p, q}
       end
 
-      # Dispatch via registry (with framed binary)
-      framed = GridCodec.encode(order)
-      {:ok, decoded} = GridCodec.decode(framed)
+      # Dispatch via GridCodec (same binary format)
+      {:ok, decoded} = GridCodec.decode(binary)
+
+      # Payload only (no header) - use when you don't need dispatch
+      payload = MyApp.Events.OrderFilled.encode(order, header: false)
+      {:ok, decoded} = MyApp.Events.OrderFilled.decode(payload, header: false)
 
   ## Field Access Methods
 
@@ -279,28 +282,47 @@ defmodule GridCodec do
   # pattern-match dispatch. In development, runtime discovery is used.
 
   @doc """
-  Encode a GridCodec struct to binary (with header for dispatch).
+  Encode a GridCodec struct to binary.
 
-  ## Example
+  By default includes an 8-byte header for dispatch via `GridCodec.decode/1`.
+
+  ## Options
+
+  - `:header` - Include header (default: `true`)
+
+  ## Examples
 
       order = %MyApp.Order{id: <<1::128>>, price: 100, quantity: 5}
+
+      # With header (default)
       binary = GridCodec.encode(order)
 
-  The binary includes an 8-byte header with schema_id, template_id, and version,
-  allowing `GridCodec.decode/1` to dispatch to the correct codec.
+      # Without header - payload only
+      payload = GridCodec.encode(order, header: false)
   """
   defdelegate encode(struct), to: GridCodec.Registry
+  defdelegate encode(struct, opts), to: GridCodec.Registry
 
   @doc """
-  Decode a framed binary, dispatching to the correct struct codec.
+  Decode a binary, dispatching to the correct struct codec.
 
-  ## Example
+  By default expects an 8-byte header for module dispatch.
 
+  ## Options
+
+  - `:header` - Expect header (default: `true`)
+  - `:module` - Required when `header: false` to specify the codec module
+
+  ## Examples
+
+      # With header (default)
       {:ok, %MyApp.Order{}} = GridCodec.decode(binary)
 
-  The binary must include the 8-byte GridCodec header (from `encode/1` or `encode!/1`).
+      # Without header - must specify module
+      {:ok, %MyApp.Order{}} = GridCodec.decode(payload, header: false, module: MyApp.Order)
   """
   defdelegate decode(binary), to: GridCodec.Registry
+  defdelegate decode(binary, opts), to: GridCodec.Registry
 
   @doc """
   Wrap a framed binary for zero-copy field access.

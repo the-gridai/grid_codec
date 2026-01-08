@@ -83,8 +83,8 @@ defmodule GridCodec.Types.CompositeTest do
       data = %PriceCodec{price: price, quantity: qty}
       binary = PriceCodec.encode(data)
 
-      # 9 + 9
-      assert byte_size(binary) == 18
+      # header (8) + 9 + 9 = 26
+      assert byte_size(binary) == 26
 
       {:ok, decoded} = PriceCodec.decode(binary)
 

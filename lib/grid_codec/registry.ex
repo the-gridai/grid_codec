@@ -226,19 +226,27 @@ defmodule GridCodec.Registry do
   end
 
   @doc """
-  Encode a struct (with header for dispatch).
+  Encode a struct to binary.
 
   The struct must be a registered GridCodec struct.
+  By default includes header for dispatch via `GridCodec.decode/1`.
+
+  ## Options
+
+  - `:header` - Include header (default: `true`)
 
   ## Example
 
       order = %MyApp.Order{id: <<1::128>>, price: 100}
       binary = GridCodec.Registry.encode(order)
+      payload = GridCodec.Registry.encode(order, header: false)
   """
-  @spec encode(struct()) :: binary()
-  def encode(%{__struct__: module} = struct) do
+  @spec encode(struct(), keyword()) :: binary()
+  def encode(struct, opts \\ [])
+
+  def encode(%{__struct__: module} = struct, opts) do
     if is_gridcodec_struct?(module) do
-      module.encode!(struct)
+      module.encode(struct, opts)
     else
       raise ArgumentError,
             "Cannot encode #{inspect(module)} - not a registered GridCodec struct"
@@ -246,16 +254,27 @@ defmodule GridCodec.Registry do
   end
 
   @doc """
-  Decode a framed binary, dispatching to the correct codec.
+  Decode a binary, dispatching to the correct codec.
 
-  The binary must include an 8-byte GridCodec header.
+  By default expects an 8-byte GridCodec header for module dispatch.
 
-  ## Example
+  ## Options
 
+  - `:header` - Expect header (default: `true`)
+  - `:module` - Required when `header: false` to specify the codec module
+
+  ## Examples
+
+      # With header (default)
       {:ok, %MyApp.Order{}} = GridCodec.Registry.decode(binary)
+
+      # Without header - must specify module
+      {:ok, %MyApp.Order{}} = GridCodec.Registry.decode(payload, header: false, module: MyApp.Order)
   """
-  @spec decode(binary()) :: {:ok, struct()} | {:error, term()}
-  def decode(binary) when is_binary(binary) do
+  @spec decode(binary(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def decode(binary, opts \\ [])
+
+  def decode(binary, []) when is_binary(binary) do
     case GridCodec.Header.decode(binary) do
       {:ok, header, payload} ->
         case find_struct_codec(header.schema_id, header.template_id) do
@@ -263,11 +282,37 @@ defmodule GridCodec.Registry do
             {:error, :unknown_codec}
 
           module ->
-            module.decode(payload)
+            module.decode(payload, header: false)
         end
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  def decode(binary, opts) when is_binary(binary) do
+    if Keyword.get(opts, :header, true) do
+      case GridCodec.Header.decode(binary) do
+        {:ok, header, payload} ->
+          case find_struct_codec(header.schema_id, header.template_id) do
+            nil ->
+              {:error, :unknown_codec}
+
+            module ->
+              module.decode(payload, header: false)
+          end
+
+        {:error, _} = error ->
+          error
+      end
+    else
+      case Keyword.fetch(opts, :module) do
+        {:ok, module} ->
+          module.decode(binary, header: false)
+
+        :error ->
+          {:error, :module_required_without_header}
+      end
     end
   end
 
@@ -290,7 +335,8 @@ defmodule GridCodec.Registry do
             {:error, :unknown_codec}
 
           module ->
-            {:ok, module.wrap(payload), module}
+            # Pass header: false since we already extracted the payload
+            {:ok, module.wrap(payload, header: false), module}
         end
 
       {:error, _} = error ->

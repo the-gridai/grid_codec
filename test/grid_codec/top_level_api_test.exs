@@ -142,7 +142,7 @@ defmodule GridCodec.TopLevelApiTest do
       order = %Order{id: 12345, price: 999, quantity: 50}
 
       via_gridcodec = GridCodec.encode(order)
-      via_module = Order.encode!(order)
+      via_module = Order.encode(order)
 
       assert via_gridcodec == via_module
     end
@@ -152,7 +152,7 @@ defmodule GridCodec.TopLevelApiTest do
       binary = GridCodec.encode(order)
 
       {:ok, via_gridcodec} = GridCodec.decode(binary)
-      {:ok, via_module} = Order.decode!(binary)
+      {:ok, via_module} = Order.decode(binary)
 
       assert via_gridcodec == via_module
     end
