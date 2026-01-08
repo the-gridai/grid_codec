@@ -113,7 +113,8 @@ defmodule GridCodec.Schema.Parser do
 
   defp tokenize(content) do
     content
-    |> String.replace(~r/#[^\n]*/, "")  # Remove comments
+    # Remove comments
+    |> String.replace(~r/#[^\n]*/, "")
     |> String.split(~r/\s+/, trim: true)
     |> tokenize_stream([])
   end
@@ -122,52 +123,70 @@ defmodule GridCodec.Schema.Parser do
 
   defp tokenize_stream([token | rest], acc) do
     cond do
-      token == "{" -> tokenize_stream(rest, [:lbrace | acc])
-      token == "}" -> tokenize_stream(rest, [:rbrace | acc])
-      token == "(" -> tokenize_stream(rest, [:lparen | acc])
-      token == ")" -> tokenize_stream(rest, [:rparen | acc])
-      token == ":" -> tokenize_stream(rest, [:colon | acc])
-      token == "=" -> tokenize_stream(rest, [:equals | acc])
-      token == "," -> tokenize_stream(rest, [:comma | acc])
-      
+      token == "{" ->
+        tokenize_stream(rest, [:lbrace | acc])
+
+      token == "}" ->
+        tokenize_stream(rest, [:rbrace | acc])
+
+      token == "(" ->
+        tokenize_stream(rest, [:lparen | acc])
+
+      token == ")" ->
+        tokenize_stream(rest, [:rparen | acc])
+
+      token == ":" ->
+        tokenize_stream(rest, [:colon | acc])
+
+      token == "=" ->
+        tokenize_stream(rest, [:equals | acc])
+
+      token == "," ->
+        tokenize_stream(rest, [:comma | acc])
+
       String.ends_with?(token, "{") ->
         word = String.trim_trailing(token, "{")
         tokenize_stream(rest, [:lbrace, {:word, word} | acc])
-      
+
       # Handle "(key:" or "(key" or "(1001)" - must come before ends_with?(":")
       String.starts_with?(token, "(") ->
         word = String.trim_leading(token, "(")
+
         cond do
           word == "" ->
             tokenize_stream(rest, [:lparen | acc])
+
           String.ends_with?(word, ")") ->
             # Handle "(1001)" -> :lparen, {:word, "1001"}, :rparen
             inner = String.trim_trailing(word, ")")
             tokenize_stream(rest, [:rparen, {:word, inner}, :lparen | acc])
+
           String.ends_with?(word, ":") ->
             # Handle "(template_id:" -> :lparen, {:word, "template_id"}, :colon
             key = String.trim_trailing(word, ":")
             tokenize_stream(rest, [:colon, {:word, key}, :lparen | acc])
+
           true ->
             tokenize_stream(rest, [{:word, word}, :lparen | acc])
         end
-        
+
       String.ends_with?(token, ":") ->
         word = String.trim_trailing(token, ":")
         tokenize_stream(rest, [:colon, {:word, word} | acc])
-        
+
       String.ends_with?(token, ",") ->
         word = String.trim_trailing(token, ",")
         tokenize_stream(rest, [:comma, {:word, word} | acc])
-        
+
       String.ends_with?(token, ")") ->
         word = String.trim_trailing(token, ")")
+
         if word == "" do
           tokenize_stream(rest, [:rparen | acc])
         else
           tokenize_stream(rest, [:rparen, {:word, word} | acc])
         end
-        
+
       true ->
         tokenize_stream(rest, [{:word, token} | acc])
     end
@@ -186,13 +205,17 @@ defmodule GridCodec.Schema.Parser do
   defp parse_top_level([{:word, "schema"} | rest], schema) do
     case parse_schema_block(rest) do
       {:ok, schema_meta, remaining} ->
-        schema = %{schema | 
-          name: schema_meta[:name],
-          id: schema_meta[:id],
-          version: schema_meta[:version] || 1
+        schema = %{
+          schema
+          | name: schema_meta[:name],
+            id: schema_meta[:id],
+            version: schema_meta[:version] || 1
         }
+
         parse_top_level(remaining, schema)
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -202,11 +225,16 @@ defmodule GridCodec.Schema.Parser do
         type = %CompositeType{name: String.to_atom(name), fields: fields}
         schema = %{schema | types: Map.put(schema.types, type.name, type)}
         parse_top_level(remaining, schema)
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
-  defp parse_top_level([{:word, "enum"}, {:word, name}, :colon, {:word, underlying} | rest], schema) do
+  defp parse_top_level(
+         [{:word, "enum"}, {:word, name}, :colon, {:word, underlying} | rest],
+         schema
+       ) do
     case parse_enum_block(rest) do
       {:ok, values, remaining} ->
         enum = %EnumDef{
@@ -214,9 +242,12 @@ defmodule GridCodec.Schema.Parser do
           underlying_type: String.to_atom(underlying),
           values: values
         }
+
         schema = %{schema | enums: Map.put(schema.enums, enum.name, enum)}
         parse_top_level(remaining, schema)
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -233,16 +264,24 @@ defmodule GridCodec.Schema.Parser do
               fields: fields,
               groups: groups
             }
+
             schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
             parse_top_level(remaining, schema)
-          {:error, _} = err -> err
+
+          {:error, _} = err ->
+            err
         end
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
   # Legacy syntax: message Name (1001) { ... } - for backwards compatibility
-  defp parse_top_level([{:word, "message"}, {:word, name}, :lparen, {:word, tid_str}, :rparen | rest], schema) do
+  defp parse_top_level(
+         [{:word, "message"}, {:word, name}, :lparen, {:word, tid_str}, :rparen | rest],
+         schema
+       ) do
     case Integer.parse(tid_str) do
       {tid, ""} ->
         case parse_struct_block(rest) do
@@ -254,10 +293,14 @@ defmodule GridCodec.Schema.Parser do
               fields: fields,
               groups: groups
             }
+
             schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
             parse_top_level(remaining, schema)
-          {:error, _} = err -> err
+
+          {:error, _} = err ->
+            err
         end
+
       _ ->
         {:error, {:invalid_template_id, tid_str}}
     end
@@ -369,6 +412,7 @@ defmodule GridCodec.Schema.Parser do
     case Integer.parse(value) do
       {int, ""} ->
         parse_enum_values(rest, [{String.to_atom(name), int} | acc])
+
       _ ->
         {:error, {:invalid_enum_value, name, value}}
     end
@@ -396,7 +440,9 @@ defmodule GridCodec.Schema.Parser do
       {:ok, group_fields, remaining} ->
         group = %Group{name: String.to_atom(name), fields: group_fields}
         parse_struct_body(remaining, fields, [group | groups])
-      {:error, _} = err -> err
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -408,8 +454,11 @@ defmodule GridCodec.Schema.Parser do
           {:ok, group_fields, remaining} ->
             group = %Group{name: String.to_atom(name), fields: group_fields}
             parse_struct_body(remaining, fields, [group | groups])
-          {:error, _} = err -> err
+
+          {:error, _} = err ->
+            err
         end
+
       _ ->
         {:error, {:expected_brace_after_group, name}}
     end

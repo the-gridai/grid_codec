@@ -35,7 +35,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses simple struct with new syntax" do
       content = """
       schema { id: 1 }
-      
+
       struct Order (template_id: 1001) {
         id: uuid_string
         user_id: u64
@@ -62,7 +62,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses struct with version override" do
       content = """
       schema { id: 1 version: 1 }
-      
+
       struct Order (template_id: 1001, version: 2) {
         id: uuid_string
       }
@@ -70,7 +70,7 @@ defmodule GridCodec.Schema.ParserTest do
 
       assert {:ok, schema} = Parser.parse(content)
       struct_def = schema.structs[:Order]
-      
+
       assert struct_def.template_id == 1001
       assert struct_def.version == 2
     end
@@ -78,7 +78,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses struct with group" do
       content = """
       schema { id: 1 }
-      
+
       struct Order (template_id: 1001) {
         id: uuid_string
         
@@ -103,7 +103,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses composite type" do
       content = """
       schema { id: 1 }
-      
+
       type Price {
         mantissa: i64
         exponent: i8
@@ -127,7 +127,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses enum" do
       content = """
       schema { id: 1 }
-      
+
       enum Side : u8 {
         buy = 1
         sell = 2
@@ -146,7 +146,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses optional fields" do
       content = """
       schema { id: 1 }
-      
+
       struct Order (template_id: 1001) {
         id: uuid_string
         notes?: string16
@@ -166,7 +166,7 @@ defmodule GridCodec.Schema.ParserTest do
       content = """
       # This is a comment
       schema { id: 1 }  # inline comment
-      
+
       # Another comment
       struct Order (template_id: 1001) {
         id: uuid_string  # field comment
@@ -181,11 +181,11 @@ defmodule GridCodec.Schema.ParserTest do
     test "parses multiple structs" do
       content = """
       schema { id: 100 }
-      
+
       struct Order (template_id: 1001) {
         id: uuid_string
       }
-      
+
       struct Trade (template_id: 1002) {
         trade_id: uuid_string
         order_id: uuid_string
@@ -204,17 +204,17 @@ defmodule GridCodec.Schema.ParserTest do
         id: 100
         version: 1
       }
-      
+
       type Price {
         mantissa: i64
         exponent: i8
       }
-      
+
       enum Side : u8 {
         buy = 1
         sell = 2
       }
-      
+
       struct Order (template_id: 1001) {
         id: uuid_string
         user_id: u64
@@ -227,7 +227,7 @@ defmodule GridCodec.Schema.ParserTest do
           fill_qty: u32
         }
       }
-      
+
       struct Trade (template_id: 1002, version: 2) {
         trade_id: uuid_string
         order_id: uuid_string
@@ -237,18 +237,20 @@ defmodule GridCodec.Schema.ParserTest do
       """
 
       assert {:ok, schema} = Parser.parse(content)
-      
+
       assert schema.name == :Trading
       assert schema.id == 100
       assert schema.version == 1
-      
+
       assert map_size(schema.types) == 1
       assert map_size(schema.enums) == 1
       assert map_size(schema.structs) == 2
-      
+
       # Check version override
-      assert schema.structs[:Order].version == nil  # inherits from schema
-      assert schema.structs[:Trade].version == 2    # overridden
+      # inherits from schema
+      assert schema.structs[:Order].version == nil
+      # overridden
+      assert schema.structs[:Trade].version == 2
     end
 
     test "legacy message syntax still works" do
@@ -267,8 +269,8 @@ defmodule GridCodec.Schema.ParserTest do
 
   describe "parse_file/1" do
     test "returns error for missing file" do
-      assert {:error, {:file_error, "nonexistent.grid", :enoent}} = 
-        Parser.parse_file("nonexistent.grid")
+      assert {:error, {:file_error, "nonexistent.grid", :enoent}} =
+               Parser.parse_file("nonexistent.grid")
     end
   end
 end

@@ -155,14 +155,16 @@ defmodule GridCodec.Struct do
 
   defp resolve_grid_schema(%GridCodec.Schema.Parser.Schema{} = schema), do: schema
 
-  defp resolve_grid_schema({:sigil_G, _meta, [{:<<>>, _, [string]}, []]}) when is_binary(string) do
+  defp resolve_grid_schema({:sigil_G, _meta, [{:<<>>, _, [string]}, []]})
+       when is_binary(string) do
     case GridCodec.Schema.Parser.parse(string) do
       {:ok, schema} -> schema
       {:error, reason} -> raise ArgumentError, "Invalid grid schema: #{inspect(reason)}"
     end
   end
 
-  defp resolve_grid_schema({:sigil_g, _meta, [{:<<>>, _, [string]}, []]}) when is_binary(string) do
+  defp resolve_grid_schema({:sigil_g, _meta, [{:<<>>, _, [string]}, []]})
+       when is_binary(string) do
     case GridCodec.Schema.Parser.parse(string) do
       {:ok, schema} -> schema
       {:error, reason} -> raise ArgumentError, "Invalid grid schema: #{inspect(reason)}"

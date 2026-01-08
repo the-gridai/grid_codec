@@ -82,7 +82,8 @@ defmodule GridCodec.JsonTest do
 
   describe "decode/3" do
     test "decodes JSON to GridCodec binary" do
-      json = ~s({"id":"550e8400-e29b-41d4-a716-446655440000","user_id":12345,"symbol":"BTC/USD","quantity":100,"active":true})
+      json =
+        ~s({"id":"550e8400-e29b-41d4-a716-446655440000","user_id":12345,"symbol":"BTC/USD","quantity":100,"active":true})
 
       assert {:ok, binary} = Json.decode(json, TestOrder)
       assert {:ok, order} = TestOrder.decode(binary)
@@ -111,7 +112,8 @@ defmodule GridCodec.JsonTest do
 
   describe "decode!/3" do
     test "returns binary on success" do
-      json = ~s({"id":"550e8400-e29b-41d4-a716-446655440000","user_id":1,"symbol":"X","quantity":1,"active":false})
+      json =
+        ~s({"id":"550e8400-e29b-41d4-a716-446655440000","user_id":1,"symbol":"X","quantity":1,"active":false})
 
       binary = Json.decode!(json, TestOrder)
       assert is_binary(binary)

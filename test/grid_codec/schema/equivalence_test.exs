@@ -5,7 +5,8 @@ defmodule GridCodec.Schema.EquivalenceTest do
   # But use different template_id to avoid registry collision with GridFileTest
   defmodule OrderDSL do
     use GridCodec.Struct,
-      template_id: 5001,  # Unique to this test file
+      # Unique to this test file
+      template_id: 5001,
       schema_id: 500,
       version: 1
 
@@ -22,7 +23,8 @@ defmodule GridCodec.Schema.EquivalenceTest do
   # to avoid template_id collision
   defmodule OrderGrid do
     use GridCodec.Struct,
-      template_id: 5001,  # Same as DSL for equivalence
+      # Same as DSL for equivalence
+      template_id: 5001,
       schema_id: 500,
       version: 1
 
