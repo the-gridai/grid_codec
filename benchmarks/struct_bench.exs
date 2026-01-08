@@ -1,12 +1,69 @@
 # GridCodec.Struct Performance Benchmark
 #
 # Run with: mix run benchmarks/struct_bench.exs
-#
-# Compares performance of:
-# 1. Hand-rolled code (manual binary construction)
-# 2. Original `use GridCodec` (map-based)
-# 3. New `use GridCodec.Struct` (struct-based)
-# 4. Top-level GridCodec.encode/decode (with dispatch)
+
+defmodule Bench.StructPerf do
+  @moduledoc """
+  Performance verification for GridCodec.Struct vs hand-rolled code.
+
+  Compares:
+  1. Hand-rolled code (manual binary construction) - baseline
+  2. GridCodec.Struct (struct-based codec)
+  3. GridCodec.encode/decode (with dispatch)
+
+  ## Expected Results (v0.6.0)
+
+  ### Encode Performance
+
+  | Implementation             | Time     | vs Hand-rolled |
+  |----------------------------|----------|----------------|
+  | Hand-rolled                | ~70ns    | baseline       |
+  | StructCodec (no header)    | ~75ns    | ~same (1.1x)   |
+  | StructCodec (w/header)     | ~280ns   | 4x slower      |
+  | GridCodec.encode           | ~400ns   | 5.8x slower    |
+
+  ### Decode Performance
+
+  | Implementation             | Time     | vs Hand-rolled |
+  |----------------------------|----------|----------------|
+  | Hand-rolled                | ~93ns    | baseline       |
+  | StructCodec (no header)    | ~78ns    | 1.2x FASTER    |
+  | StructCodec (w/header)     | ~127ns   | 1.4x slower    |
+  | GridCodec.decode           | ~156ns   | 1.7x slower    |
+
+  ### Zero-Copy Get
+
+  | Implementation             | Time     | vs Hand-rolled |
+  |----------------------------|----------|----------------|
+  | Hand-rolled get_price      | ~22ns    | baseline       |
+  | StructCodec.get (no hdr)   | ~14ns    | 1.6x FASTER    |
+  | StructCodec.get (w/header) | ~15ns    | 1.4x FASTER    |
+
+  ### Dispatch Overhead
+
+  | Operation | Overhead |
+  |-----------|----------|
+  | Encode    | ~140ns (63%) |
+  | Decode    | ~11ns (6%)   |
+
+  ## Key Findings
+
+  1. **Payload-only operations** match or beat hand-rolled code
+  2. **Header adds overhead** for encode (~250ns)
+  3. **get macro is fastest** - inline pattern matching
+  4. **Decode dispatch is efficient** (~6% overhead)
+
+  ## Pass Criteria
+
+  Struct codec should be within 15% of hand-rolled for:
+  - Encode (payload-only)
+  - Decode (payload-only)
+
+  ## Usage
+
+      mix run benchmarks/struct_bench.exs
+  """
+end
 
 # ============================================================================
 # Hand-rolled implementation (baseline)
@@ -39,23 +96,10 @@ defmodule Bench.HandRolled do
 end
 
 # ============================================================================
-# Original GridCodec (map-based)
-# ============================================================================
-defmodule Bench.MapCodec do
-  use GridCodec, template_id: 1, schema_id: 100
-
-  defcodec do
-    field :id, :u64
-    field :price, :u64
-    field :quantity, :u32
-  end
-end
-
-# ============================================================================
-# New GridCodec.Struct (struct-based)
+# GridCodec.Struct (struct-based)
 # ============================================================================
 defmodule Bench.StructCodec do
-  use GridCodec.Struct, template_id: 2, schema_id: 100
+  use GridCodec.Struct, template_id: 1, schema_id: 100
 
   defcodec do
     field :id, :u64
@@ -112,7 +156,9 @@ end
 # Main benchmark
 # ============================================================================
 defmodule Bench.Main do
-  alias Bench.{HandRolled, MapCodec, StructCodec, Runner}
+  alias Bench.{HandRolled, StructCodec, Runner}
+
+  require StructCodec
 
   def run do
     IO.puts("\n" <> String.duplicate("=", 70))
@@ -121,28 +167,26 @@ defmodule Bench.Main do
 
     # Test data
     hand_data = %HandRolled{id: 12_345_678_901_234, price: 15_000_000_000, quantity: 100_000}
-    map_data = %{id: 12_345_678_901_234, price: 15_000_000_000, quantity: 100_000}
     struct_data = %StructCodec{id: 12_345_678_901_234, price: 15_000_000_000, quantity: 100_000}
 
     # Pre-encode for decode benchmarks
     hand_binary = HandRolled.encode(hand_data)
-    map_binary = MapCodec.encode(map_data)
-    struct_binary = StructCodec.encode(struct_data)
-    struct_framed = StructCodec.encode!(struct_data)
+    # encode(struct, header: false) for payload-only (comparable to hand-rolled)
+    struct_binary = StructCodec.encode(struct_data, header: false)
+    # encode(struct) now includes header by default
+    struct_framed = StructCodec.encode(struct_data)
 
     # Verify correctness
     IO.puts("\n--- Verification ---")
     IO.puts("Hand-rolled binary size: #{byte_size(hand_binary)} bytes")
-    IO.puts("Map codec binary size:   #{byte_size(map_binary)} bytes")
-    IO.puts("Struct codec binary size: #{byte_size(struct_binary)} bytes")
-    IO.puts("Binaries match: #{hand_binary == map_binary and map_binary == struct_binary}")
+    IO.puts("Struct codec binary size: #{byte_size(struct_binary)} bytes (payload only)")
+    IO.puts("Struct codec framed size: #{byte_size(struct_framed)} bytes (with header)")
+    IO.puts("Payload binaries match: #{hand_binary == struct_binary}")
 
     {:ok, hand_decoded} = HandRolled.decode(hand_binary)
-    {:ok, map_decoded} = MapCodec.decode(map_binary)
-    {:ok, struct_decoded} = StructCodec.decode(struct_binary)
+    {:ok, struct_decoded} = StructCodec.decode(struct_binary, header: false)
 
     IO.puts("Hand decode:   #{inspect(hand_decoded)}")
-    IO.puts("Map decode:    #{inspect(map_decoded)}")
     IO.puts("Struct decode: #{inspect(struct_decoded)}")
 
     iterations = 500_000
@@ -156,14 +200,11 @@ defmodule Bench.Main do
       Runner.run("Hand-rolled encode", iterations, fn ->
         HandRolled.encode(hand_data)
       end),
-      Runner.run("MapCodec.encode (map)", iterations, fn ->
-        MapCodec.encode(map_data)
+      Runner.run("StructCodec.encode (no header)", iterations, fn ->
+        StructCodec.encode(struct_data, header: false)
       end),
-      Runner.run("StructCodec.encode (struct)", iterations, fn ->
+      Runner.run("StructCodec.encode (w/header)", iterations, fn ->
         StructCodec.encode(struct_data)
-      end),
-      Runner.run("StructCodec.encode! (w/header)", iterations, fn ->
-        StructCodec.encode!(struct_data)
       end),
       Runner.run("GridCodec.encode (dispatch)", iterations, fn ->
         GridCodec.encode(struct_data)
@@ -181,14 +222,11 @@ defmodule Bench.Main do
       Runner.run("Hand-rolled decode", iterations, fn ->
         HandRolled.decode(hand_binary)
       end),
-      Runner.run("MapCodec.decode (map)", iterations, fn ->
-        MapCodec.decode(map_binary)
+      Runner.run("StructCodec.decode (no header)", iterations, fn ->
+        StructCodec.decode(struct_binary, header: false)
       end),
-      Runner.run("StructCodec.decode (struct)", iterations, fn ->
-        StructCodec.decode(struct_binary)
-      end),
-      Runner.run("StructCodec.decode! (w/header)", iterations, fn ->
-        StructCodec.decode!(struct_framed)
+      Runner.run("StructCodec.decode (w/header)", iterations, fn ->
+        StructCodec.decode(struct_framed)
       end),
       Runner.run("GridCodec.decode (dispatch)", iterations, fn ->
         GridCodec.decode(struct_framed)
@@ -197,23 +235,20 @@ defmodule Bench.Main do
 
     Runner.print_results(decode_results)
 
-    # ZERO-COPY GET Benchmarks
+    # ZERO-COPY GET Benchmarks (get/2 macro works directly on binary)
     IO.puts("\n" <> String.duplicate("=", 70))
     IO.puts("ZERO-COPY GET Benchmark (#{iterations} iterations)")
     IO.puts(String.duplicate("=", 70))
-
-    map_env = MapCodec.wrap(map_binary)
-    struct_env = StructCodec.wrap(struct_binary)
 
     get_results = [
       Runner.run("Hand-rolled get_price", iterations, fn ->
         HandRolled.get_price(hand_binary)
       end),
-      Runner.run("MapCodec.get (map)", iterations, fn ->
-        MapCodec.get(map_env, :price)
+      Runner.run("StructCodec.get (no header)", iterations, fn ->
+        StructCodec.get(struct_binary, :price, header: false)
       end),
-      Runner.run("StructCodec.get (struct)", iterations, fn ->
-        StructCodec.get(struct_env, :price)
+      Runner.run("StructCodec.get (w/header)", iterations, fn ->
+        StructCodec.get(struct_framed, :price)
       end)
     ]
 
@@ -224,7 +259,7 @@ defmodule Bench.Main do
     IO.puts("DISPATCH OVERHEAD Analysis")
     IO.puts(String.duplicate("=", 70))
 
-    direct_encode = Runner.run("Direct encode!", iterations, fn -> StructCodec.encode!(struct_data) end)
+    direct_encode = Runner.run("Direct encode (w/header)", iterations, fn -> StructCodec.encode(struct_data) end)
     dispatch_encode = Runner.run("Dispatch encode", iterations, fn -> GridCodec.encode(struct_data) end)
 
     {_, direct_ns, _} = direct_encode
@@ -233,7 +268,7 @@ defmodule Bench.Main do
 
     IO.puts("\nEncode dispatch overhead: #{Float.round(overhead_encode, 1)} ns (#{Float.round(overhead_encode / direct_ns * 100, 1)}%)")
 
-    direct_decode = Runner.run("Direct decode!", iterations, fn -> StructCodec.decode!(struct_framed) end)
+    direct_decode = Runner.run("Direct decode (w/header)", iterations, fn -> StructCodec.decode(struct_framed) end)
     dispatch_decode = Runner.run("Dispatch decode", iterations, fn -> GridCodec.decode(struct_framed) end)
 
     {_, direct_dec_ns, _} = direct_decode
@@ -248,9 +283,9 @@ defmodule Bench.Main do
     IO.puts(String.duplicate("=", 70))
 
     {_, hand_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "Hand") end)
-    {_, struct_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "StructCodec.encode (struct)") end)
+    {_, struct_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "StructCodec.encode (no header)") end)
     {_, hand_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "Hand") end)
-    {_, struct_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "StructCodec.decode (struct)") end)
+    {_, struct_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "StructCodec.decode (no header)") end)
 
     enc_ratio = struct_enc_ns / hand_enc_ns
     dec_ratio = struct_dec_ns / hand_dec_ns

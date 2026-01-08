@@ -346,4 +346,108 @@ defmodule GridCodec.StructCodecTest do
       assert decoded.id == 12345
     end
   end
+
+  describe "match/1,2 macro" do
+    defmodule MatchTestStruct do
+      use GridCodec.Struct, template_id: 50, schema_id: 100
+
+      defcodec do
+        field :id, :u64
+        field :price, :u32
+        field :quantity, :u16
+      end
+    end
+
+    test "match extracts fields from framed binary (default header: true)" do
+      require MatchTestStruct
+
+      original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
+      binary = MatchTestStruct.encode(original)
+
+      result =
+        case binary do
+          MatchTestStruct.match(id: id, price: p) -> {:ok, id, p}
+          _ -> :no_match
+        end
+
+      assert result == {:ok, 12345, 999}
+    end
+
+    test "match extracts fields from payload-only binary (header: false)" do
+      require MatchTestStruct
+
+      original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
+      payload = MatchTestStruct.encode(original, header: false)
+
+      result =
+        case payload do
+          MatchTestStruct.match([id: id, quantity: q], header: false) -> {:ok, id, q}
+          _ -> :no_match
+        end
+
+      assert result == {:ok, 12345, 42}
+    end
+
+    test "match works with guards" do
+      require MatchTestStruct
+
+      original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
+      binary = MatchTestStruct.encode(original)
+
+      result =
+        case binary do
+          MatchTestStruct.match(price: p) when p > 500 -> :high_price
+          MatchTestStruct.match(price: p) when p <= 500 -> :low_price
+          _ -> :unknown
+        end
+
+      assert result == :high_price
+    end
+
+    test "match returns raw sentinel value for null fields, not nil" do
+      require MatchTestStruct
+
+      # Create struct with nil price
+      original = %MatchTestStruct{id: 12345, price: nil, quantity: 42}
+      binary = MatchTestStruct.encode(original)
+
+      # Match extracts raw sentinel value, NOT nil
+      result =
+        case binary do
+          MatchTestStruct.match(price: p) -> p
+          _ -> :no_match
+        end
+
+      # u32 null sentinel is 0xFFFFFFFF
+      assert result == 0xFFFFFFFF
+      refute is_nil(result)
+    end
+
+    test "match on literal nil raises CompileError" do
+      # This should fail to compile with a helpful error message
+      code = """
+      defmodule CompileErrorTest do
+        defmodule TestCodec do
+          use GridCodec.Struct, template_id: 99, schema_id: 100
+
+          defcodec do
+            field :value, :u32
+          end
+        end
+
+        def test_match(binary) do
+          require TestCodec
+          case binary do
+            TestCodec.match(value: nil) -> :matched_nil
+            _ -> :no_match
+          end
+        end
+      end
+      """
+
+      assert_raise CompileError, ~r/Cannot match on `nil` in match\/1,2 macro/, fn ->
+        Code.compile_string(code)
+      end
+    end
+  end
 end

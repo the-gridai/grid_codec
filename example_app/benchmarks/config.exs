@@ -4,6 +4,11 @@ defmodule Bench.Config do
 
   Allows running benchmarks with different configurations to observe
   performance trends as parameters change.
+
+  Updated for GridCodec v0.5.0+ API:
+  - encode/1 includes header by default
+  - decode/1 expects header by default
+  - get/2 macro works directly on binary (no wrap needed)
   """
 
   @doc """
@@ -28,9 +33,8 @@ defmodule Bench.Config do
         encode: true,
         decode: true,
         dispatch: true,
-        zero_copy: true,
+        zero_copy: true,  # Uses get/2 macro directly on binary
         comparison: true,
-        struct_vs_legacy: true,
         comprehensive: true
       },
 
@@ -89,6 +93,11 @@ defmodule Bench.Config do
       Iterations: #{config.iterations}
       Time: #{config.time}s
       Data sizes: #{inspect(config.data_sizes)}
+
+    API Notes (v0.5.0+):
+      - encode/1 includes 8-byte header by default
+      - decode/1 expects header by default
+      - get/2 macro works directly on binary
     """)
 
     # Run benchmarks for each data size

@@ -1,6 +1,8 @@
 defmodule Bench.RunAll do
   @moduledoc """
   Run all benchmarks in sequence.
+
+  Updated for GridCodec v0.5.0+ API.
   """
 
   def run do
@@ -8,6 +10,12 @@ defmodule Bench.RunAll do
     ════════════════════════════════════════════════════════════════════════════
     GridCodec Benchmark Suite
     ════════════════════════════════════════════════════════════════════════════
+
+    API Notes (v0.5.0+):
+    - encode/1 includes 8-byte header by default
+    - decode/1 expects header by default
+    - get/2 macro works directly on binary (no wrap needed)
+    - Use header: false option for payload-only operations
     """)
 
     IO.puts("\n── Checking consolidated registry ────────────────────────────────────")

@@ -67,20 +67,43 @@ defmodule GridCodec do
 
   | Method | Speed | Use Case |
   |--------|-------|----------|
-  | `get/2` macro | ~70M ips | Single-field access, handles nulls |
-  | `match/1` macro | ~70M ips | Multi-field extraction, raw bytes |
+  | `get/2` macro | ~70M ips | Single-field access, **returns nil for nulls** |
+  | `match/1` macro | ~70M ips | Multi-field extraction, **returns raw sentinel values** |
 
   ```elixir
   require MyCodec
 
   # get macro - single-field access with null handling
-  price = MyCodec.get(binary, :price)
+  price = MyCodec.get(binary, :price)  # Returns nil if field is null
 
-  # match macro - multi-field extraction (returns raw bytes, no null check)
+  # match macro - multi-field extraction (⚠️ returns raw bytes, NOT nil)
   case binary do
-    MyCodec.match(price: p, qty: q) -> {p, q}
+    MyCodec.match(price: p, qty: q) -> {p, q}  # p is sentinel value if null!
   end
   ```
+
+  ### ⚠️ Important: `match` vs `get` for Nullable Fields
+
+  The `match` macro extracts raw binary values. For nullable fields, this means:
+  - **`get/2`**: Returns `nil` if field is null ✓
+  - **`match/1`**: Returns the raw sentinel value (e.g., `0xFFFFFFFF` for u32) ⚠️
+
+  ```elixir
+  # For a struct with price: nil encoded:
+  MyCodec.get(binary, :price)           # => nil
+  MyCodec.match(price: p) -> p          # => 0xFFFFFFFF (sentinel!)
+  ```
+
+  Attempting to match on literal `nil` will raise a **compile-time error**:
+
+  ```elixir
+  # This raises CompileError!
+  MyCodec.match(price: nil)
+  ```
+
+  Use `match` for performance-critical paths where you know fields are non-null,
+  or when you need to extract multiple fields at once. Use `get` when you need
+  null-safe access.
 
   ## Wire Format
 

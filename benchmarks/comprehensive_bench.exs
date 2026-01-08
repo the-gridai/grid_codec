@@ -1,12 +1,68 @@
 # Comprehensive GridCodec Performance Benchmark
 #
 # Run with: mix run benchmarks/comprehensive_bench.exs
-#
-# Tests performance across different codec configurations:
-# 1. Fixed-only fields (most optimized path)
-# 2. Fixed + variable-length fields
-# 3. Multiple field types
-# 4. Dispatch overhead
+
+defmodule Bench.Comprehensive do
+  @moduledoc """
+  Comprehensive performance analysis of GridCodec.Struct.
+
+  Tests various codec configurations:
+  - Fixed-only fields (most optimized path)
+  - Fixed + variable-length fields
+  - Multiple field types
+  - Dispatch overhead
+
+  ## Expected Results (v0.6.0)
+
+  ### Encode Performance
+
+  | Implementation          | Time       | vs Hand-rolled |
+  |-------------------------|------------|----------------|
+  | Hand-rolled             | ~70ns      | baseline       |
+  | SimpleFixed (no header) | ~70ns      | ~same          |
+  | MultiType (6 fields)    | ~70ns      | ~same          |
+  | WithString (var-length) | ~300-350ns | 4-5x slower    |
+  | SimpleFixed (w/header)  | ~300-350ns | 4-5x slower    |
+  | GridCodec.encode        | ~300-400ns | 4-5x slower    |
+
+  ### Decode Performance
+
+  | Implementation          | Time       | vs Hand-rolled |
+  |-------------------------|------------|----------------|
+  | Hand-rolled             | ~100ns     | baseline       |
+  | SimpleFixed (no header) | ~110ns     | ~same          |
+  | MultiType (6 fields)    | ~190ns     | 1.9x slower    |
+  | WithString (var-length) | ~400ns     | 4x slower      |
+  | SimpleFixed (w/header)  | ~180ns     | 1.8x slower    |
+  | GridCodec.decode        | ~250ns     | 2.5x slower    |
+
+  ### Zero-Copy Get
+
+  | Operation               | Time       |
+  |-------------------------|------------|
+  | get(:price) w/header    | ~70-130ns  |
+  | get(:price) no header   | ~130ns     |
+
+  ### Dispatch Overhead
+
+  | Path     | Encode    | Decode    |
+  |----------|-----------|-----------|
+  | Direct   | ~300ns    | ~170ns    |
+  | Protocol | ~400ns    | ~220ns    |
+  | Overhead | ~10-30%   | ~30%      |
+
+  ## Key Findings
+
+  1. **Payload-only encode** matches hand-rolled performance
+  2. **Header adds overhead** (~250ns for 8-byte header)
+  3. **Variable-length fields** add significant overhead
+  4. **get macro** is 2-10x faster than full decode
+
+  ## Usage
+
+      mix run benchmarks/comprehensive_bench.exs
+  """
+end
 
 IO.puts("\n" <> String.duplicate("=", 80))
 IO.puts("GridCodec Comprehensive Performance Benchmark")
@@ -133,6 +189,9 @@ end
 defmodule Bench.Main do
   alias Bench.{SimpleFixed, MultiType, WithString, HandRolled, Runner}
 
+  require SimpleFixed
+  require MultiType
+
   def run do
     iterations = 500_000
 
@@ -149,14 +208,15 @@ defmodule Bench.Main do
     string_data = %WithString{id: 12_345_678_901_234, price: 15_000_000_000, name: "Test Order"}
     hand_data = %HandRolled{id: 12_345_678_901_234, price: 15_000_000_000, quantity: 100_000}
 
-    # Pre-encode
+    # Pre-encode (encode/1 includes header by default)
     simple_bin = SimpleFixed.encode(simple_data)
     multi_bin = MultiType.encode(multi_data)
     string_bin = WithString.encode(string_data)
     hand_bin = HandRolled.encode(hand_data)
 
-    simple_framed = SimpleFixed.encode!(simple_data)
-    multi_framed = MultiType.encode!(multi_data)
+    # Payload-only (no header) for comparison
+    simple_bin_no_header = SimpleFixed.encode(simple_data, header: false)
+    multi_bin_no_header = MultiType.encode(multi_data, header: false)
 
     # Verify
     IO.puts("\n--- Verification ---")
@@ -177,10 +237,10 @@ defmodule Bench.Main do
 
     encode_results = [
       Runner.run("Hand-rolled (baseline)", iterations, fn -> HandRolled.encode(hand_data) end),
-      Runner.run("SimpleFixed.encode", iterations, fn -> SimpleFixed.encode(simple_data) end),
-      Runner.run("MultiType.encode (6 fields)", iterations, fn -> MultiType.encode(multi_data) end),
-      Runner.run("WithString.encode (var-length)", iterations, fn -> WithString.encode(string_data) end),
-      Runner.run("SimpleFixed.encode! (w/header)", iterations, fn -> SimpleFixed.encode!(simple_data) end),
+      Runner.run("SimpleFixed.encode (no header)", iterations, fn -> SimpleFixed.encode(simple_data, header: false) end),
+      Runner.run("MultiType.encode (6 fields, no hdr)", iterations, fn -> MultiType.encode(multi_data, header: false) end),
+      Runner.run("WithString.encode (var-length)", iterations, fn -> WithString.encode(string_data, header: false) end),
+      Runner.run("SimpleFixed.encode (w/header)", iterations, fn -> SimpleFixed.encode(simple_data) end),
       Runner.run("GridCodec.encode (dispatch)", iterations, fn -> GridCodec.encode(simple_data) end)
     ]
 
@@ -195,33 +255,33 @@ defmodule Bench.Main do
 
     decode_results = [
       Runner.run("Hand-rolled (baseline)", iterations, fn -> HandRolled.decode(hand_bin) end),
-      Runner.run("SimpleFixed.decode", iterations, fn -> SimpleFixed.decode(simple_bin) end),
-      Runner.run("MultiType.decode (6 fields)", iterations, fn -> MultiType.decode(multi_bin) end),
+      Runner.run("SimpleFixed.decode (no header)", iterations, fn -> SimpleFixed.decode(simple_bin_no_header, header: false) end),
+      Runner.run("MultiType.decode (6 fields, no hdr)", iterations, fn -> MultiType.decode(multi_bin_no_header, header: false) end),
       Runner.run("WithString.decode (var-length)", iterations, fn -> WithString.decode(string_bin) end),
-      Runner.run("SimpleFixed.decode! (w/header)", iterations, fn -> SimpleFixed.decode!(simple_framed) end),
-      Runner.run("GridCodec.decode (dispatch)", iterations, fn -> GridCodec.decode(simple_framed) end)
+      Runner.run("SimpleFixed.decode (w/header)", iterations, fn -> SimpleFixed.decode(simple_bin) end),
+      Runner.run("GridCodec.decode (dispatch)", iterations, fn -> GridCodec.decode(simple_bin) end)
     ]
 
     Runner.print_results(decode_results)
 
     # ========================================================================
-    # ZERO-COPY GET BENCHMARKS
+    # ZERO-COPY GET BENCHMARKS (using get/2 macro directly on binary)
     # ========================================================================
     IO.puts("\n" <> String.duplicate("=", 80))
     IO.puts("ZERO-COPY GET Benchmarks (#{iterations} iterations)")
     IO.puts(String.duplicate("=", 80))
 
-    simple_env = SimpleFixed.wrap(simple_bin)
-    multi_env = MultiType.wrap(multi_bin)
-
     get_results = [
-      Runner.run("SimpleFixed.get(:price)", iterations, fn -> SimpleFixed.get(simple_env, :price) end),
-      Runner.run("MultiType.get(:price)", iterations, fn -> MultiType.get(multi_env, :price) end),
-      Runner.run("MultiType.get(:balance)", iterations, fn -> MultiType.get(multi_env, :balance) end),
-      Runner.run("MultiType.get(:active)", iterations, fn -> MultiType.get(multi_env, :active) end)
+      # get/2 macro works directly on binary (with header by default)
+      Runner.run("SimpleFixed.get(:price) [w/header]", iterations, fn -> SimpleFixed.get(simple_bin, :price) end),
+      Runner.run("MultiType.get(:price) [w/header]", iterations, fn -> MultiType.get(multi_bin, :price) end),
+      Runner.run("MultiType.get(:balance) [w/header]", iterations, fn -> MultiType.get(multi_bin, :balance) end),
+      Runner.run("MultiType.get(:active) [w/header]", iterations, fn -> MultiType.get(multi_bin, :active) end),
+      # With header: false for payload-only binaries
+      Runner.run("SimpleFixed.get(:price) [no header]", iterations, fn -> SimpleFixed.get(simple_bin_no_header, :price, header: false) end)
     ]
 
-    Runner.print_results(get_results, "SimpleFixed")
+    Runner.print_results(get_results, "SimpleFixed.get(:price) [w/header]")
 
     # ========================================================================
     # DISPATCH ANALYSIS
@@ -230,11 +290,11 @@ defmodule Bench.Main do
     IO.puts("Protocol/Dispatch Analysis")
     IO.puts(String.duplicate("=", 80))
 
-    direct_enc = Runner.run("Direct encode!", iterations, fn -> SimpleFixed.encode!(simple_data) end)
+    direct_enc = Runner.run("Direct encode (w/header)", iterations, fn -> SimpleFixed.encode(simple_data) end)
     protocol_enc = Runner.run("Protocol encode", iterations, fn -> GridCodec.encode(simple_data) end)
 
-    direct_dec = Runner.run("Direct decode!", iterations, fn -> SimpleFixed.decode!(simple_framed) end)
-    dispatch_dec = Runner.run("Dispatch decode", iterations, fn -> GridCodec.decode(simple_framed) end)
+    direct_dec = Runner.run("Direct decode (w/header)", iterations, fn -> SimpleFixed.decode(simple_bin) end)
+    dispatch_dec = Runner.run("Dispatch decode", iterations, fn -> GridCodec.decode(simple_bin) end)
 
     {_, direct_enc_ns, _} = direct_enc
     {_, protocol_enc_ns, _} = protocol_enc
@@ -259,9 +319,9 @@ defmodule Bench.Main do
     IO.puts(String.duplicate("=", 80))
 
     {_, hand_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "Hand-rolled") end)
-    {_, simple_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "SimpleFixed.encode") and not String.contains?(n, "!") end)
+    {_, simple_enc_ns, _} = Enum.find(encode_results, fn {n, _, _} -> String.contains?(n, "SimpleFixed.encode (no header)") end)
     {_, hand_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "Hand-rolled") end)
-    {_, simple_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "SimpleFixed.decode") and not String.contains?(n, "!") end)
+    {_, simple_dec_ns, _} = Enum.find(decode_results, fn {n, _, _} -> String.contains?(n, "SimpleFixed.decode (no header)") end)
 
     enc_ratio = simple_enc_ns / hand_enc_ns
     dec_ratio = simple_dec_ns / hand_dec_ns

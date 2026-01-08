@@ -7,6 +7,11 @@ defmodule Bench.JITAnalysis do
   - Hot function identification
   - Inlining opportunities
   - Native code generation
+
+  Updated for GridCodec v0.5.0+ API:
+  - encode/1 includes header by default
+  - decode/1 expects header by default
+  - get/2 macro works directly on binary (no wrap needed)
   """
 
   defmodule TestOrder do
@@ -70,8 +75,7 @@ defmodule Bench.JITAnalysis do
     # Check if functions are JIT compiled
     functions = [
       {TestOrder, :encode, 1},
-      {TestOrder, :decode, 1},
-      {TestOrder, :get, 2}
+      {TestOrder, :decode, 1}
     ]
 
     for {module, function, arity} <- functions do
@@ -107,8 +111,10 @@ defmodule Bench.JITAnalysis do
   end
 
   defp warmup_functions do
+    require TestOrder
+
     order_id = :crypto.strong_rand_bytes(16)
-    timestamp = DateTime.utc_now()
+    timestamp = System.system_time(:microsecond)
 
     order = %TestOrder{
       order_id: order_id,
@@ -125,6 +131,7 @@ defmodule Bench.JITAnalysis do
       TestOrder.encode(order)
     end
 
+    # encode/1 now includes header by default
     binary = TestOrder.encode(order)
 
     # Warm up decode
@@ -132,14 +139,9 @@ defmodule Bench.JITAnalysis do
       TestOrder.decode(binary)
     end
 
-    # Warm up get
-    case TestOrder.wrap(binary) do
-      {:ok, env} ->
-        for _i <- 1..100_000 do
-          TestOrder.get(env, :price)
-        end
-      _ ->
-        :ok
+    # Warm up get (now works directly on binary, no wrap needed)
+    for _i <- 1..100_000 do
+      TestOrder.get(binary, :price)
     end
 
     IO.puts("  ✓ Functions warmed up (100K iterations each)")

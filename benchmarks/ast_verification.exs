@@ -4,6 +4,11 @@
 #
 # Verifies that the generated code is equivalent to optimal hand-rolled code
 # by inspecting the generated AST patterns.
+#
+# Updated for GridCodec v0.5.0+ API:
+# - encode/1 includes header by default
+# - decode/1 expects header by default
+# - get/2 macro works directly on binary (no wrap needed)
 
 IO.puts("\n" <> String.duplicate("=", 70))
 IO.puts("GridCodec AST Verification")
@@ -33,15 +38,20 @@ end
 # Verification Tests
 # ============================================================================
 defmodule Verify.Tests do
+  require Verify.SimpleCodec
+  require Verify.WithDefault
+
   def run_all do
     results = [
       {"Struct fields defined correctly", verify_struct_fields()},
       {"Block length calculated correctly", verify_block_length()},
-      {"Encode/decode roundtrip works", verify_roundtrip()},
+      {"Encode/decode roundtrip works (with header)", verify_roundtrip()},
+      {"Encode/decode roundtrip works (no header)", verify_roundtrip_no_header()},
       {"Default values applied correctly", verify_defaults()},
       {"Direct struct pattern match (encode)", verify_encode_pattern()},
       {"Direct struct creation (decode)", verify_decode_pattern()},
-      {"Zero-copy get works", verify_zero_copy()},
+      {"Zero-copy get works (with header)", verify_zero_copy()},
+      {"Zero-copy get works (no header)", verify_zero_copy_no_header()},
       {"Protocol implementation works", verify_protocol()}
     ]
 
@@ -70,38 +80,53 @@ defmodule Verify.Tests do
 
   defp verify_roundtrip do
     original = %Verify.SimpleCodec{id: 123, price: 456, quantity: 789}
+    # encode/1 now includes header by default
     binary = Verify.SimpleCodec.encode(original)
     {:ok, decoded} = Verify.SimpleCodec.decode(binary)
+    decoded == original
+  end
+
+  defp verify_roundtrip_no_header do
+    original = %Verify.SimpleCodec{id: 123, price: 456, quantity: 789}
+    # Use header: false for payload-only
+    binary = Verify.SimpleCodec.encode(original, header: false)
+    {:ok, decoded} = Verify.SimpleCodec.decode(binary, header: false)
     decoded == original
   end
 
   defp verify_defaults do
     # When count is nil, it should encode as 100 (default)
     original = %Verify.WithDefault{id: 123, count: nil}
-    binary = Verify.WithDefault.encode(original)
-    {:ok, decoded} = Verify.WithDefault.decode(binary)
+    binary = Verify.WithDefault.encode(original, header: false)
+    {:ok, decoded} = Verify.WithDefault.decode(binary, header: false)
     decoded.count == 100
   end
 
   defp verify_encode_pattern do
     # Verify encode works with pattern matching on struct
     s = %Verify.SimpleCodec{id: 1, price: 2, quantity: 3}
-    binary = Verify.SimpleCodec.encode(s)
+    binary = Verify.SimpleCodec.encode(s, header: false)
     byte_size(binary) == 20
   end
 
   defp verify_decode_pattern do
-    # Verify decode creates struct directly
+    # Verify decode creates struct directly (payload-only)
     binary = <<1::little-64, 2::little-64, 3::little-32>>
     {:ok, %Verify.SimpleCodec{id: 1, price: 2, quantity: 3}} =
-      Verify.SimpleCodec.decode(binary)
+      Verify.SimpleCodec.decode(binary, header: false)
     true
   end
 
   defp verify_zero_copy do
+    # get/2 macro now works directly on binary (with header by default)
     binary = Verify.SimpleCodec.encode(%Verify.SimpleCodec{id: 100, price: 200, quantity: 300})
-    env = Verify.SimpleCodec.wrap(binary)
-    Verify.SimpleCodec.get(env, :price) == 200
+    Verify.SimpleCodec.get(binary, :price) == 200
+  end
+
+  defp verify_zero_copy_no_header do
+    # get/2 macro with header: false for payload-only binary
+    binary = Verify.SimpleCodec.encode(%Verify.SimpleCodec{id: 100, price: 200, quantity: 300}, header: false)
+    Verify.SimpleCodec.get(binary, :price, header: false) == 200
   end
 
   defp verify_protocol do
@@ -116,6 +141,8 @@ end
 # Performance Characteristic Analysis
 # ============================================================================
 defmodule Verify.Analysis do
+  require Verify.SimpleCodec
+
   def run do
     IO.puts("\n--- Performance Characteristics ---\n")
 
@@ -126,9 +153,9 @@ defmodule Verify.Analysis do
     IO.puts("  Var fields: #{inspect(simple_schema.var_fields)}")
     IO.puts("  Block length: #{simple_schema.block_length} bytes")
 
-    # Verify binary matches expected format
+    # Verify binary matches expected format (payload only for comparison)
     s = %Verify.SimpleCodec{id: 0x0102030405060708, price: 0x1112131415161718, quantity: 0x21222324}
-    binary = Verify.SimpleCodec.encode(s)
+    binary = Verify.SimpleCodec.encode(s, header: false)
 
     expected = <<
       0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,  # id (little-endian)

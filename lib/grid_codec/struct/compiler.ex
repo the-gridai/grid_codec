@@ -1138,6 +1138,19 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
   # Pattern Matching Macro Generation
   # ============================================================================
+  #
+  # IMPORTANT: The match macro returns RAW binary values, not decoded values.
+  # For nullable fields, this means sentinel values are returned, NOT nil.
+  #
+  # Current safety measures:
+  # - Compile-time error when matching on literal `nil`
+  #
+  # Future improvements (requires Elixir 1.17+ gradual typing):
+  # - Type annotations that would make `is_nil(value)` emit a warning
+  # - The matched values are never nil, so `is_nil(value)` is always false
+  #
+  # For null-safe access, users should use get/2 instead.
+  # ============================================================================
 
   defp generate_match_macro(fixed_fields, field_offsets, block_length, endian) do
     field_info =
@@ -1153,6 +1166,30 @@ defmodule GridCodec.Struct.Compiler do
 
       By default, expects a framed binary (with header from `encode/1`).
       Use `header: false` option for payload-only binaries.
+
+      ## ⚠️  Important: Raw Values, Not Nil
+
+      **The `match` macro extracts raw binary values, NOT decoded values.**
+
+      For nullable fields, the raw sentinel value is returned instead of `nil`:
+      - For unsigned integers: all 1s (e.g., `0xFFFFFFFF` for u32)
+      - For signed integers: minimum value (e.g., `-9223372036854775808` for i64)
+      - For UUIDs: all zeros (`<<0::128>>`)
+
+      If you need null-aware access, use `get/2` instead:
+
+          # get/2 returns nil for null fields
+          price = #{inspect(__MODULE__)}.get(binary, :price)  # nil if null
+
+          # match/1 returns sentinel value for null fields
+          case binary do
+            #{inspect(__MODULE__)}.match(price: p) -> p  # 0xFFFFFFFFFFFFFFFF if null!
+          end
+
+      Attempting to match on literal `nil` will raise a compile-time error:
+
+          # This raises CompileError!
+          #{inspect(__MODULE__)}.match(price: nil)
 
       ## Examples
 
@@ -1206,6 +1243,22 @@ defmodule GridCodec.Struct.Compiler do
       raise ArgumentError,
             "unknown or non-matchable fields: #{inspect(unknown)}. " <>
               "Available fixed fields: #{inspect(available_fields)}"
+    end
+
+    # Compile-time check: Disallow matching on literal `nil`
+    # The match macro returns raw bytes, not nil - use get/2 for null-safe access
+    nil_fields =
+      field_bindings
+      |> Enum.filter(fn {_name, value} -> value == nil end)
+      |> Enum.map(fn {name, _} -> name end)
+
+    if nil_fields != [] do
+      raise CompileError,
+        description:
+          "Cannot match on `nil` in match/1,2 macro. " <>
+            "The match macro extracts raw bytes - null values are represented as sentinel values, not nil. " <>
+            "Use get/2 for null-safe field access. " <>
+            "Offending fields: #{inspect(nil_fields)}"
     end
 
     # Header offset: 8 bytes for framed binaries, 0 for payload-only

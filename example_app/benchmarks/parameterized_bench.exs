@@ -2,6 +2,11 @@ defmodule Bench.Parameterized do
   @moduledoc """
   Parameterized benchmark suite that runs benchmarks across different
   configurations to observe performance trends.
+
+  Updated for GridCodec v0.5.0+ API:
+  - encode/1 includes header by default
+  - decode/1 expects header by default
+  - get/2 macro works directly on binary (no wrap needed)
   """
 
   alias Bench.DataStructures
@@ -43,19 +48,24 @@ defmodule Bench.Parameterized do
     results
   end
 
-  defp run_size_benchmarks(data, module, size, config) do
+  defp run_size_benchmarks(data, module, _size, config) do
+    # encode/1 now includes header by default
+    # For payload-only, use encode(struct, header: false)
     binary = module.encode(data)
-    framed = module.encode!(data)
+    binary_no_header = module.encode(data, header: false)
 
     results = %{}
 
     # Encode benchmark
     if config.benchmarks.encode do
       IO.puts("── Encode Performance ────────────────────────────────────────────────")
+
+      require module
+
       encode_results = Benchee.run(
         %{
-          "Direct.encode" => fn -> module.encode(data) end,
-          "Direct.encode!" => fn -> module.encode!(data) end,
+          "Direct.encode (with header)" => fn -> module.encode(data) end,
+          "Direct.encode (no header)" => fn -> module.encode(data, header: false) end,
           "GridCodec.encode (dispatch)" => fn -> GridCodec.encode(data) end
         },
         time: config.time,
@@ -69,11 +79,14 @@ defmodule Bench.Parameterized do
     # Decode benchmark
     if config.benchmarks.decode do
       IO.puts("\n── Decode Performance ────────────────────────────────────────────────")
+
+      require module
+
       decode_results = Benchee.run(
         %{
-          "Direct.decode" => fn -> module.decode(binary) end,
-          "Direct.decode!" => fn -> module.decode!(framed) end,
-          "GridCodec.decode (dispatch)" => fn -> GridCodec.decode(framed) end
+          "Direct.decode (with header)" => fn -> module.decode(binary) end,
+          "Direct.decode (no header)" => fn -> module.decode(binary_no_header, header: false) end,
+          "GridCodec.decode (dispatch)" => fn -> GridCodec.decode(binary) end
         },
         time: config.time,
         warmup: config.warmup_time,
@@ -83,16 +96,21 @@ defmodule Bench.Parameterized do
       results = Map.put(results, :decode, decode_results)
     end
 
-    # Zero-copy get benchmark
+    # Zero-copy get benchmark (uses get/2 macro directly on binary)
     if config.benchmarks.zero_copy do
       IO.puts("\n── Zero-Copy Get Performance ──────────────────────────────────────────")
-      env = module.wrap(binary)
+
+      require module
+
       first_field = List.first(module.__fields__())
 
       if first_field do
         get_results = Benchee.run(
           %{
-            "get(#{first_field})" => fn -> module.get(env, first_field) end
+            # get/2 macro works directly on binary (with header by default)
+            "get(#{first_field}) [with header]" => fn -> module.get(binary, first_field) end,
+            # For payload-only binary, use header: false
+            "get(#{first_field}) [no header]" => fn -> module.get(binary_no_header, first_field, header: false) end
           },
           time: config.time,
           warmup: config.warmup_time,

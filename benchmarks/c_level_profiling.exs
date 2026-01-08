@@ -7,6 +7,11 @@ defmodule Bench.CLevelProfiling do
   - :eprof for time profiling
   - System-level tools (perf/dtrace/instruments) for C-level analysis
   - JIT-specific analysis for BeamAsm optimizations
+
+  Updated for GridCodec v0.5.0+ API:
+  - encode/1 includes header by default
+  - decode/1 expects header by default
+  - get/2 macro works directly on binary (no wrap needed)
   """
 
   # Test data
@@ -28,12 +33,15 @@ defmodule Bench.CLevelProfiling do
     defstruct [:order_id, :user_id, :price, :quantity, :side, :timestamp, :flags]
 
     def encode(%__MODULE__{} = order) do
+      # Use integer timestamp directly for fair comparison
+      ts = if is_integer(order.timestamp), do: order.timestamp, else: 0
+
       <<order.order_id::binary-16,
         order.user_id::little-64,
         order.price::little-64,
         order.quantity::little-32,
         order.side::little-8,
-        DateTime.to_unix(order.timestamp, :microsecond)::little-64,
+        ts::little-64,
         order.flags::little-8>>
     end
 
@@ -46,14 +54,13 @@ defmodule Bench.CLevelProfiling do
           side::little-8,
           timestamp_us::little-64,
           flags::little-8>> ->
-          timestamp = DateTime.from_unix!(timestamp_us, :microsecond)
           {:ok, %__MODULE__{
             order_id: order_id,
             user_id: user_id,
             price: price,
             quantity: quantity,
             side: side,
-            timestamp: timestamp,
+            timestamp: timestamp_us,
             flags: flags
           }}
 
@@ -70,9 +77,9 @@ defmodule Bench.CLevelProfiling do
     ════════════════════════════════════════════════════════════════════════════
     """)
 
-    # Prepare test data
+    # Prepare test data (use integer timestamp for fair comparison)
     order_id = :crypto.strong_rand_bytes(16)
-    timestamp = DateTime.utc_now()
+    timestamp = System.system_time(:microsecond)
 
     struct_order = %TestOrder{
       order_id: order_id,
@@ -94,7 +101,8 @@ defmodule Bench.CLevelProfiling do
       flags: 7
     }
 
-    struct_bin = TestOrder.encode(struct_order)
+    # encode(struct, header: false) for payload-only comparison
+    struct_bin = TestOrder.encode(struct_order, header: false)
     hand_bin = HandRolledOrder.encode(hand_order)
 
     IO.puts("✓ Test data prepared")
@@ -104,34 +112,34 @@ defmodule Bench.CLevelProfiling do
 
     # Run profiling
     IO.puts("── Running :fprof profiling (Erlang-level) ──────────────────────────────")
-    fprof_results = profile_with_fprof(fn ->
+    _fprof_results = profile_with_fprof(fn ->
       for _i <- 1..1_000_000 do
-        TestOrder.encode(struct_order)
+        TestOrder.encode(struct_order, header: false)
       end
     end, "encode_struct")
 
     IO.puts("\n── Running :fprof profiling (Hand-rolled) ───────────────────────────────")
-    fprof_hand = profile_with_fprof(fn ->
+    _fprof_hand = profile_with_fprof(fn ->
       for _i <- 1..1_000_000 do
         HandRolledOrder.encode(hand_order)
       end
     end, "encode_hand")
 
     IO.puts("\n── Running :eprof profiling (Time-based) ───────────────────────────────")
-    eprof_results = profile_with_eprof(fn ->
+    _eprof_results = profile_with_eprof(fn ->
       for _i <- 1..1_000_000 do
-        TestOrder.encode(struct_order)
+        TestOrder.encode(struct_order, header: false)
       end
     end, "encode_struct")
 
     IO.puts("\n── Decode profiling ────────────────────────────────────────────────────")
-    decode_fprof = profile_with_fprof(fn ->
+    _decode_fprof = profile_with_fprof(fn ->
       for _i <- 1..1_000_000 do
-        TestOrder.decode(struct_bin)
+        TestOrder.decode(struct_bin, header: false)
       end
     end, "decode_struct")
 
-    decode_hand_fprof = profile_with_fprof(fn ->
+    _decode_hand_fprof = profile_with_fprof(fn ->
       for _i <- 1..1_000_000 do
         HandRolledOrder.decode(hand_bin)
       end

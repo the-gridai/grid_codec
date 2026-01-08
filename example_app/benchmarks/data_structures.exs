@@ -3,6 +3,10 @@ defmodule Bench.DataStructures do
   Parameterized data structures for benchmarks (small, medium, large).
 
   These provide realistic, scalable test data for performance analysis.
+
+  Note: Uses integer timestamps (System.system_time/1) instead of DateTime
+  structs for optimal encode performance. See AGENTS.md for details on
+  DateTime overhead.
   """
 
   # ============================================================================
@@ -53,7 +57,8 @@ defmodule Bench.DataStructures do
       price: 15_000_000_000,
       quantity: 100_000,
       side: 1,
-      timestamp: DateTime.utc_now(),
+      # Use integer timestamp for optimal performance
+      timestamp: System.system_time(:microsecond),
       flags: 7,
       symbol: String.duplicate("A", 10)  # 10 char symbol
     }
@@ -89,6 +94,8 @@ defmodule Bench.DataStructures do
   end
 
   def large_data do
+    now = System.system_time(:microsecond)
+
     %LargeOrder{
       order_id: :crypto.strong_rand_bytes(16),
       user_id: 12_345_678_901_234_567,
@@ -99,8 +106,9 @@ defmodule Bench.DataStructures do
       side: 1,
       order_type: 2,
       time_in_force: 1,
-      timestamp: DateTime.utc_now(),
-      expiry_time: DateTime.utc_now() |> DateTime.add(86400, :second),
+      # Use integer timestamps for optimal performance
+      timestamp: now,
+      expiry_time: now + 86_400_000_000,  # +1 day in microseconds
       flags: 7,
       priority: 5,
       reserved1: 0,

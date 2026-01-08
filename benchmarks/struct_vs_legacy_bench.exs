@@ -1,39 +1,29 @@
-# GridCodec.Struct vs Legacy Comparison Benchmark
+# GridCodec.Struct Performance Benchmark
 #
 # Run with: mix run benchmarks/struct_vs_legacy_bench.exs
 #
-# Comprehensive comparison of:
-# 1. GridCodec.Struct (new struct-based codec)
-# 2. use GridCodec (legacy map-based codec)
-# 3. Hand-rolled code (optimal baseline)
-# 4. BEAM bytecode analysis and JIT opportunities
+# Comprehensive analysis of:
+# 1. GridCodec.Struct (struct-based codec)
+# 2. Hand-rolled code (optimal baseline)
+# 3. BEAM bytecode analysis and JIT opportunities
+#
+# Updated for GridCodec v0.5.0+ API:
+# - encode/1 includes header by default
+# - decode/1 expects header by default
+# - get/2 macro works directly on binary (no wrap needed)
+# - Removed legacy map-based codec (use GridCodec.Struct only)
 
 IO.puts("\n" <> String.duplicate("═", 80))
-IO.puts("         GridCodec.Struct vs Legacy Performance Analysis")
+IO.puts("         GridCodec.Struct Performance Analysis")
 IO.puts(String.duplicate("═", 80))
 
 # ============================================================================
 # Define Test Codecs
 # ============================================================================
 
-# NEW: Struct-based codec
+# Struct-based codec
 defmodule Bench.StructOrder do
   use GridCodec.Struct, template_id: 1, schema_id: 1
-
-  defcodec do
-    field :order_id, :uuid
-    field :user_id, :u64
-    field :price, :u64
-    field :quantity, :u32
-    field :side, :u8
-    field :timestamp, :timestamp_us
-    field :flags, :u8
-  end
-end
-
-# LEGACY: Map-based codec
-defmodule Bench.LegacyOrder do
-  use GridCodec, template_id: 2, schema_id: 1
 
   defcodec do
     field :order_id, :uuid
@@ -70,7 +60,7 @@ defmodule Bench.HandRolledOrder do
     price_val = price || @null_u64
     qty_val = qty || @null_u32
     side_val = side || @null_u8
-    ts_val = if ts, do: DateTime.to_unix(ts, :microsecond), else: @null_i64
+    ts_val = if is_integer(ts), do: ts, else: @null_i64
     flags_val = flags || @null_u8
 
     <<oid_bin::binary-16, uid_val::little-64, price_val::little-64,
@@ -85,7 +75,7 @@ defmodule Bench.HandRolledOrder do
       price: if(price == @null_u64, do: nil, else: price),
       quantity: if(qty == @null_u32, do: nil, else: qty),
       side: if(side == @null_u8, do: nil, else: side),
-      timestamp: if(ts == @null_i64, do: nil, else: DateTime.from_unix!(ts, :microsecond)),
+      timestamp: if(ts == @null_i64, do: nil, else: ts),
       flags: if(flags == @null_u8, do: nil, else: flags)
     }}
   end
@@ -192,31 +182,29 @@ end
 # Compiled Benchmark Functions (Benchee best practice)
 # ============================================================================
 defmodule Bench.Functions do
+  require Bench.StructOrder
+
   # Encoding
-  def encode_struct(data), do: Bench.StructOrder.encode(data)
-  def encode_legacy(data), do: Bench.LegacyOrder.encode(data)
+  def encode_struct(data), do: Bench.StructOrder.encode(data, header: false)
   def encode_hand(data), do: Bench.HandRolledOrder.encode(data)
 
   # Encoding with header
-  def encode_struct_framed(data), do: Bench.StructOrder.encode!(data)
-  def encode_legacy_framed(data), do: Bench.LegacyOrder.encode!(data)
+  def encode_struct_framed(data), do: Bench.StructOrder.encode(data)
 
-  # Decoding
-  def decode_struct(bin), do: Bench.StructOrder.decode(bin)
-  def decode_legacy(bin), do: Bench.LegacyOrder.decode(bin)
+  # Decoding (no header)
+  def decode_struct(bin), do: Bench.StructOrder.decode(bin, header: false)
   def decode_hand(bin), do: Bench.HandRolledOrder.decode(bin)
 
   # Decoding with header
-  def decode_struct_framed(bin), do: Bench.StructOrder.decode!(bin)
-  def decode_legacy_framed(bin), do: Bench.LegacyOrder.decode!(bin)
+  def decode_struct_framed(bin), do: Bench.StructOrder.decode(bin)
 
   # Dispatch
   def dispatch_encode(data), do: GridCodec.encode(data)
   def dispatch_decode(bin), do: GridCodec.decode(bin)
 
-  # Zero-copy
-  def get_struct(env), do: Bench.StructOrder.get(env, :price)
-  def get_legacy(env), do: Bench.LegacyOrder.get(env, :price)
+  # Zero-copy get (works directly on binary, no wrap needed)
+  def get_struct(bin), do: Bench.StructOrder.get(bin, :price)
+  def get_struct_no_header(bin), do: Bench.StructOrder.get(bin, :price, header: false)
 end
 
 # ============================================================================
@@ -225,19 +213,10 @@ end
 defmodule Bench.TestData do
   def create do
     order_id = :crypto.strong_rand_bytes(16)
-    timestamp = DateTime.utc_now()
+    # Use integer timestamp directly (avoid DateTime overhead in benchmark)
+    timestamp = System.system_time(:microsecond)
 
     struct_data = %Bench.StructOrder{
-      order_id: order_id,
-      user_id: 12_345_678_901_234_567,
-      price: 15_000_000_000,
-      quantity: 100_000,
-      side: 1,
-      timestamp: timestamp,
-      flags: 7
-    }
-
-    legacy_data = %{
       order_id: order_id,
       user_id: 12_345_678_901_234_567,
       price: 15_000_000_000,
@@ -258,41 +237,34 @@ defmodule Bench.TestData do
     }
 
     # Pre-encode for decode benchmarks
-    struct_bin = Bench.StructOrder.encode(struct_data)
-    legacy_bin = Bench.LegacyOrder.encode(legacy_data)
+    # encode(struct) includes header, encode(struct, header: false) for payload only
+    struct_bin = Bench.StructOrder.encode(struct_data, header: false)
     hand_bin = Bench.HandRolledOrder.encode(hand_data)
 
-    struct_framed = Bench.StructOrder.encode!(struct_data)
-    legacy_framed = Bench.LegacyOrder.encode!(legacy_data)
+    struct_framed = Bench.StructOrder.encode(struct_data)
 
     %{
       struct_data: struct_data,
-      legacy_data: legacy_data,
       hand_data: hand_data,
       struct_bin: struct_bin,
-      legacy_bin: legacy_bin,
       hand_bin: hand_bin,
-      struct_framed: struct_framed,
-      legacy_framed: legacy_framed
+      struct_framed: struct_framed
     }
   end
 end
 
 data = Bench.TestData.create()
 struct_data = data.struct_data
-legacy_data = data.legacy_data
 hand_data = data.hand_data
 struct_bin = data.struct_bin
-legacy_bin = data.legacy_bin
 hand_bin = data.hand_bin
 struct_framed = data.struct_framed
-legacy_framed = data.legacy_framed
 
 # Verify correctness
 IO.puts("\n── Verification ──────────────────────────────────────────────────────────────")
-IO.puts("Block lengths: Struct=#{Bench.StructOrder.block_length()}, Legacy=#{Bench.LegacyOrder.block_length()}")
-IO.puts("Binary sizes:  Struct=#{byte_size(struct_bin)}, Legacy=#{byte_size(legacy_bin)}, Hand=#{byte_size(hand_bin)}")
-IO.puts("Binaries match: #{struct_bin == legacy_bin and legacy_bin == hand_bin}")
+IO.puts("Block length: Struct=#{Bench.StructOrder.block_length()}")
+IO.puts("Binary sizes:  Struct=#{byte_size(struct_bin)}, Hand=#{byte_size(hand_bin)}, Framed=#{byte_size(struct_framed)}")
+IO.puts("Payload binaries match: #{struct_bin == hand_bin}")
 
 # ============================================================================
 # PART 1: Bytecode Analysis
@@ -304,7 +276,6 @@ IO.puts(String.duplicate("═", 80))
 IO.puts("\n── ENCODE function analysis ──")
 encode_analyses = [
   {"StructOrder.encode/1", Bench.BytecodeAnalyzer.analyze(Bench.StructOrder, :encode, 1)},
-  {"LegacyOrder.encode/1", Bench.BytecodeAnalyzer.analyze(Bench.LegacyOrder, :encode, 1)},
   {"HandRolled.encode/1", Bench.BytecodeAnalyzer.analyze(Bench.HandRolledOrder, :encode, 1)}
 ]
 Bench.BytecodeAnalyzer.print_comparison(encode_analyses)
@@ -312,7 +283,6 @@ Bench.BytecodeAnalyzer.print_comparison(encode_analyses)
 IO.puts("\n── DECODE function analysis ──")
 decode_analyses = [
   {"StructOrder.decode/1", Bench.BytecodeAnalyzer.analyze(Bench.StructOrder, :decode, 1)},
-  {"LegacyOrder.decode/1", Bench.BytecodeAnalyzer.analyze(Bench.LegacyOrder, :decode, 1)},
   {"HandRolled.decode/1", Bench.BytecodeAnalyzer.analyze(Bench.HandRolledOrder, :decode, 1)}
 ]
 Bench.BytecodeAnalyzer.print_comparison(decode_analyses)
@@ -340,11 +310,9 @@ IO.puts("\n── ENCODE Benchmark ───────────────
 
 encode_results = Benchee.run(
   %{
-    "Struct.encode (new)" => fn -> Bench.Functions.encode_struct(struct_data) end,
-    "Legacy.encode (map)" => fn -> Bench.Functions.encode_legacy(legacy_data) end,
+    "Struct.encode (no header)" => fn -> Bench.Functions.encode_struct(struct_data) end,
     "Hand-rolled encode" => fn -> Bench.Functions.encode_hand(hand_data) end,
-    "Struct.encode! (w/header)" => fn -> Bench.Functions.encode_struct_framed(struct_data) end,
-    "Legacy.encode! (w/header)" => fn -> Bench.Functions.encode_legacy_framed(legacy_data) end,
+    "Struct.encode (w/header)" => fn -> Bench.Functions.encode_struct_framed(struct_data) end,
     "GridCodec.encode (dispatch)" => fn -> Bench.Functions.dispatch_encode(struct_data) end
   },
   time: 3,
@@ -357,11 +325,9 @@ IO.puts("\n── DECODE Benchmark ───────────────
 
 decode_results = Benchee.run(
   %{
-    "Struct.decode (new)" => fn -> Bench.Functions.decode_struct(struct_bin) end,
-    "Legacy.decode (map)" => fn -> Bench.Functions.decode_legacy(legacy_bin) end,
+    "Struct.decode (no header)" => fn -> Bench.Functions.decode_struct(struct_bin) end,
     "Hand-rolled decode" => fn -> Bench.Functions.decode_hand(hand_bin) end,
-    "Struct.decode! (w/header)" => fn -> Bench.Functions.decode_struct_framed(struct_framed) end,
-    "Legacy.decode! (w/header)" => fn -> Bench.Functions.decode_legacy_framed(legacy_framed) end,
+    "Struct.decode (w/header)" => fn -> Bench.Functions.decode_struct_framed(struct_framed) end,
     "GridCodec.decode (dispatch)" => fn -> Bench.Functions.dispatch_decode(struct_framed) end
   },
   time: 3,
@@ -370,16 +336,13 @@ decode_results = Benchee.run(
   print: [configuration: false]
 )
 
-# Zero-copy benchmark
+# Zero-copy benchmark (get/2 macro works directly on binary)
 IO.puts("\n── ZERO-COPY GET Benchmark ───────────────────────────────────────────────────")
-
-struct_env = Bench.StructOrder.wrap(struct_bin)
-legacy_env = Bench.LegacyOrder.wrap(legacy_bin)
 
 _get_results = Benchee.run(
   %{
-    "Struct.get (new)" => fn -> Bench.Functions.get_struct(struct_env) end,
-    "Legacy.get (map)" => fn -> Bench.Functions.get_legacy(legacy_env) end
+    "Struct.get(:price) [w/header]" => fn -> Bench.Functions.get_struct(struct_framed) end,
+    "Struct.get(:price) [no header]" => fn -> Bench.Functions.get_struct_no_header(struct_bin) end
   },
   time: 2,
   warmup: 1,
@@ -399,16 +362,17 @@ IO.puts("""
 │                      JIT OPTIMIZATION ANALYSIS                               │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  STRUCT CODEC ADVANTAGES (New):                                              │
+│  STRUCT CODEC ADVANTAGES:                                                    │
 │  ✓ Direct struct pattern match - single get_map_elements instruction        │
 │  ✓ Direct struct creation in decode - no intermediate map                   │
 │  ✓ Nil-to-default conversion at compile time                                │
 │  ✓ Type-specific optimized binary construction                              │
 │                                                                              │
-│  LEGACY CODEC CHARACTERISTICS:                                               │
-│  • Map input requires key existence checks                                   │
-│  • Decode creates map, then converted to struct (if needed)                  │
-│  • More branching for nil/default handling at runtime                        │
+│  API IMPROVEMENTS (v0.5.0+):                                                 │
+│  ✓ encode/1 includes header by default (consistent output)                  │
+│  ✓ decode/1 expects header by default (automatic dispatch)                  │
+│  ✓ get/2 macro works directly on binary (no wrap needed)                    │
+│  ✓ header: false option for payload-only operations                         │
 │                                                                              │
 │  JIT-FRIENDLY PATTERNS USED:                                                 │
 │  ✓ Single binary construction << >> (no concatenation)                      │
@@ -416,37 +380,23 @@ IO.puts("""
 │  ✓ Inline case expressions (avoids extra function calls)                    │
 │  ✓ Direct BIF calls (:maps.get vs Map.get)                                  │
 │                                                                              │
-│  POTENTIAL FUTURE OPTIMIZATIONS:                                             │
-│  • Use || for non-boolean nil coalescing (saves one branch)                 │
-│  • SSA optimization for sequential binary builds                             │
-│  • BeamAsm JIT hints for hot paths                                           │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 """)
 
 # ============================================================================
-# PART 5: Consolidated vs Fallback Comparison
+# PART 5: Dispatch Overhead Analysis
 # ============================================================================
 IO.puts("\n" <> String.duplicate("═", 80))
-IO.puts("PART 5: Consolidated vs Fallback Registry Performance")
+IO.puts("PART 5: Dispatch Overhead Analysis")
 IO.puts(String.duplicate("═", 80))
 
 if is_consolidated do
   IO.puts("\n── Consolidated Registry Performance ────────────────────────────────────────────")
 
-  consolidated_results = Benchee.run(
+  _consolidated_results = Benchee.run(
     %{
       "Consolidated.decode (dispatch)" => fn -> Bench.Functions.dispatch_decode(struct_framed) end,
-      "Fallback.decode (direct lookup)" => fn ->
-        case GridCodec.Header.decode(struct_framed) do
-          {:ok, header, payload} ->
-            case GridCodec.Registry.lookup(header.schema_id, header.template_id) do
-              {:ok, module} -> module.decode(payload)
-              error -> error
-            end
-          error -> error
-        end
-      end
+      "Direct.decode (w/header)" => fn -> Bench.Functions.decode_struct_framed(struct_framed) end
     },
     time: 2,
     warmup: 1,
@@ -473,12 +423,10 @@ get_ips = fn results, name ->
   if scenario, do: scenario.run_time_data.statistics.ips, else: 0
 end
 
-struct_enc_ips = get_ips.(encode_results, "Struct.encode (new)")
-legacy_enc_ips = get_ips.(encode_results, "Legacy.encode (map)")
+struct_enc_ips = get_ips.(encode_results, "Struct.encode (no header)")
 hand_enc_ips = get_ips.(encode_results, "Hand-rolled")
 
-struct_dec_ips = get_ips.(decode_results, "Struct.decode (new)")
-legacy_dec_ips = get_ips.(decode_results, "Legacy.decode (map)")
+struct_dec_ips = get_ips.(decode_results, "Struct.decode (no header)")
 hand_dec_ips = get_ips.(decode_results, "Hand-rolled")
 
 IO.puts("""
@@ -489,29 +437,26 @@ IO.puts("""
 │                                                                              │
 │  ENCODE (ips = iterations per second, higher is better):                     │
 │    Hand-rolled:     #{String.pad_leading("#{Float.round(hand_enc_ips / 1_000_000, 2)}M", 8)} ips (baseline)                        │
-│    Struct (new):    #{String.pad_leading("#{Float.round(struct_enc_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(struct_enc_ips / hand_enc_ips, 2)}x vs hand)                       │
-│    Legacy (map):    #{String.pad_leading("#{Float.round(legacy_enc_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(legacy_enc_ips / hand_enc_ips, 2)}x vs hand)                       │
-│    Struct vs Legacy: #{Float.round(struct_enc_ips / legacy_enc_ips, 2)}x                                              │
+│    Struct codec:    #{String.pad_leading("#{Float.round(struct_enc_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(struct_enc_ips / hand_enc_ips, 2)}x vs hand)                       │
 │                                                                              │
 │  DECODE (ips = iterations per second, higher is better):                     │
 │    Hand-rolled:     #{String.pad_leading("#{Float.round(hand_dec_ips / 1_000_000, 2)}M", 8)} ips (baseline)                        │
-│    Struct (new):    #{String.pad_leading("#{Float.round(struct_dec_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(struct_dec_ips / hand_dec_ips, 2)}x vs hand)                       │
-│    Legacy (map):    #{String.pad_leading("#{Float.round(legacy_dec_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(legacy_dec_ips / hand_dec_ips, 2)}x vs hand)                       │
-│    Struct vs Legacy: #{Float.round(struct_dec_ips / legacy_dec_ips, 2)}x                                              │
+│    Struct codec:    #{String.pad_leading("#{Float.round(struct_dec_ips / 1_000_000, 2)}M", 8)} ips (#{Float.round(struct_dec_ips / hand_dec_ips, 2)}x vs hand)                       │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 """)
 
-# Check if struct is faster than or equal to legacy
-struct_wins_encode = struct_enc_ips >= legacy_enc_ips
-struct_wins_decode = struct_dec_ips >= legacy_dec_ips
+# Check if struct is within acceptable performance range
+enc_ratio = struct_enc_ips / hand_enc_ips
+dec_ratio = struct_dec_ips / hand_dec_ips
+threshold = 0.85  # Allow up to 15% slower than hand-rolled
 
-if struct_wins_encode and struct_wins_decode do
-  IO.puts("✓ PASS: GridCodec.Struct is faster than or equal to legacy in all operations")
+if enc_ratio >= threshold and dec_ratio >= threshold do
+  IO.puts("✓ PASS: GridCodec.Struct is within acceptable performance range (>#{trunc(threshold * 100)}% of hand-rolled)")
 else
-  IO.puts("⚠ NOTE: Some operations show different performance characteristics")
-  unless struct_wins_encode, do: IO.puts("  - Encode: Legacy is #{Float.round(legacy_enc_ips / struct_enc_ips, 2)}x faster")
-  unless struct_wins_decode, do: IO.puts("  - Decode: Legacy is #{Float.round(legacy_dec_ips / struct_dec_ips, 2)}x faster")
+  IO.puts("⚠ NOTE: Some operations are slower than expected")
+  if enc_ratio < threshold, do: IO.puts("  - Encode: #{Float.round(enc_ratio * 100, 1)}% of hand-rolled")
+  if dec_ratio < threshold, do: IO.puts("  - Decode: #{Float.round(dec_ratio * 100, 1)}% of hand-rolled")
 end
 
 IO.puts("")

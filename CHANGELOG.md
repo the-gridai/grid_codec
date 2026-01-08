@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Compile-time safety for `match/1,2` macro**: Matching on literal `nil` now raises
+  a `CompileError` with a helpful message. This prevents a common gotcha where users
+  expect `match(field: nil)` to match null values, but `match` returns raw sentinel
+  values, not `nil`.
+
+### Changed
+- Improved documentation for `match/1,2` macro to clearly explain that it returns
+  raw sentinel values for nullable fields, not `nil`. Use `get/2` for null-safe access.
+
 ## [0.6.0] - 2026-01-08
 
 ### Removed

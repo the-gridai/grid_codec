@@ -90,7 +90,7 @@ defmodule GridCodec.MixProject do
       extras: [
         "README.md": [title: "Overview"],
         "CHANGELOG.md": [title: "Changelog"],
-        "LICENSE": [title: "License"]
+        LICENSE: [title: "License"]
       ],
       groups_for_modules: [
         "Core DSL": [
