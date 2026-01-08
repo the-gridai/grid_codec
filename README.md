@@ -115,6 +115,55 @@ mix bench  # Run benchmarks
 
 See `example_app/README.md` for details.
 
+## Contributing
+
+### Requirements
+
+- Elixir 1.17+ (1.19+ recommended for progressive type system warnings)
+- Erlang/OTP 26+ (28+ recommended)
+
+We use [asdf](https://asdf-vm.com/) for version management. After installing asdf:
+
+```bash
+asdf install  # Installs versions from .tool-versions
+```
+
+### Development
+
+```bash
+# Install dependencies
+mix deps.get
+
+# Run all checks (compile, format, credo, test, dialyzer)
+mix check
+
+# Or run checks individually:
+mix compile --warnings-as-errors  # Compile with strict warnings
+mix format --check-formatted      # Check code formatting
+mix credo --strict                # Static analysis
+mix test                          # Run test suite
+mix dialyzer                      # Type checking
+```
+
+### Code Quality
+
+All PRs must pass `mix check`, which runs:
+
+1. **Compile** with `--warnings-as-errors` – catches type warnings from Elixir's progressive type system
+2. **Format** – ensures consistent code style
+3. **Credo** – static analysis for code consistency
+4. **Tests** – full test suite with property-based tests
+5. **Dialyzer** – static type analysis
+
+### Profiling
+
+For performance profiling, see `AGENTS.md` and `profile/README.md`:
+
+```bash
+./profile/run.sh              # Full encode/decode profile
+./profile/run.sh --mode=encode  # Encode only
+```
+
 ## License
 
 MIT License – see [LICENSE](LICENSE) for details.

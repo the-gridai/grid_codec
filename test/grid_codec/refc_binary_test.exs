@@ -130,11 +130,14 @@ defmodule GridCodec.RefcBinaryTest do
       # This simulates what GridCodec does for field access
       binary = :crypto.strong_rand_bytes(500)
 
-      # Simulate extracting a "field" at offset 50, size 20
-      <<_before::binary-50, field::binary-20, _after::binary>> = binary
+      # Simulate extracting a "field" at offset 50, size 150
+      # Note: OTP 28+ optimizes small sub-binaries (<128 bytes) by copying them
+      # to heap binaries instead of creating sub-binary references. We use a
+      # larger field size to test the sub-binary sharing behavior.
+      <<_before::binary-50, field::binary-150, _after::binary>> = binary
 
-      # The field is only 20 bytes, but it references the larger parent binary
-      assert byte_size(field) == 20
+      # The field is only 150 bytes, but it references the larger parent binary
+      assert byte_size(field) == 150
       # Referenced size should be much larger than the field itself
       referenced = :binary.referenced_byte_size(field)
 

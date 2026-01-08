@@ -8,10 +8,11 @@ defmodule GridCodec.MixProject do
     [
       app: :grid_codec,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
+      aliases: aliases(),
 
       # Hex
       description: "High-performance binary codec for BEAM/Elixir with direct field access",
@@ -20,11 +21,6 @@ defmodule GridCodec.MixProject do
       # Docs
       name: "GridCodec",
       docs: docs(),
-
-      # Testing
-      preferred_cli_env: [
-        "test.watch": :test
-      ],
 
       # Coverage
       test_coverage: [
@@ -54,8 +50,30 @@ defmodule GridCodec.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        "test.watch": :test,
+        check: :test
+      ]
+    ]
+  end
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp aliases do
+    [
+      # Run all checks (mirrors CI)
+      check: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo --strict",
+        "test",
+        "dialyzer"
+      ]
+    ]
+  end
 
   defp deps do
     [

@@ -6,7 +6,7 @@
 # Build: docker build -t gridcodec-profile profile/
 # Run:   ./profile/run.sh
 #
-FROM hexpm/elixir:1.16.0-erlang-26.2.1-debian-bookworm-20231009
+FROM elixir:1.19.4-otp-28
 
 # Install profiling and debugging tools
 RUN apt-get update && apt-get install -y \
