@@ -46,8 +46,8 @@ defmodule GridCodec do
       # Zero-copy field access (O(1) for fixed-size types)
       require MyApp.Events.OrderFilled, as: Order
 
-      # Fastest: get! macro (inline binary pattern with null handling)
-      price = Order.get!(binary, :price)
+      # get macro (inline binary pattern with null handling)
+      price = Order.get(binary, :price)
 
       # Or: match macro for multi-field extraction (raw bytes, no null check)
       case binary do
@@ -63,28 +63,30 @@ defmodule GridCodec do
 
   ## Field Access Methods
 
-  GridCodec provides multiple ways to access fields, with different performance/convenience tradeoffs:
+  GridCodec provides two macros for zero-copy field access:
 
   | Method | Speed | Use Case |
   |--------|-------|----------|
-  | `get!/2` macro | ~70M ips | Inline access, handles nulls |
+  | `get/2` macro | ~70M ips | Single-field access, handles nulls |
   | `match/1` macro | ~70M ips | Multi-field extraction, raw bytes |
-  | `get/2` function | ~25M ips | Dynamic field names |
 
   ```elixir
   require MyCodec
 
-  # get! macro - fastest single-field access with null handling
-  price = MyCodec.get!(binary, :price)
+  # get macro - single-field access with null handling
+  price = MyCodec.get(binary, :price)
 
-  # match macro - fastest multi-field, but returns raw bytes (no null check)
+  # match macro - multi-field extraction (returns raw bytes, no null check)
   case binary do
     MyCodec.match(price: p, qty: q) -> {p, q}
   end
+  ```
 
-  # get function - for dynamic field names
-  field_name = :price
-  price = MyCodec.get(binary, field_name)
+  For envelope-wrapped binaries, use `Envelope.get/2`:
+
+  ```elixir
+  env = MyCodec.wrap(binary)
+  price = GridCodec.Envelope.get(env, :price)  # runtime dispatch
   ```
 
   ## Wire Format
@@ -160,7 +162,7 @@ defmodule GridCodec do
   GridCodec leverages this via:
 
   1. **Wrap without decode**: `wrap/1` creates an envelope holding a binary reference
-  2. **O(1) field access**: `get/2` uses compile-time offsets for sub-binary extraction
+  2. **O(1) field access**: `get/2` macro uses compile-time offsets for sub-binary extraction
   3. **Lazy iteration**: Groups stream entries without copying the underlying binary
 
   This is ideal for fan-out scenarios like Phoenix.PubSub broadcasts.
@@ -332,7 +334,7 @@ defmodule GridCodec do
   ## Example
 
       {:ok, env, MyApp.Order} = GridCodec.wrap(binary)
-      price = MyApp.Order.get(env, :price)
+      price = GridCodec.Envelope.get(env, :price)
   """
   defdelegate wrap(binary), to: GridCodec.Registry
 
@@ -363,9 +365,9 @@ defmodule GridCodec do
 
   ## Performance
 
-  This approach is slightly slower than the direct `MyCodec.get(binary, :field)`
-  due to runtime type dispatch, but provides a cleaner generic API.
-  For maximum performance, use the `match` macro for known field names.
+  This approach is slower than the direct `MyCodec.get(binary, :field)` macro
+  due to runtime type dispatch. For maximum performance in hot paths, use
+  the `get` or `match` macros with `require`.
   """
   @spec get(binary(), {module(), non_neg_integer(), :little | :big}) :: term()
   def get(binary, {type_module, offset, endian}) when is_binary(binary) do

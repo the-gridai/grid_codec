@@ -1,6 +1,8 @@
 defmodule GridCodec.OptionalityTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   # ============================================================================
   # Test Codecs
   # ============================================================================
@@ -188,9 +190,9 @@ defmodule GridCodec.OptionalityTest do
       binary = ConstantCodec.encode(data)
       env = ConstantCodec.wrap(binary)
 
-      assert ConstantCodec.get(env, :version) == 1
-      assert ConstantCodec.get(env, :id) == 999
-      assert ConstantCodec.get(env, :type) == 42
+      assert Envelope.get(env, :version) == 1
+      assert Envelope.get(env, :id) == 999
+      assert Envelope.get(env, :type) == 42
     end
 
     test "get works for optional fields with nil" do
@@ -198,9 +200,9 @@ defmodule GridCodec.OptionalityTest do
       binary = OptionalCodec.encode(data)
       env = OptionalCodec.wrap(binary)
 
-      assert OptionalCodec.get(env, :id) == 123
-      assert OptionalCodec.get(env, :name) == nil
-      assert OptionalCodec.get(env, :score) == 100
+      assert Envelope.get(env, :id) == 123
+      assert Envelope.get(env, :name) == nil
+      assert Envelope.get(env, :score) == 100
     end
   end
 end

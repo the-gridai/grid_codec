@@ -1,6 +1,8 @@
 defmodule GridCodec.FramingTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   describe "codec with template_id and schema_id" do
     defmodule OrderEvent do
       use GridCodec.Struct, template_id: 42, schema_id: 100, version: 3
@@ -136,9 +138,9 @@ defmodule GridCodec.FramingTest do
       framed = OrderEvent.encode(data)
 
       env = OrderEvent.wrap(framed)
-      assert OrderEvent.get(env, :order_id) == 123
-      assert OrderEvent.get(env, :price) == 1000
-      assert OrderEvent.get(env, :quantity) == 50
+      assert Envelope.get(env, :order_id) == 123
+      assert Envelope.get(env, :price) == 1000
+      assert Envelope.get(env, :quantity) == 50
     end
 
     test "wrap/2 with header: false wraps payload directly" do
@@ -146,9 +148,9 @@ defmodule GridCodec.FramingTest do
       payload = OrderEvent.encode(data, header: false)
 
       env = OrderEvent.wrap(payload, header: false)
-      assert OrderEvent.get(env, :order_id) == 123
-      assert OrderEvent.get(env, :price) == 1000
-      assert OrderEvent.get(env, :quantity) == 50
+      assert Envelope.get(env, :order_id) == 123
+      assert Envelope.get(env, :price) == 1000
+      assert Envelope.get(env, :quantity) == 50
     end
   end
 

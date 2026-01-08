@@ -119,6 +119,21 @@ defmodule GridCodec.Types.U16 do
     end
   end
 
+  @doc """
+  Extracts a u16 value from a binary at the given offset.
+  """
+  def get_value(binary, offset, endian) when is_binary(binary) do
+    case endian do
+      :little ->
+        <<_::binary-size(offset), value::unsigned-little-16, _::binary>> = binary
+        if value == @null_val, do: nil, else: value
+
+      :big ->
+        <<_::binary-size(offset), value::unsigned-big-16, _::binary>> = binary
+        if value == @null_val, do: nil, else: value
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.u16()

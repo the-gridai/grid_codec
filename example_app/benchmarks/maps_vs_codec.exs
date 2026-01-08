@@ -7,7 +7,7 @@ defmodule Bench.MapsVsCodec do
   Focus:
   - Small (8 fields), Medium (32 fields - flat map limit), Large (33 fields - HAMT)
   - Field positions: start, middle, end
-  - Access methods: Map.get, match macro, get! macro
+  - Access methods: Map.get, match macro, get macro
   """
 
   alias ExampleApp.Bench.{SmallStruct, MediumStruct, LargeStruct}
@@ -22,7 +22,7 @@ defmodule Bench.MapsVsCodec do
     ║           Maps vs GridCodec Binary Access Benchmark              ║
     ╠══════════════════════════════════════════════════════════════════╣
     ║  match  = raw binary pattern (no null check)                     ║
-    ║  get!   = inline binary pattern (with null check)                ║
+    ║  get    = inline binary pattern (with null check)                ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
@@ -56,10 +56,10 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do SmallStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do SmallStruct.match(field_4: v) -> v end end,
         "match (end)" => fn -> case binary do SmallStruct.match(field_8: v) -> v end end,
-        # get! macro - inline binary pattern (with null check)
-        "get! (start)" => fn -> SmallStruct.get!(binary, :field_1) end,
-        "get! (mid)" => fn -> SmallStruct.get!(binary, :field_4) end,
-        "get! (end)" => fn -> SmallStruct.get!(binary, :field_8) end
+        # get macro - inline binary pattern (with null check)
+        "get (start)" => fn -> SmallStruct.get(binary, :field_1) end,
+        "get (mid)" => fn -> SmallStruct.get(binary, :field_4) end,
+        "get (end)" => fn -> SmallStruct.get(binary, :field_8) end
       },
       warmup: 2,
       time: 5,
@@ -90,9 +90,9 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do MediumStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do MediumStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do MediumStruct.match(field_32: v) -> v end end,
-        "get! (start)" => fn -> MediumStruct.get!(binary, :field_1) end,
-        "get! (mid)" => fn -> MediumStruct.get!(binary, :field_16) end,
-        "get! (end)" => fn -> MediumStruct.get!(binary, :field_32) end
+        "get (start)" => fn -> MediumStruct.get(binary, :field_1) end,
+        "get (mid)" => fn -> MediumStruct.get(binary, :field_16) end,
+        "get (end)" => fn -> MediumStruct.get(binary, :field_32) end
       },
       warmup: 2,
       time: 5,
@@ -123,9 +123,9 @@ defmodule Bench.MapsVsCodec do
         "match (start)" => fn -> case binary do LargeStruct.match(field_1: v) -> v end end,
         "match (mid)" => fn -> case binary do LargeStruct.match(field_16: v) -> v end end,
         "match (end)" => fn -> case binary do LargeStruct.match(field_33: v) -> v end end,
-        "get! (start)" => fn -> LargeStruct.get!(binary, :field_1) end,
-        "get! (mid)" => fn -> LargeStruct.get!(binary, :field_16) end,
-        "get! (end)" => fn -> LargeStruct.get!(binary, :field_33) end
+        "get (start)" => fn -> LargeStruct.get(binary, :field_1) end,
+        "get (mid)" => fn -> LargeStruct.get(binary, :field_16) end,
+        "get (end)" => fn -> LargeStruct.get(binary, :field_33) end
       },
       warmup: 2,
       time: 5,

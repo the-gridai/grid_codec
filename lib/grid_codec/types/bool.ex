@@ -118,6 +118,19 @@ defmodule GridCodec.Types.Bool do
     end
   end
 
+  @doc """
+  Extracts a bool from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), value::8, _::binary>> = binary
+
+    case value do
+      0 -> false
+      255 -> nil
+      _ -> true
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.bool()

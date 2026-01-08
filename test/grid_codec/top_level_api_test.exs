@@ -1,6 +1,8 @@
 defmodule GridCodec.TopLevelApiTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   # Define test codecs with unique IDs
   defmodule Order do
     use GridCodec.Struct, template_id: 301, schema_id: 800
@@ -110,15 +112,15 @@ defmodule GridCodec.TopLevelApiTest do
       assert codec == Order
     end
 
-    test "allows field access via codec module" do
+    test "allows field access via envelope" do
       order = %Order{id: 12345, price: 999, quantity: 50}
       binary = GridCodec.encode(order)
 
       {:ok, env, Order} = GridCodec.wrap(binary)
 
-      assert Order.get(env, :id) == 12345
-      assert Order.get(env, :price) == 999
-      assert Order.get(env, :quantity) == 50
+      assert Envelope.get(env, :id) == 12345
+      assert Envelope.get(env, :price) == 999
+      assert Envelope.get(env, :quantity) == 50
     end
 
     test "returns error for unknown codec" do

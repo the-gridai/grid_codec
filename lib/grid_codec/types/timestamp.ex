@@ -92,6 +92,18 @@ defmodule GridCodec.Types.TimestampMicros do
     end
   end
 
+  @doc """
+  Extracts a timestamp_us from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), us::little-signed-64, _::binary>> = binary
+
+    case us do
+      0 -> nil
+      _ -> us
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do
@@ -222,6 +234,18 @@ defmodule GridCodec.Types.TimestampNanos do
         0 -> nil
         _ -> ns
       end
+    end
+  end
+
+  @doc """
+  Extracts a timestamp_ns from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), ns::little-signed-64, _::binary>> = binary
+
+    case ns do
+      0 -> nil
+      _ -> ns
     end
   end
 

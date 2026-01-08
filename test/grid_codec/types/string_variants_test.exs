@@ -5,6 +5,8 @@ defmodule GridCodec.Types.StringVariantsTest do
   """
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   # Codec with string8 field (1-byte length prefix)
   defmodule String8Codec do
     use GridCodec.Struct
@@ -231,8 +233,8 @@ defmodule GridCodec.Types.StringVariantsTest do
       env = String16Codec.wrap(binary)
 
       # Variable-length fields like strings require full decode
-      assert_raise ArgumentError, ~r/variable-length field/, fn ->
-        String16Codec.get(env, :name)
+      assert_raise ArgumentError, ~r/variable-length field/i, fn ->
+        Envelope.get(env, :name)
       end
     end
   end

@@ -2,6 +2,7 @@ defmodule GridCodec.Types.CompositeTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias GridCodec.Envelope
   alias GridCodec.Types.{Decimal, TimestampMicros, TimestampNanos}
 
   # ============================================================================
@@ -116,7 +117,7 @@ defmodule GridCodec.Types.CompositeTest do
       binary = PriceCodec.encode(data)
       env = PriceCodec.wrap(binary)
 
-      price = PriceCodec.get(env, :price)
+      price = Envelope.get(env, :price)
       assert Elixir.Decimal.eq?(price, Elixir.Decimal.new("123.45"))
     end
   end
@@ -207,7 +208,7 @@ defmodule GridCodec.Types.CompositeTest do
       binary = EventCodecUS.encode(data)
       env = EventCodecUS.wrap(binary)
 
-      assert EventCodecUS.get(env, :created_at) == us
+      assert Envelope.get(env, :created_at) == us
     end
   end
 

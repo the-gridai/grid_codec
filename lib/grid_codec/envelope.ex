@@ -98,15 +98,23 @@ defmodule GridCodec.Envelope do
   Gets a field from the wrapped binary.
 
   For fixed-size fields, this is O(1) using compile-time offsets.
-  For variable-size fields, this may require sequential access.
+  Variable-length fields and groups require full decode.
+
+  Note: This uses runtime dispatch. For maximum performance in hot paths,
+  use the codec's `get/2` macro directly with `require`:
+
+      require MyCodec
+      value = MyCodec.get(binary, :field)
 
   ## Example
 
       id = GridCodec.Envelope.get(env, :id)
   """
   @spec get(t(), atom()) :: term()
-  def get(%__MODULE__{codec: codec} = env, field_name) do
-    codec.get(env, field_name)
+  def get(%__MODULE__{binary: binary, codec: codec}, field_name) do
+    # Use GridCodec.get/2 with field spec for runtime dispatch
+    spec = codec.__field_info__(field_name)
+    GridCodec.get(binary, spec)
   end
 
   @doc """

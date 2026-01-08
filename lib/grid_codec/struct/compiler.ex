@@ -71,7 +71,6 @@ defmodule GridCodec.Struct.Compiler do
     struct_decoder_body =
       generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
 
-    getter_clauses = generate_getters(fixed_fields, var_fields, groups, field_offsets, endian)
     getter_macro = generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian)
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
     field_macro = generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian)
@@ -280,10 +279,7 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      # Zero-copy getters
-      unquote(getter_clauses)
-
-      # Inline get macro (fastest - expands at compile time)
+      # Zero-copy field access macro
       unquote(getter_macro)
 
       # Pattern matching macro
@@ -1046,94 +1042,6 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   # ============================================================================
-  # Getter Generation
-  # ============================================================================
-
-  defp generate_getters(fixed_fields, var_fields, groups, offsets, endian) do
-    # Header size for framed binaries
-    header_size = 8
-
-    fixed_clauses =
-      Enum.map(fixed_fields, fn {name, _type, module, _opts} ->
-        payload_offset = Map.get(offsets, name)
-        # Add header size for framed binary access
-        framed_offset = payload_offset + header_size
-        generate_fixed_getter(name, module, framed_offset, payload_offset, endian)
-      end)
-
-    var_clauses =
-      Enum.map(var_fields, fn {name, _type, _module, _opts} ->
-        generate_var_getter(name)
-      end)
-
-    group_clauses =
-      Enum.map(groups, fn {name, _block, _opts} ->
-        generate_group_getter(name)
-      end)
-
-    all_clauses = fixed_clauses ++ var_clauses ++ group_clauses
-
-    quote do
-      (unquote_splicing(all_clauses))
-
-      # Fallback for unknown fields
-      def get(_binary_or_env, field, _opts \\ []) do
-        raise ArgumentError, "unknown field: #{inspect(field)}"
-      end
-    end
-  end
-
-  defp generate_fixed_getter(name, module, framed_offset, payload_offset, endian) do
-    binary_var = quote do: var!(binary)
-    payload_var = quote do: var!(payload)
-
-    # Default getter uses framed offset (binary with header)
-    framed_getter_body = module.getter_ast(framed_offset, endian, binary_var)
-    # Envelope getter uses payload offset (envelope stores payload only)
-    envelope_getter_body = module.getter_ast(payload_offset, endian, payload_var)
-
-    quote do
-      # Direct binary getter - expects framed binary (with header) by default
-      def get(var!(binary), unquote(name)) when is_binary(var!(binary)) do
-        unquote(framed_getter_body)
-      end
-
-      # Envelope getter - for API compatibility (envelope stores payload)
-      def get(%GridCodec.Envelope{binary: var!(payload)}, unquote(name)) do
-        unquote(envelope_getter_body)
-      end
-    end
-  end
-
-  defp generate_var_getter(name) do
-    quote do
-      def get(payload, unquote(name)) when is_binary(payload) do
-        raise ArgumentError,
-              "variable-length field #{inspect(unquote(name))} requires full decode"
-      end
-
-      def get(%GridCodec.Envelope{binary: _payload}, unquote(name)) do
-        raise ArgumentError,
-              "variable-length field #{inspect(unquote(name))} requires full decode"
-      end
-    end
-  end
-
-  defp generate_group_getter(name) do
-    quote do
-      def get(payload, unquote(name)) when is_binary(payload) do
-        raise ArgumentError,
-              "group field #{inspect(unquote(name))} requires full decode"
-      end
-
-      def get(%GridCodec.Envelope{binary: _payload}, unquote(name)) do
-        raise ArgumentError,
-              "group field #{inspect(unquote(name))} requires full decode"
-      end
-    end
-  end
-
-  # ============================================================================
   # Inline Getter Macro Generation
   # ============================================================================
 
@@ -1165,10 +1073,10 @@ defmodule GridCodec.Struct.Compiler do
 
     quote do
       @doc """
-      Inline field access macro.
+      Zero-copy field access macro.
 
-      When called with a literal atom field name, expands at compile time
-      to direct binary pattern matching - as fast as the `match` macro.
+      Expands at compile time to direct binary pattern matching.
+      Handles null sentinel values, returning `nil` for null fields.
 
       By default, expects a framed binary (with header from `encode/1`).
       Use `header: false` option for payload-only binaries.
@@ -1176,14 +1084,12 @@ defmodule GridCodec.Struct.Compiler do
           require #{inspect(__MODULE__)}
 
           # Framed binary (default)
-          value = #{inspect(__MODULE__)}.get!(binary, :price)
+          value = #{inspect(__MODULE__)}.get(binary, :price)
 
           # Payload only (from encode(struct, header: false))
-          value = #{inspect(__MODULE__)}.get!(payload, :price, header: false)
-
-      If the field name is a variable, falls back to function dispatch.
+          value = #{inspect(__MODULE__)}.get(payload, :price, header: false)
       """
-      defmacro get!(binary_expr, field_name, opts \\ []) do
+      defmacro get(binary_expr, field_name, opts \\ []) do
         # Choose offsets based on header option
         fixed_specs =
           if Keyword.get(opts, :header, true) do
@@ -1452,6 +1358,32 @@ defmodule GridCodec.Struct.Compiler do
 
           spec ->
             Macro.escape(spec)
+        end
+      end
+
+      @doc false
+      # Runtime field info lookup for Envelope.get/2
+      # Returns payload-relative offsets (envelope stores payload without header)
+      @__field_specs_payload__ unquote(
+                                 Macro.escape(
+                                   # Get payload offset by subtracting header_size
+                                   ((fixed_specs
+                                     |> Enum.map(fn {name, {mod, _framed_offset, end_}} ->
+                                       payload_offset = Map.get(field_offsets, name)
+                                       {name, {mod, payload_offset, end_}}
+                                     end)) ++ var_specs ++ group_specs)
+                                   |> Map.new()
+                                 )
+                               )
+
+      def __field_info__(name) do
+        case Map.get(@__field_specs_payload__, name) do
+          nil ->
+            raise ArgumentError,
+                  "Unknown field #{inspect(name)}. Available: #{inspect(Map.keys(@__field_specs_payload__))}"
+
+          spec ->
+            spec
         end
       end
     end

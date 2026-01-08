@@ -16,13 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `decode(binary)` → expects header (was payload only)
   - `decode(binary, header: false)` → expects payload only (new)
   - Removed `encode!/1` and `decode!/1` (use `encode/1` and `decode/1` instead)
+- **Breaking: Simplified field access API**
+  - Renamed `get!/2` macro to `get/2` (no more bang suffix)
+  - Removed slow function-based `get/2` - now only the fast macro exists
+  - For envelope access, use `Envelope.get(env, :field)` directly
 - **Zero-copy access updated for header-by-default**
-  - `get!/2` macro now expects framed binary with header by default
-  - `get!(binary, :field, header: false)` for payload-only access
+  - `get/2` macro now expects framed binary with header by default
+  - `get(binary, :field, header: false)` for payload-only access
   - `match/1` macro expects framed binary by default
   - `match([field: v], header: false)` for payload-only patterns
   - `wrap/1` strips header from framed binary automatically
   - `wrap(binary, header: false)` for payload-only wrapping
+- `Envelope.get/2` now uses `GridCodec.get/2` with field specs internally
 - `Envelope.decode/1` updated to use `header: false` internally
 - `Dispatch.decode/1` and `wrap/1` updated for new API
 - `GridCodec.Registry.encode/2` now accepts options
@@ -31,22 +36,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Rationale
 - **Consistency**: `GridCodec.encode(struct)` and `MyCodec.encode(struct)` now produce identical binaries
 - **Usability**: Follows pattern from popular libraries like Jason (`encode/2` with options)
+- **Simplicity**: One way to access fields from binary (`get/2` macro), one way from envelope (`Envelope.get`)
 - **Performance**: Fast path for `encode(struct)` (no options) has zero overhead
 - **Dispatch**: Header enables `GridCodec.decode/1` to route to correct codec automatically
 
 ## [0.4.0] - 2026-01-08
 
 ### Added
-- **`get!/2` macro**: Inline field access with compile-time binary pattern matching
+- **`get/2` macro**: Inline field access with compile-time binary pattern matching
   - Expands at compile time to direct binary pattern, achieving ~70M ops/sec
   - Handles null values automatically (returns `nil` for sentinel values)
-  - Use: `require MyCodec; MyCodec.get!(binary, :field_name)`
+  - Use: `require MyCodec; MyCodec.get(binary, :field_name)`
 - **`field/1` macro**: Generate field specs for generic access
   - Returns `{type_module, offset, endian}` tuple at compile time
   - Use: `GridCodec.get(binary, MyCodec.field(:price))`
 - **`GridCodec.get/2`**: Generic field access with field specs
   - Runtime dispatch via type module's `get_value/3` callback
-  - Useful for building generic tools on top of GridCodec
+  - Used by `Envelope.get/2` for dynamic field access
 - **`get_value/3` callback**: Added to `GridCodec.Type` behaviour
   - Implemented for `:u64`, `:i64`, `:u32`, `:uuid` types
   - Enables runtime field extraction with null handling
@@ -56,9 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated moduledoc with Field Access Methods section documenting performance hierarchy:
-  - `get!/2` macro: ~70M ips (inline binary pattern with null handling)
+  - `get/2` macro: ~70M ips (inline binary pattern with null handling)
   - `match/1` macro: ~70M ips (multi-field extraction, raw bytes)
-  - `get/2` function: ~25M ips (dynamic field names)
 
 ## [0.3.0] - 2026-01-07
 

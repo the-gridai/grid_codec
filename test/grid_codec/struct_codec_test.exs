@@ -1,6 +1,8 @@
 defmodule GridCodec.StructCodecTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   describe "encode/decode roundtrip" do
     defmodule SimpleStruct do
       use GridCodec.Struct, template_id: 1, schema_id: 100
@@ -262,17 +264,17 @@ defmodule GridCodec.StructCodecTest do
 
       env = WrapStruct.wrap(binary)
 
-      assert WrapStruct.get(env, :id) == 12345
-      assert WrapStruct.get(env, :price) == 999
-      assert WrapStruct.get(env, :quantity) == 50
+      assert Envelope.get(env, :id) == 12345
+      assert Envelope.get(env, :price) == 999
+      assert Envelope.get(env, :quantity) == 50
     end
 
     test "get raises for unknown field" do
       binary = WrapStruct.encode(%WrapStruct{id: 1, price: 2, quantity: 3})
       env = WrapStruct.wrap(binary)
 
-      assert_raise ArgumentError, ~r/unknown field/, fn ->
-        WrapStruct.get(env, :nonexistent)
+      assert_raise ArgumentError, ~r/unknown field/i, fn ->
+        Envelope.get(env, :nonexistent)
       end
     end
   end

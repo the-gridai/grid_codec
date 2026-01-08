@@ -1,6 +1,8 @@
 defmodule GridCodec.DispatchTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.Envelope
+
   # Define test codecs with unique template_ids
   defmodule OrderCreated do
     use GridCodec.Struct, template_id: 1, schema_id: 100, version: 1
@@ -153,8 +155,8 @@ defmodule GridCodec.DispatchTest do
       assert {:ok, env, OrderCreated} = TestDispatch.wrap(binary)
 
       # Can use zero-copy get
-      assert OrderCreated.get(env, :order_id) == 123
-      assert OrderCreated.get(env, :price) == 1000
+      assert Envelope.get(env, :order_id) == 123
+      assert Envelope.get(env, :price) == 1000
     end
 
     test "returns error for unknown message" do

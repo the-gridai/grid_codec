@@ -2,6 +2,8 @@ defmodule GridCodecTest do
   use ExUnit.Case
   doctest GridCodec
 
+  alias GridCodec.Envelope
+
   defmodule SimpleCodec do
     use GridCodec.Struct
 
@@ -90,9 +92,9 @@ defmodule GridCodecTest do
       binary = SimpleCodec.encode(data)
       env = SimpleCodec.wrap(binary)
 
-      assert SimpleCodec.get(env, :id) == 99999
-      assert SimpleCodec.get(env, :count) == 42
-      assert SimpleCodec.get(env, :flag) == false
+      assert Envelope.get(env, :id) == 99999
+      assert Envelope.get(env, :count) == 42
+      assert Envelope.get(env, :flag) == false
     end
 
     test "uuid field returns sub-binary" do
@@ -102,16 +104,16 @@ defmodule GridCodecTest do
       env = UUIDCodec.wrap(binary)
 
       # Should return the same bytes
-      assert UUIDCodec.get(env, :order_id) == uuid
-      assert UUIDCodec.get(env, :price) == 15000
+      assert Envelope.get(env, :order_id) == uuid
+      assert Envelope.get(env, :price) == 15000
     end
 
     test "raises on unknown field" do
       binary = SimpleCodec.encode(%SimpleCodec{id: 0, count: 0, flag: false})
       env = SimpleCodec.wrap(binary)
 
-      assert_raise ArgumentError, ~r/unknown field/, fn ->
-        SimpleCodec.get(env, :nonexistent)
+      assert_raise ArgumentError, ~r/unknown field/i, fn ->
+        Envelope.get(env, :nonexistent)
       end
     end
   end

@@ -1,6 +1,8 @@
 defmodule GridCodec.MultiCodecTest do
   use ExUnit.Case, async: false
 
+  alias GridCodec.Envelope
+
   # Clear the registry cache at the start of each test to ensure
   # our dynamically-defined test codecs are found
   setup do
@@ -173,9 +175,9 @@ defmodule GridCodec.MultiCodecTest do
       {:ok, order_env, Events.OrderCreated} = GridCodec.wrap(order_binary)
       {:ok, fill_env, Events.OrderFilled} = GridCodec.wrap(fill_binary)
 
-      # Access fields via returned codec
-      assert Events.OrderCreated.get(order_env, :price) == 100
-      assert Events.OrderFilled.get(fill_env, :fill_price) == 101
+      # Access fields via envelope
+      assert Envelope.get(order_env, :price) == 100
+      assert Envelope.get(fill_env, :fill_price) == 101
     end
   end
 

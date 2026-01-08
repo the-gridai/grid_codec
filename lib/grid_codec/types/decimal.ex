@@ -130,6 +130,20 @@ defmodule GridCodec.Types.Decimal do
     end
   end
 
+  @doc """
+  Extracts a decimal from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), mantissa::little-signed-64, exponent::signed-8, _::binary>> = binary
+
+    if mantissa == @null_mantissa do
+      nil
+    else
+      {sign, coef} = if mantissa < 0, do: {-1, -mantissa}, else: {1, mantissa}
+      %Decimal{sign: sign, coef: coef, exp: exponent}
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do
