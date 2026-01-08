@@ -1,8 +1,6 @@
 defmodule GridCodec.TopLevelApiTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Envelope
-
   # Define test codecs with unique IDs
   defmodule Order do
     use GridCodec.Struct, template_id: 301, schema_id: 800
@@ -98,44 +96,6 @@ defmodule GridCodec.TopLevelApiTest do
 
     test "returns error for invalid binary" do
       assert {:error, _} = GridCodec.decode(<<1, 2, 3>>)
-    end
-  end
-
-  describe "GridCodec.wrap/1" do
-    test "wraps binary for zero-copy access" do
-      order = %Order{id: 12345, price: 999, quantity: 50}
-      binary = GridCodec.encode(order)
-
-      {:ok, env, codec} = GridCodec.wrap(binary)
-
-      assert %GridCodec.Envelope{} = env
-      assert codec == Order
-    end
-
-    test "allows field access via envelope" do
-      order = %Order{id: 12345, price: 999, quantity: 50}
-      binary = GridCodec.encode(order)
-
-      {:ok, env, Order} = GridCodec.wrap(binary)
-
-      assert Envelope.get(env, :id) == 12345
-      assert Envelope.get(env, :price) == 999
-      assert Envelope.get(env, :quantity) == 50
-    end
-
-    test "returns error for unknown codec" do
-      header =
-        GridCodec.Header.encode(
-          block_length: 8,
-          template_id: 999,
-          schema_id: 999,
-          version: 1
-        )
-
-      payload = <<0::64>>
-      binary = <<header::binary, payload::binary>>
-
-      assert {:error, :unknown_codec} = GridCodec.wrap(binary)
     end
   end
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-01-08
+
+### Removed
+- **Breaking: Removed `GridCodec.Envelope` module entirely**
+  - Use `MyCodec.get(binary, :field)` macro for zero-copy field access
+  - Use `MyCodec.decode(binary)` for full decoding
+- **Breaking: Removed `wrap/1` and `wrap/2` functions**
+  - `MyCodec.wrap(binary)` is no longer available
+  - `GridCodec.wrap(binary)` is no longer available
+  - `Dispatch.wrap(binary)` is no longer available
+- Removed `__field_info__/1` runtime function (was internal to Envelope)
+
+### Rationale
+- **Simplicity**: Envelopes added complexity without meaningful benefit
+- **Performance**: Direct `get/2` macro is faster than envelope-based access
+- **API clarity**: One clear way to access fields - the `get/2` macro
+
 ## [0.5.0] - 2026-01-08
 
 ### Changed
@@ -19,17 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking: Simplified field access API**
   - Renamed `get!/2` macro to `get/2` (no more bang suffix)
   - Removed slow function-based `get/2` - now only the fast macro exists
-  - For envelope access, use `Envelope.get(env, :field)` directly
 - **Zero-copy access updated for header-by-default**
   - `get/2` macro now expects framed binary with header by default
   - `get(binary, :field, header: false)` for payload-only access
   - `match/1` macro expects framed binary by default
   - `match([field: v], header: false)` for payload-only patterns
-  - `wrap/1` strips header from framed binary automatically
-  - `wrap(binary, header: false)` for payload-only wrapping
-- `Envelope.get/2` now uses `GridCodec.get/2` with field specs internally
-- `Envelope.decode/1` updated to use `header: false` internally
-- `Dispatch.decode/1` and `wrap/1` updated for new API
+- `Dispatch.decode/1` updated for new API
 - `GridCodec.Registry.encode/2` now accepts options
 - Updated moduledoc with new API examples
 

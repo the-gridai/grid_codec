@@ -1,8 +1,6 @@
 defmodule GridCodec.MultiCodecTest do
   use ExUnit.Case, async: false
 
-  alias GridCodec.Envelope
-
   # Clear the registry cache at the start of each test to ensure
   # our dynamically-defined test codecs are found
   setup do
@@ -158,8 +156,11 @@ defmodule GridCodec.MultiCodecTest do
     end
   end
 
-  describe "zero-copy wrap dispatch" do
-    test "wraps different event types correctly" do
+  describe "zero-copy access via get macro" do
+    test "access fields from different event types" do
+      require Events.OrderCreated
+      require Events.OrderFilled
+
       order = %Events.OrderCreated{order_id: <<1::128>>, price: 100, quantity: 5}
 
       fill = %Events.OrderFilled{
@@ -172,12 +173,9 @@ defmodule GridCodec.MultiCodecTest do
       order_binary = GridCodec.encode(order)
       fill_binary = GridCodec.encode(fill)
 
-      {:ok, order_env, Events.OrderCreated} = GridCodec.wrap(order_binary)
-      {:ok, fill_env, Events.OrderFilled} = GridCodec.wrap(fill_binary)
-
-      # Access fields via envelope
-      assert Envelope.get(order_env, :price) == 100
-      assert Envelope.get(fill_env, :fill_price) == 101
+      # Access fields via get macro
+      assert Events.OrderCreated.get(order_binary, :price) == 100
+      assert Events.OrderFilled.get(fill_binary, :fill_price) == 101
     end
   end
 

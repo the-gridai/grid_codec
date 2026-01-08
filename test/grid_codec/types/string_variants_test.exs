@@ -5,8 +5,6 @@ defmodule GridCodec.Types.StringVariantsTest do
   """
   use ExUnit.Case, async: true
 
-  alias GridCodec.Envelope
-
   # Codec with string8 field (1-byte length prefix)
   defmodule String8Codec do
     use GridCodec.Struct
@@ -227,15 +225,16 @@ defmodule GridCodec.Types.StringVariantsTest do
   end
 
   describe "zero-copy access" do
-    test "get raises for variable-length fields (strings require full decode)" do
+    test "get macro does not support variable-length fields" do
+      # Variable-length fields like strings require full decode
+      # The get macro is only defined for fixed-size fields
+      # This is a compile-time constraint, not a runtime check
       data = %String16Codec{name: "test value"}
       binary = String16Codec.encode(data)
-      env = String16Codec.wrap(binary)
 
-      # Variable-length fields like strings require full decode
-      assert_raise ArgumentError, ~r/variable-length field/i, fn ->
-        Envelope.get(env, :name)
-      end
+      # Full decode works
+      {:ok, decoded} = String16Codec.decode(binary)
+      assert decoded.name == "test value"
     end
   end
 end

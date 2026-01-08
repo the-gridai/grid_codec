@@ -1,8 +1,6 @@
 defmodule GridCodec.FramingTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Envelope
-
   describe "codec with template_id and schema_id" do
     defmodule OrderEvent do
       use GridCodec.Struct, template_id: 42, schema_id: 100, version: 3
@@ -133,24 +131,24 @@ defmodule GridCodec.FramingTest do
       assert decoded.order_id == 123
     end
 
-    test "wrap/1 wraps framed binary for zero-copy access" do
+    test "get macro retrieves field from framed binary" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       framed = OrderEvent.encode(data)
+      require OrderEvent
 
-      env = OrderEvent.wrap(framed)
-      assert Envelope.get(env, :order_id) == 123
-      assert Envelope.get(env, :price) == 1000
-      assert Envelope.get(env, :quantity) == 50
+      assert OrderEvent.get(framed, :order_id) == 123
+      assert OrderEvent.get(framed, :price) == 1000
+      assert OrderEvent.get(framed, :quantity) == 50
     end
 
-    test "wrap/2 with header: false wraps payload directly" do
+    test "get macro with header: false retrieves field from payload" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
       payload = OrderEvent.encode(data, header: false)
+      require OrderEvent
 
-      env = OrderEvent.wrap(payload, header: false)
-      assert Envelope.get(env, :order_id) == 123
-      assert Envelope.get(env, :price) == 1000
-      assert Envelope.get(env, :quantity) == 50
+      assert OrderEvent.get(payload, :order_id, header: false) == 123
+      assert OrderEvent.get(payload, :price, header: false) == 1000
+      assert OrderEvent.get(payload, :quantity, header: false) == 50
     end
   end
 

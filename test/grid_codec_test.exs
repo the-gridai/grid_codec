@@ -2,8 +2,6 @@ defmodule GridCodecTest do
   use ExUnit.Case
   doctest GridCodec
 
-  alias GridCodec.Envelope
-
   defmodule SimpleCodec do
     use GridCodec.Struct
 
@@ -86,35 +84,28 @@ defmodule GridCodecTest do
     end
   end
 
-  describe "zero-copy field access" do
+  describe "zero-copy field access via get macro" do
     test "get individual fields without full decode" do
+      require SimpleCodec
+
       data = %SimpleCodec{id: 99999, count: 42, flag: false}
       binary = SimpleCodec.encode(data)
-      env = SimpleCodec.wrap(binary)
 
-      assert Envelope.get(env, :id) == 99999
-      assert Envelope.get(env, :count) == 42
-      assert Envelope.get(env, :flag) == false
+      assert SimpleCodec.get(binary, :id) == 99999
+      assert SimpleCodec.get(binary, :count) == 42
+      assert SimpleCodec.get(binary, :flag) == false
     end
 
     test "uuid field returns sub-binary" do
+      require UUIDCodec
+
       uuid = :crypto.strong_rand_bytes(16)
       data = %UUIDCodec{order_id: uuid, price: 15000, quantity: 50}
       binary = UUIDCodec.encode(data)
-      env = UUIDCodec.wrap(binary)
 
       # Should return the same bytes
-      assert Envelope.get(env, :order_id) == uuid
-      assert Envelope.get(env, :price) == 15000
-    end
-
-    test "raises on unknown field" do
-      binary = SimpleCodec.encode(%SimpleCodec{id: 0, count: 0, flag: false})
-      env = SimpleCodec.wrap(binary)
-
-      assert_raise ArgumentError, ~r/unknown field/i, fn ->
-        Envelope.get(env, :nonexistent)
-      end
+      assert UUIDCodec.get(binary, :order_id) == uuid
+      assert UUIDCodec.get(binary, :price) == 15000
     end
   end
 
@@ -179,34 +170,6 @@ defmodule GridCodecTest do
       # Dialyzer passing is the real verification that t() is correctly typed
       # The test "__fields__/0 returns list of field names" also verifies compilation
       assert is_list(SimpleCodec.__fields__())
-    end
-  end
-
-  describe "envelope integration" do
-    test "wrap returns GridCodec.Envelope struct" do
-      binary = SimpleCodec.encode(%SimpleCodec{id: 1, count: 2, flag: true})
-      env = SimpleCodec.wrap(binary)
-
-      assert %GridCodec.Envelope{} = env
-      assert env.codec == SimpleCodec
-    end
-
-    test "envelope provides byte_size" do
-      binary = SimpleCodec.encode(%SimpleCodec{id: 1, count: 2, flag: true})
-      env = SimpleCodec.wrap(binary)
-
-      assert GridCodec.Envelope.byte_size(env) == 13
-    end
-
-    test "envelope decode returns same as codec decode" do
-      data = %SimpleCodec{id: 123, count: 456, flag: true}
-      binary = SimpleCodec.encode(data)
-      env = SimpleCodec.wrap(binary)
-
-      {:ok, decoded1} = SimpleCodec.decode(binary)
-      {:ok, decoded2} = GridCodec.Envelope.decode(env)
-
-      assert decoded1 == decoded2
     end
   end
 end

@@ -2,7 +2,6 @@ defmodule GridCodec.Types.CompositeTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias GridCodec.Envelope
   alias GridCodec.Types.{Decimal, TimestampMicros, TimestampNanos}
 
   # ============================================================================
@@ -112,12 +111,13 @@ defmodule GridCodec.Types.CompositeTest do
       assert decoded.quantity == nil
     end
 
-    test "zero-copy access" do
+    test "zero-copy access via get macro" do
+      require PriceCodec
+
       data = %PriceCodec{price: {12345, -2}, quantity: {500, 0}}
       binary = PriceCodec.encode(data)
-      env = PriceCodec.wrap(binary)
 
-      price = Envelope.get(env, :price)
+      price = PriceCodec.get(binary, :price)
       assert Elixir.Decimal.eq?(price, Elixir.Decimal.new("123.45"))
     end
   end
@@ -201,14 +201,15 @@ defmodule GridCodec.Types.CompositeTest do
       assert decoded.created_at == nil
     end
 
-    test "zero-copy access" do
+    test "zero-copy access via get macro" do
+      require EventCodecUS
+
       us = 1_704_067_200_000_000
       data = %EventCodecUS{id: 100, created_at: us}
 
       binary = EventCodecUS.encode(data)
-      env = EventCodecUS.wrap(binary)
 
-      assert Envelope.get(env, :created_at) == us
+      assert EventCodecUS.get(binary, :created_at) == us
     end
   end
 

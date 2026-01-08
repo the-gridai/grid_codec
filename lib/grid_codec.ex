@@ -82,13 +82,6 @@ defmodule GridCodec do
   end
   ```
 
-  For envelope-wrapped binaries, use `Envelope.get/2`:
-
-  ```elixir
-  env = MyCodec.wrap(binary)
-  price = GridCodec.Envelope.get(env, :price)  # runtime dispatch
-  ```
-
   ## Wire Format
 
   GridCodec messages are laid out in three sections:
@@ -161,8 +154,8 @@ defmodule GridCodec do
   BEAM binaries > 64 bytes are reference-counted and shared across processes.
   GridCodec leverages this via:
 
-  1. **Wrap without decode**: `wrap/1` creates an envelope holding a binary reference
-  2. **O(1) field access**: `get/2` macro uses compile-time offsets for sub-binary extraction
+  1. **O(1) field access**: `get/2` macro uses compile-time offsets for sub-binary extraction
+  2. **Sub-binary sharing**: Extracted fields share memory with the original binary
   3. **Lazy iteration**: Groups stream entries without copying the underlying binary
 
   This is ideal for fan-out scenarios like Phoenix.PubSub broadcasts.
@@ -325,18 +318,6 @@ defmodule GridCodec do
   """
   defdelegate decode(binary), to: GridCodec.Registry
   defdelegate decode(binary, opts), to: GridCodec.Registry
-
-  @doc """
-  Wrap a framed binary for zero-copy field access.
-
-  Returns `{:ok, envelope, module}` where `module` is the codec module.
-
-  ## Example
-
-      {:ok, env, MyApp.Order} = GridCodec.wrap(binary)
-      price = GridCodec.Envelope.get(env, :price)
-  """
-  defdelegate wrap(binary), to: GridCodec.Registry
 
   # ============================================================================
   # Generic Field Access with Field Specs

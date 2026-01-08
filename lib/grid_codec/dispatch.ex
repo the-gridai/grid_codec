@@ -246,40 +246,6 @@ defmodule GridCodec.Dispatch do
       end
 
       @doc """
-      Wraps a framed binary for zero-copy access, routing to the correct codec.
-
-      ## Returns
-
-      - `{:ok, envelope, codec_module}` on success
-      - `{:error, reason}` on failure
-
-      ## Example
-
-          {:ok, env, codec} = MyApp.Dispatch.wrap(framed_binary)
-          value = codec.get(env, :order_id)
-      """
-      @spec wrap(binary()) :: {:ok, GridCodec.Envelope.t(), module()} | {:error, term()}
-      def wrap(binary) when is_binary(binary) do
-        case GridCodec.Header.decode(binary) do
-          {:ok, header, payload} ->
-            key = {header.schema_id, header.template_id}
-
-            case Map.get(@dispatch_table, key) do
-              nil ->
-                {:error, :unknown_message}
-
-              %{module: module} ->
-                # Payload doesn't have header, use header: false
-                envelope = module.wrap(payload, header: false)
-                {:ok, envelope, module}
-            end
-
-          {:error, _} = error ->
-            error
-        end
-      end
-
-      @doc """
       Looks up a codec by schema_id and template_id.
 
       ## Example

@@ -1,8 +1,6 @@
 defmodule GridCodec.StructCodecTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Envelope
-
   describe "encode/decode roundtrip" do
     defmodule SimpleStruct do
       use GridCodec.Struct, template_id: 1, schema_id: 100
@@ -239,7 +237,7 @@ defmodule GridCodec.StructCodecTest do
     end
   end
 
-  describe "zero-copy wrap/get" do
+  describe "zero-copy get macro" do
     defmodule WrapStruct do
       use GridCodec.Struct, template_id: 6, schema_id: 100
 
@@ -250,32 +248,26 @@ defmodule GridCodec.StructCodecTest do
       end
     end
 
-    test "wrap creates envelope for zero-copy access" do
+    test "get macro retrieves field from binary" do
+      require WrapStruct
+
       original = %WrapStruct{id: 12345, price: 999, quantity: 50}
       binary = WrapStruct.encode(original)
 
-      env = WrapStruct.wrap(binary)
-      assert %GridCodec.Envelope{} = env
+      assert WrapStruct.get(binary, :id) == 12345
+      assert WrapStruct.get(binary, :price) == 999
+      assert WrapStruct.get(binary, :quantity) == 50
     end
 
-    test "get retrieves field from wrapped binary" do
+    test "get macro with payload-only binary" do
+      require WrapStruct
+
       original = %WrapStruct{id: 12345, price: 999, quantity: 50}
-      binary = WrapStruct.encode(original)
+      payload = WrapStruct.encode(original, header: false)
 
-      env = WrapStruct.wrap(binary)
-
-      assert Envelope.get(env, :id) == 12345
-      assert Envelope.get(env, :price) == 999
-      assert Envelope.get(env, :quantity) == 50
-    end
-
-    test "get raises for unknown field" do
-      binary = WrapStruct.encode(%WrapStruct{id: 1, price: 2, quantity: 3})
-      env = WrapStruct.wrap(binary)
-
-      assert_raise ArgumentError, ~r/unknown field/i, fn ->
-        Envelope.get(env, :nonexistent)
-      end
+      assert WrapStruct.get(payload, :id, header: false) == 12345
+      assert WrapStruct.get(payload, :price, header: false) == 999
+      assert WrapStruct.get(payload, :quantity, header: false) == 50
     end
   end
 

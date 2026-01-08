@@ -1,8 +1,6 @@
 defmodule GridCodec.OptionalityTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Envelope
-
   # ============================================================================
   # Test Codecs
   # ============================================================================
@@ -185,24 +183,26 @@ defmodule GridCodec.OptionalityTest do
   # ============================================================================
 
   describe "zero-copy access with presence" do
-    test "get works for constant fields" do
+    test "get macro works for constant fields" do
+      require ConstantCodec
+
       data = %ConstantCodec{id: 999}
       binary = ConstantCodec.encode(data)
-      env = ConstantCodec.wrap(binary)
 
-      assert Envelope.get(env, :version) == 1
-      assert Envelope.get(env, :id) == 999
-      assert Envelope.get(env, :type) == 42
+      assert ConstantCodec.get(binary, :version) == 1
+      assert ConstantCodec.get(binary, :id) == 999
+      assert ConstantCodec.get(binary, :type) == 42
     end
 
-    test "get works for optional fields with nil" do
+    test "get macro works for optional fields with nil" do
+      require OptionalCodec
+
       data = %OptionalCodec{id: 123, name: nil, score: 100}
       binary = OptionalCodec.encode(data)
-      env = OptionalCodec.wrap(binary)
 
-      assert Envelope.get(env, :id) == 123
-      assert Envelope.get(env, :name) == nil
-      assert Envelope.get(env, :score) == 100
+      assert OptionalCodec.get(binary, :id) == 123
+      assert OptionalCodec.get(binary, :name) == nil
+      assert OptionalCodec.get(binary, :score) == 100
     end
   end
 end

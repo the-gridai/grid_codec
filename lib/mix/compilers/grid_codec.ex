@@ -213,9 +213,6 @@ defmodule Mix.Compilers.GridCodec do
     # Generate decode/1 that parses header and dispatches
     decode_body = build_decode_body(codecs)
 
-    # Generate wrap/1
-    wrap_body = build_wrap_body(codecs)
-
     # Generate list_codecs/0
     codec_modules = Enum.map(codecs, & &1.module)
 
@@ -240,9 +237,6 @@ defmodule Mix.Compilers.GridCodec do
 
         @doc "Decode a binary, dispatching to the correct codec (expects header by default)"
         unquote(decode_body)
-
-        @doc "Wrap a framed binary for zero-copy access"
-        unquote(wrap_body)
 
         @doc "List all registered codec modules"
         def list_codecs, do: unquote(codec_modules)
@@ -302,37 +296,6 @@ defmodule Mix.Compilers.GridCodec do
             :error ->
               {:error, :module_required_without_header}
           end
-        end
-      end
-    end
-  end
-
-  defp build_wrap_body(codecs) do
-    dispatch_clauses =
-      Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
-        quote do
-          {unquote(sid), unquote(tid)} ->
-            {:ok, unquote(mod).wrap(payload), unquote(mod)}
-        end
-      end)
-
-    fallback_clause =
-      quote do
-        _ -> {:error, :unknown_codec}
-      end
-
-    all_clauses = dispatch_clauses ++ [fallback_clause]
-
-    quote do
-      def wrap(binary) when is_binary(binary) do
-        case GridCodec.Header.decode(binary) do
-          {:ok, header, payload} ->
-            case {header.schema_id, header.template_id} do
-              (unquote_splicing(all_clauses))
-            end
-
-          {:error, _} = error ->
-            error
         end
       end
     end

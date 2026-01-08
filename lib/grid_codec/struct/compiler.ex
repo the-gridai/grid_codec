@@ -234,51 +234,6 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      # Zero-copy wrap
-      @doc """
-      Wraps a binary for zero-copy field access.
-
-      By default, expects a framed binary (with header from `encode/1`).
-      Use `header: false` for payload-only binaries.
-
-      ## Examples
-
-          # Framed binary (default)
-          env = #{inspect(unquote(module))}.wrap(binary)
-          value = #{inspect(unquote(module))}.get(env, :field_name)
-
-          # Payload only
-          env = #{inspect(unquote(module))}.wrap(payload, header: false)
-      """
-      def wrap(binary, opts \\ [])
-
-      def wrap(binary, []) when is_binary(binary) do
-        # Default: strip header from framed binary
-        case GridCodec.Header.decode(binary) do
-          {:ok, _header, payload} ->
-            GridCodec.Envelope.wrap(payload, unquote(module))
-
-          {:error, _} ->
-            raise ArgumentError,
-                  "Expected framed binary with header. Use wrap(binary, header: false) for payload-only."
-        end
-      end
-
-      def wrap(binary, opts) when is_binary(binary) do
-        if Keyword.get(opts, :header, true) do
-          case GridCodec.Header.decode(binary) do
-            {:ok, _header, payload} ->
-              GridCodec.Envelope.wrap(payload, unquote(module))
-
-            {:error, _} ->
-              raise ArgumentError,
-                    "Expected framed binary with header. Use wrap(binary, header: false) for payload-only."
-          end
-        else
-          GridCodec.Envelope.wrap(binary, unquote(module))
-        end
-      end
-
       # Zero-copy field access macro
       unquote(getter_macro)
 
@@ -1358,32 +1313,6 @@ defmodule GridCodec.Struct.Compiler do
 
           spec ->
             Macro.escape(spec)
-        end
-      end
-
-      @doc false
-      # Runtime field info lookup for Envelope.get/2
-      # Returns payload-relative offsets (envelope stores payload without header)
-      @__field_specs_payload__ unquote(
-                                 Macro.escape(
-                                   # Get payload offset by subtracting header_size
-                                   ((fixed_specs
-                                     |> Enum.map(fn {name, {mod, _framed_offset, end_}} ->
-                                       payload_offset = Map.get(field_offsets, name)
-                                       {name, {mod, payload_offset, end_}}
-                                     end)) ++ var_specs ++ group_specs)
-                                   |> Map.new()
-                                 )
-                               )
-
-      def __field_info__(name) do
-        case Map.get(@__field_specs_payload__, name) do
-          nil ->
-            raise ArgumentError,
-                  "Unknown field #{inspect(name)}. Available: #{inspect(Map.keys(@__field_specs_payload__))}"
-
-          spec ->
-            spec
         end
       end
     end
