@@ -263,6 +263,57 @@ defmodule GridCodec.Types.Enum do
         end
       end
 
+      @impl GridCodec.Type
+      def compare_values(left, right) do
+        left_int = compare_to_integer(left)
+        right_int = compare_to_integer(right)
+
+        cond do
+          left_int == right_int -> :eq
+          left_int < right_int -> :lt
+          true -> :gt
+        end
+      end
+
+      @doc false
+      def get_value(binary, offset, endian) when is_binary(binary) do
+        raw =
+          case {endian, unquote(size)} do
+            {:little, 1} ->
+              <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
+              value
+
+            {:big, 1} ->
+              <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
+              value
+
+            {:little, 2} ->
+              <<_::binary-size(offset), value::unsigned-little-16, _::binary>> = binary
+              value
+
+            {:big, 2} ->
+              <<_::binary-size(offset), value::unsigned-big-16, _::binary>> = binary
+              value
+
+            {:little, 4} ->
+              <<_::binary-size(offset), value::unsigned-little-32, _::binary>> = binary
+              value
+
+            {:big, 4} ->
+              <<_::binary-size(offset), value::unsigned-big-32, _::binary>> = binary
+              value
+          end
+
+        case raw do
+          unquote(null_value) -> nil
+          v -> to_atom(v)
+        end
+      end
+
+      defp compare_to_integer(nil), do: unquote(null_value)
+      defp compare_to_integer(v) when is_atom(v), do: to_integer(v)
+      defp compare_to_integer(v) when is_integer(v), do: v
+
       if Code.ensure_loaded?(GridCodec.Generators) do
         @impl GridCodec.Type
         def generator do

@@ -87,6 +87,14 @@ defmodule GridCodec.Types.I8 do
     end
   end
 
+  @doc """
+  Extracts an i8 value from a binary at the given offset.
+  """
+  def get_value(binary, offset, _endian) when is_binary(binary) do
+    <<_::binary-size(offset), value::signed-8, _::binary>> = binary
+    if value == @null_val, do: nil, else: value
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.i8()

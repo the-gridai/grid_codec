@@ -85,6 +85,31 @@ framed = GridCodec.encode(user)
 | `:string` / `:string16` | u16 | UTF-8 string (default) |
 | `:string32` | u32 | Large text |
 
+## Type-Aware Field Comparison
+
+You can compare fixed-size fields directly from encoded binaries without full decode:
+
+```elixir
+require MyCodec
+
+spec = MyCodec.field(:price)
+
+# Binary field vs literal
+GridCodec.compare(binary, spec, :>, 1000)
+
+# Same field across two binaries
+GridCodec.compare(binary_a, spec, :<=, binary_b, rhs: :binary)
+# or
+GridCodec.compare_binaries(binary_a, spec, :<=, binary_b)
+
+# Compile-time specialized macro on codec module
+MyCodec.compare(binary_a, :price, :>, binary_b, rhs: :binary)
+```
+
+Operators: `:<`, `:<=`, `:>`, `:>=`, `:==`, `:!=`.
+
+For domain-specific types like `:decimal`, comparisons use type-aware semantics.
+
 ## Documentation
 
 Full documentation is available via ExDoc:

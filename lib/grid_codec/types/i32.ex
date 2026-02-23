@@ -128,6 +128,24 @@ defmodule GridCodec.Types.I32 do
     end
   end
 
+  @doc """
+  Extracts an i32 value from a binary at the given offset.
+  """
+  def get_value(binary, offset, endian) when is_binary(binary) do
+    value =
+      case endian do
+        :little ->
+          <<_::binary-size(offset), v::signed-little-32, _::binary>> = binary
+          v
+
+        :big ->
+          <<_::binary-size(offset), v::signed-big-32, _::binary>> = binary
+          v
+      end
+
+    if value == @null_val, do: nil, else: value
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.i32()

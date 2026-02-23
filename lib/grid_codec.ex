@@ -389,4 +389,96 @@ defmodule GridCodec do
           "Group #{inspect(group_name)} requires full decode. " <>
             "Use MyCodec.decode/1 instead."
   end
+
+  @type compare_op :: :< | :<= | :> | :>= | :== | :!=
+
+  @doc """
+  Compares a field from `binary` against either a literal value or another binary.
+
+  ## Options
+
+  - `:rhs` - Comparison source for `rhs`:
+    - `:value` (default): compare against literal decoded value
+    - `:binary`: extract the same field from `rhs` binary and compare field-to-field
+
+  ## Examples
+
+      require MyCodec
+      spec = MyCodec.field(:price)
+
+      # Compare against literal
+      GridCodec.compare(binary, spec, :>, 1000)
+
+      # Compare field from two binaries
+      GridCodec.compare(binary_a, spec, :>, binary_b, rhs: :binary)
+  """
+  @spec compare(
+          binary(),
+          {module(), non_neg_integer(), :little | :big} | {:variable, atom()} | {:group, atom()},
+          compare_op(),
+          term(),
+          keyword()
+        ) :: boolean()
+  def compare(binary, field_spec, op, rhs, opts \\ [])
+
+  def compare(binary, {type_module, _offset, _endian} = field_spec, op, rhs, opts)
+      when is_binary(binary) do
+    lhs_value = get(binary, field_spec)
+
+    rhs_value =
+      if Keyword.get(opts, :rhs, :value) == :binary do
+        if is_binary(rhs) do
+          get(rhs, field_spec)
+        else
+          raise ArgumentError, "compare with rhs: :binary expects rhs to be a binary"
+        end
+      else
+        rhs
+      end
+
+    compare_values(type_module, lhs_value, op, rhs_value)
+  end
+
+  def compare(_binary, {:variable, field_name}, _op, _rhs, _opts) do
+    raise ArgumentError,
+          "Variable-length field #{inspect(field_name)} requires full decode. " <>
+            "Use MyCodec.decode/1 and compare decoded values."
+  end
+
+  def compare(_binary, {:group, group_name}, _op, _rhs, _opts) do
+    raise ArgumentError,
+          "Group #{inspect(group_name)} requires full decode. " <>
+            "Use MyCodec.decode/1 and compare decoded values."
+  end
+
+  @doc """
+  Compares the same field between two binaries.
+
+  Convenience wrapper around `compare/5` with `rhs: :binary`.
+  """
+  @spec compare_binaries(
+          binary(),
+          {module(), non_neg_integer(), :little | :big} | {:variable, atom()} | {:group, atom()},
+          compare_op(),
+          binary()
+        ) :: boolean()
+  def compare_binaries(lhs_binary, field_spec, op, rhs_binary) do
+    compare(lhs_binary, field_spec, op, rhs_binary, rhs: :binary)
+  end
+
+  @doc false
+  @spec compare_values(module(), term(), compare_op(), term()) :: boolean()
+  def compare_values(type_module, left, op, right) do
+    result = GridCodec.Type.compare(type_module, left, right)
+
+    case op do
+      :< -> result == :lt
+      :<= -> result in [:lt, :eq]
+      :> -> result == :gt
+      :>= -> result in [:gt, :eq]
+      :== -> result == :eq
+      :!= -> result != :eq
+      _ -> raise ArgumentError, "unsupported compare operator: #{inspect(op)}"
+    end
+  end
 end

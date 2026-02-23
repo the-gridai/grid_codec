@@ -130,6 +130,15 @@ defmodule GridCodec.Types.Decimal do
     end
   end
 
+  @impl true
+  def compare_values(left, right) do
+    case Decimal.compare(coerce_compare_value(left), coerce_compare_value(right)) do
+      :lt -> :lt
+      :eq -> :eq
+      :gt -> :gt
+    end
+  end
+
   @doc """
   Extracts a decimal from a binary at the given offset.
   """
@@ -222,5 +231,16 @@ defmodule GridCodec.Types.Decimal do
   @spec to_float(integer(), integer()) :: float()
   def to_float(mantissa, exponent) do
     mantissa * :math.pow(10, exponent)
+  end
+
+  defp coerce_compare_value(%Decimal{} = d), do: d
+  defp coerce_compare_value({m, e}) when is_integer(m) and is_integer(e), do: to_decimal(m, e)
+  defp coerce_compare_value(n) when is_integer(n), do: Decimal.new(n)
+  defp coerce_compare_value(n) when is_float(n), do: Decimal.from_float(n)
+
+  defp coerce_compare_value(other) do
+    raise ArgumentError,
+          "unsupported decimal compare value: #{inspect(other)}. " <>
+            "Expected Decimal.t, {mantissa, exponent}, integer, or float"
   end
 end

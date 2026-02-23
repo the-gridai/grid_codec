@@ -14,6 +14,17 @@ price = MyCodec.get(binary, :price)
 
 This avoids full decode when only a subset of fields is needed.
 
+## Use `compare/5` for Filtering and Ordering
+
+When you need predicates over encoded messages, compare fixed-size fields directly:
+
+```elixir
+spec = MyCodec.field(:price)
+GridCodec.compare(binary, spec, :>, 1000)
+```
+
+This keeps hot filtering paths in binary space and avoids full struct decode.
+
 ## Keep Integer Inputs In Range
 
 Integer encoders now validate range. Validation failures are cheap and explicit,

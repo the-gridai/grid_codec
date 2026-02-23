@@ -37,6 +37,14 @@ Common errors:
 Fix:
 - Validate producer payload format and group entry encoder consistency.
 
+## Compare raises on variable-length field/group
+
+Cause:
+- `GridCodec.compare/5` and codec `compare` macro support fixed-size fields only.
+
+Fix:
+- Use full decode for variable fields/groups, then compare decoded values.
+
 ## `.grid` parser rejects identifiers
 
 Cause:

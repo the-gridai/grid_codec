@@ -111,6 +111,30 @@ defmodule GridCodec.Types.F64 do
     end
   end
 
+  @doc """
+  Extracts an f64 value from a binary at the given offset.
+  """
+  def get_value(binary, offset, endian) when is_binary(binary) do
+    case endian do
+      :little ->
+        <<_::binary-size(offset), value::float-little-64, _::binary>> = binary
+        value
+
+      :big ->
+        <<_::binary-size(offset), value::float-big-64, _::binary>> = binary
+        value
+    end
+  end
+
+  @impl true
+  def compare_values(left, right) do
+    cond do
+      left == right -> :eq
+      left < right -> :lt
+      true -> :gt
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.f64()

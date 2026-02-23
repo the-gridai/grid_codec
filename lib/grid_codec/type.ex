@@ -211,6 +211,19 @@ defmodule GridCodec.Type do
             ) :: Macro.t() | nil
 
   @doc """
+  Compares two decoded values for this type.
+
+  Returns one of:
+  - `:lt` when left < right
+  - `:eq` when left == right
+  - `:gt` when left > right
+
+  This callback is optional. If not implemented, GridCodec falls back to
+  Elixir term ordering.
+  """
+  @callback compare_values(left :: term(), right :: term()) :: :lt | :eq | :gt
+
+  @doc """
   Returns a StreamData generator for this type.
 
   This callback is optional and only used when StreamData is available.
@@ -227,7 +240,7 @@ defmodule GridCodec.Type do
   """
   @callback generator() :: term()
 
-  @optional_callbacks decode_value_ast: 1, generator: 0
+  @optional_callbacks decode_value_ast: 1, generator: 0, compare_values: 2
 
   # ============================================================================
   # Type Registry
@@ -349,5 +362,38 @@ defmodule GridCodec.Type do
   @spec align(non_neg_integer(), pos_integer()) :: non_neg_integer()
   def align(offset, alignment) do
     offset + padding_for(offset, alignment)
+  end
+
+  @doc """
+  Compares two values using type-specific comparison when available.
+
+  Nil semantics are consistent across all types:
+  - `nil` < any non-`nil`
+  - `nil` == `nil`
+  """
+  @spec compare(module(), term(), term()) :: :lt | :eq | :gt
+  def compare(type_module, left, right) when is_atom(type_module) do
+    cond do
+      left == nil and right == nil ->
+        :eq
+
+      left == nil ->
+        :lt
+
+      right == nil ->
+        :gt
+
+      function_exported?(type_module, :compare_values, 2) ->
+        type_module.compare_values(left, right)
+
+      left == right ->
+        :eq
+
+      left < right ->
+        :lt
+
+      true ->
+        :gt
+    end
   end
 end

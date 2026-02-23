@@ -71,6 +71,18 @@ framed = GridCodec.encode(event)
 
 Top-level decode routes by header `{schema_id, template_id}`.
 
+## 6) Compare Fields Without Full Decode
+
+```elixir
+spec = MyApp.Events.UserCreated.field(:score)
+
+# Field vs literal value
+GridCodec.compare(binary, spec, :>=, 1000)
+
+# Field vs same field in another binary
+GridCodec.compare(binary_a, spec, :>, binary_b, rhs: :binary)
+```
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.

@@ -72,6 +72,10 @@ defmodule GridCodec.Struct.Compiler do
       generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
 
     getter_macro = generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian)
+
+    compare_macro =
+      generate_compare_macro(fixed_fields, var_fields, groups, field_offsets, endian)
+
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
     field_macro = generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian)
 
@@ -236,6 +240,9 @@ defmodule GridCodec.Struct.Compiler do
 
       # Zero-copy field access macro
       unquote(getter_macro)
+
+      # Type-aware field comparison macro
+      unquote(compare_macro)
 
       # Pattern matching macro
       unquote(match_macro)
@@ -1132,6 +1139,157 @@ defmodule GridCodec.Struct.Compiler do
         quote do
           unquote(module).get(unquote(binary_expr), unquote(field_name))
         end
+    end
+  end
+
+  defp generate_compare_macro(fixed_fields, var_fields, groups, field_offsets, endian) do
+    header_size = 8
+
+    fixed_field_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+        payload_offset = Map.get(field_offsets, name)
+        framed_offset = payload_offset + header_size
+        {name, {module, framed_offset, endian}}
+      end)
+      |> Map.new()
+
+    payload_field_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+        offset = Map.get(field_offsets, name)
+        {name, {module, offset, endian}}
+      end)
+      |> Map.new()
+
+    var_field_names = Enum.map(var_fields, fn {name, _, _, _} -> name end)
+    group_names = Enum.map(groups, fn {name, _, _} -> name end)
+
+    quote do
+      @doc """
+      Compares a field from a binary against a value or another binary.
+
+      Supports only fixed-size fields. Variable fields and groups require full decode.
+
+      ## Options
+
+      - `:header` - Binary includes header (default: `true`)
+      - `:rhs` - `:value` (default) or `:binary` to compare against same field in rhs binary
+
+      ## Examples
+
+          require #{inspect(__MODULE__)}
+
+          #{inspect(__MODULE__)}.compare(binary, :price, :>, 100)
+          #{inspect(__MODULE__)}.compare(binary_a, :price, :<=, binary_b, rhs: :binary)
+      """
+      defmacro compare(binary_expr, field_name, op, rhs_expr, opts \\ []) do
+        fixed_specs =
+          if Keyword.get(opts, :header, true) do
+            unquote(Macro.escape(fixed_field_specs))
+          else
+            unquote(Macro.escape(payload_field_specs))
+          end
+
+        var_fields = unquote(var_field_names)
+        groups = unquote(group_names)
+
+        GridCodec.Struct.Compiler.__build_inline_compare__(
+          binary_expr,
+          field_name,
+          op,
+          rhs_expr,
+          opts,
+          fixed_specs,
+          var_fields,
+          groups
+        )
+      end
+    end
+  end
+
+  @doc false
+  def __build_inline_compare__(
+        binary_expr,
+        field_name,
+        op,
+        rhs_expr,
+        opts,
+        fixed_specs,
+        var_fields,
+        groups
+      ) do
+    case field_name do
+      name when is_atom(name) ->
+        cond do
+          Map.has_key?(fixed_specs, name) ->
+            {type_module, offset, endian} = Map.get(fixed_specs, name)
+            rhs_mode = Keyword.get(opts, :rhs, :value)
+
+            lhs_binary_var = Macro.var(:__lhs_binary__, __MODULE__)
+            rhs_expr_var = Macro.var(:__rhs_expr__, __MODULE__)
+            lhs_value_var = Macro.var(:__lhs_value__, __MODULE__)
+            rhs_value_var = Macro.var(:__rhs_value__, __MODULE__)
+
+            rhs_value_ast =
+              if rhs_mode == :binary do
+                quote do
+                  unless is_binary(unquote(rhs_expr_var)) do
+                    raise ArgumentError,
+                          "compare with rhs: :binary expects rhs to be a binary"
+                  end
+
+                  unquote(type_module).get_value(
+                    unquote(rhs_expr_var),
+                    unquote(offset),
+                    unquote(endian)
+                  )
+                end
+              else
+                rhs_expr_var
+              end
+
+            quote do
+              unquote(lhs_binary_var) = unquote(binary_expr)
+              unquote(rhs_expr_var) = unquote(rhs_expr)
+
+              unquote(lhs_value_var) =
+                unquote(type_module).get_value(
+                  unquote(lhs_binary_var),
+                  unquote(offset),
+                  unquote(endian)
+                )
+
+              unquote(rhs_value_var) = unquote(rhs_value_ast)
+
+              GridCodec.compare_values(
+                unquote(type_module),
+                unquote(lhs_value_var),
+                unquote(op),
+                unquote(rhs_value_var)
+              )
+            end
+
+          name in var_fields ->
+            quote do
+              raise ArgumentError,
+                    "variable-length field #{inspect(unquote(name))} requires full decode"
+            end
+
+          name in groups ->
+            quote do
+              raise ArgumentError,
+                    "group #{inspect(unquote(name))} requires full decode"
+            end
+
+          true ->
+            quote do
+              raise ArgumentError, "unknown field: #{inspect(unquote(name))}"
+            end
+        end
+
+      _ ->
+        raise CompileError,
+          description:
+            "compare/5 requires a literal atom field name for compile-time specialization"
     end
   end
 
