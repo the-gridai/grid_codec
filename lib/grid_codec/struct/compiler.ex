@@ -1264,14 +1264,20 @@ defmodule GridCodec.Struct.Compiler do
     # Header offset: 8 bytes for framed binaries, 0 for payload-only
     header_offset = if has_header, do: 8, else: 0
 
-    sorted_fields = Enum.sort_by(field_info, fn {_, _, _, offset, _} -> offset end)
+    # OPTIMIZATION: Only iterate requested fields, not all fields
+    # This coalesces consecutive unrequested fields into single skip segments
+    requested_fields =
+      field_info
+      |> Enum.filter(fn {name, _, _, _, _} -> Keyword.has_key?(field_bindings, name) end)
+      |> Enum.sort_by(fn {_, _, _, offset, _} -> offset end)
 
     {segments, _} =
-      Enum.reduce(sorted_fields, {[], 0}, fn {name, _type_atom, _module, offset, size},
-                                             {segs, current_pos} ->
+      Enum.reduce(requested_fields, {[], 0}, fn {name, type_atom, type_module, offset, size},
+                                                {segs, current_pos} ->
         # Add header offset to all field offsets
         adjusted_offset = offset + header_offset
 
+        # Add single coalesced skip segment if there's a gap
         segs =
           if adjusted_offset > current_pos do
             skip_size = adjusted_offset - current_pos
@@ -1281,14 +1287,9 @@ defmodule GridCodec.Struct.Compiler do
             segs
           end
 
-        var = Keyword.get(field_bindings, name)
-
-        seg =
-          if var do
-            build_typed_pattern(var, size, endian)
-          else
-            quote do: _ :: binary - size(unquote(size))
-          end
+        # Add binding or literal pattern for the requested field
+        value = Keyword.fetch!(field_bindings, name)
+        seg = build_typed_pattern(value, type_atom, type_module, size, endian)
 
         {segs ++ [seg], adjusted_offset + size}
       end)
@@ -1300,7 +1301,94 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp build_typed_pattern(var, size, endian) do
+  defp build_typed_pattern(value, type_atom, type_module, size, endian) do
+    # OPTIMIZATION: If value is a compile-time literal, encode it and embed directly
+    # in the pattern. This enables true zero-copy matching without extraction + guard.
+    #
+    # Examples:
+    #   match([is_authenticated: true])  -> <<..., 1::8, ...>>   (not x::8 when x == true)
+    #   match([status: :active])         -> <<..., 0::8, ...>>   (enum encoded at compile time)
+    #   match([amount: 5000])            -> <<..., 5000::little-64, ...>>
+    #   match([id: var])                 -> <<..., var::binary-16, ...>> (variable binding)
+    #
+    case encode_literal_for_pattern(value, type_atom, type_module) do
+      {:ok, encoded} ->
+        build_literal_pattern(encoded, size, endian)
+
+      :not_literal ->
+        build_binding_pattern(value, size, endian)
+    end
+  end
+
+  # Try to encode a literal value at compile time for pattern embedding
+  defp encode_literal_for_pattern(value, type_atom, type_module) do
+    cond do
+      # Already an integer literal
+      is_integer(value) ->
+        {:ok, value}
+
+      # Boolean literals -> encode as 1/0
+      value == true ->
+        {:ok, 1}
+
+      value == false ->
+        {:ok, 0}
+
+      # Atom literal (could be enum value)
+      is_atom(value) and not is_nil(value) ->
+        encode_atom_for_pattern(value, type_atom, type_module)
+
+      # Binary literal (for UUID, etc.)
+      is_binary(value) ->
+        {:ok, value}
+
+      # Not a literal (probably a variable AST node)
+      true ->
+        :not_literal
+    end
+  end
+
+  # Encode atom value using type module if it's an enum
+  defp encode_atom_for_pattern(value, _type_atom, type_module) do
+    # Check if the type module is an enum with to_integer/1
+    if function_exported?(type_module, :to_integer, 1) do
+      try do
+        {:ok, type_module.to_integer(value)}
+      rescue
+        ArgumentError -> :not_literal
+      end
+    else
+      :not_literal
+    end
+  end
+
+  # Generate pattern with literal value embedded (zero-copy match)
+  defp build_literal_pattern(value, size, endian) when is_integer(value) do
+    case {size, endian} do
+      {1, _} -> quote do: unquote(value) :: 8
+      {2, :little} -> quote do: unquote(value) :: little - 16
+      {2, :big} -> quote do: unquote(value) :: big - 16
+      {4, :little} -> quote do: unquote(value) :: little - 32
+      {4, :big} -> quote do: unquote(value) :: big - 32
+      {8, :little} -> quote do: unquote(value) :: little - 64
+      {8, :big} -> quote do: unquote(value) :: big - 64
+      {16, _} -> quote do: unquote(value) :: binary - size(16)
+      {_, _} -> quote do: unquote(value) :: binary - size(unquote(size))
+    end
+  end
+
+  # For binary literals (UUID, etc.)
+  defp build_literal_pattern(value, size, _endian) when is_binary(value) do
+    if byte_size(value) == size do
+      quote do: unquote(value) :: binary - size(unquote(size))
+    else
+      raise ArgumentError,
+            "Binary literal size #{byte_size(value)} doesn't match field size #{size}"
+    end
+  end
+
+  # Generate pattern with variable binding (for extraction)
+  defp build_binding_pattern(var, size, endian) do
     case {size, endian} do
       {1, _} -> quote do: unquote(var) :: 8
       {2, :little} -> quote do: unquote(var) :: little - 16
