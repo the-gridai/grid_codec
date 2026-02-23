@@ -273,4 +273,50 @@ defmodule GridCodec.Schema.ParserTest do
                Parser.parse_file("nonexistent.grid")
     end
   end
+
+  describe "parser safety limits" do
+    test "returns error when identifier count exceeds max_identifiers" do
+      fields =
+        1..20
+        |> Enum.map(fn idx -> "field_#{idx}: u64" end)
+        |> Enum.join("\n")
+
+      content = """
+      schema { id: 1 }
+      struct Order (template_id: 1001) {
+      #{fields}
+      }
+      """
+
+      assert {:error, {:too_many_identifiers, count, 10}} =
+               Parser.parse(content, max_identifiers: 10)
+
+      assert count > 10
+    end
+
+    test "returns error when identifier length exceeds max_identifier_length" do
+      long_name = String.duplicate("a", 40)
+
+      content = """
+      schema { id: 1 }
+      struct #{long_name} (template_id: 1001) {
+        id: u64
+      }
+      """
+
+      assert {:error, {:identifier_too_long, ^long_name, 40, 16}} =
+               Parser.parse(content, max_identifier_length: 16)
+    end
+
+    test "returns error for invalid identifier format" do
+      content = """
+      schema { id: 1 }
+      struct Order (template_id: 1001) {
+        bad-name: u64
+      }
+      """
+
+      assert {:error, {:invalid_identifier, "bad-name"}} = Parser.parse(content)
+    end
+  end
 end

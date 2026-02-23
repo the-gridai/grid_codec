@@ -360,7 +360,7 @@ defmodule GridCodec.Struct.Compiler do
   defp generate_struct_encoder(fixed_fields, var_fields, groups, endian, struct_module) do
     # Check if we have required field validation
     has_required =
-      Enum.any?(fixed_fields, fn {_, _, _, opts} ->
+      Enum.any?(fixed_fields ++ var_fields, fn {_, _, _, opts} ->
         Keyword.get(opts, :presence) == :required
       end)
 
@@ -546,7 +546,7 @@ defmodule GridCodec.Struct.Compiler do
   defp generate_encoder(fixed_fields, var_fields, groups, endian) do
     data_var = quote do: var!(data)
 
-    required_validations = generate_required_validations(fixed_fields, data_var)
+    required_validations = generate_required_validations(fixed_fields ++ var_fields, data_var)
 
     fixed_encoding =
       Enum.map(fixed_fields, fn {name, _type, module, opts} ->

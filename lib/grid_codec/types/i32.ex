@@ -58,16 +58,22 @@ defmodule GridCodec.Types.I32 do
       :little ->
         quote do
           case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-            nil -> unquote(null_val)
-            v -> v
+            nil ->
+              unquote(null_val)
+
+            v ->
+              unquote(GridCodec.Types.Integer.validate_signed_ast(quote(do: v), 32, field_name))
           end :: signed - little - 32
         end
 
       :big ->
         quote do
           case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-            nil -> unquote(null_val)
-            v -> v
+            nil ->
+              unquote(null_val)
+
+            v ->
+              unquote(GridCodec.Types.Integer.validate_signed_ast(quote(do: v), 32, field_name))
           end :: signed - big - 32
         end
     end

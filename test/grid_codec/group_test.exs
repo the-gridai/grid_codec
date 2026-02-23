@@ -103,6 +103,11 @@ defmodule GridCodec.GroupTest do
       assert {:max_entries_exceeded, 1000, 100} = reason
     end
 
+    test "returns error for zero block_length with non-zero entries" do
+      binary = <<0::little-16, 2::little-16>>
+      assert {:error, {:invalid_block_length, 0, 2}} = Group.parse(binary, &decode_entry/1)
+    end
+
     test "returns error when max_bytes exceeded" do
       entries = for i <- 1..1000, do: %{price: i, qty: i}
       binary = Group.encode(entries, &encode_entry/1)
@@ -130,6 +135,18 @@ defmodule GridCodec.GroupTest do
 
       assert {:error, {:index_out_of_bounds, 1, 1}} = Group.get_entry(group, 1)
       assert {:error, {:index_out_of_bounds, -1, 1}} = Group.get_entry(group, -1)
+    end
+
+    test "returns error when entry boundaries exceed binary size" do
+      group = %Group{
+        binary: <<12::little-16, 1::little-16>>,
+        num_in_group: 1,
+        block_length: 12,
+        entries_offset: 4,
+        entry_decoder: &decode_entry/1
+      }
+
+      assert {:error, {:entry_out_of_bounds, 0, 4, 12, 4}} = Group.get_entry(group, 0)
     end
   end
 
@@ -215,6 +232,20 @@ defmodule GridCodec.GroupTest do
 
       {:ok, group} = Group.parse(binary, &decode_entry/1)
       assert Group.rest(group) == "extra"
+    end
+
+    test "rest/1 raises when group bounds exceed binary size" do
+      group = %Group{
+        binary: <<0::little-16, 0::little-16>>,
+        num_in_group: 5,
+        block_length: 10,
+        entries_offset: 4,
+        entry_decoder: &decode_entry/1
+      }
+
+      assert_raise ArgumentError, ~r/Invalid group bounds/, fn ->
+        Group.rest(group)
+      end
     end
 
     test "header_size/0 returns 4" do

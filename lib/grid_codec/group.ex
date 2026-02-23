@@ -246,6 +246,9 @@ defmodule GridCodec.Group do
 
     # Security checks - structured for clarity, guards used where applicable
     cond do
+      block_length == 0 and num_in_group > 0 ->
+        {:error, {:invalid_block_length, block_length, num_in_group}}
+
       num_in_group > max_entries ->
         {:error, {:max_entries_exceeded, num_in_group, max_entries}}
 
@@ -295,6 +298,10 @@ defmodule GridCodec.Group do
     {:error, {:index_out_of_bounds, index, n}}
   end
 
+  def get_entry(%__MODULE__{block_length: 0, num_in_group: n}, _index) when n > 0 do
+    {:error, {:invalid_block_length, 0, n}}
+  end
+
   def get_entry(
         %__MODULE__{
           binary: binary,
@@ -305,8 +312,13 @@ defmodule GridCodec.Group do
         index
       ) do
     entry_offset = offset + index * block_length
-    entry_binary = binary_part(binary, entry_offset, block_length)
-    decoder.(entry_binary)
+
+    if entry_offset + block_length > byte_size(binary) do
+      {:error, {:entry_out_of_bounds, index, entry_offset, block_length, byte_size(binary)}}
+    else
+      entry_binary = binary_part(binary, entry_offset, block_length)
+      decoder.(entry_binary)
+    end
   end
 
   @doc """
@@ -441,6 +453,13 @@ defmodule GridCodec.Group do
   @spec rest(t()) :: binary()
   def rest(%__MODULE__{binary: binary, num_in_group: n, block_length: bl}) do
     skip = @header_size + n * bl
-    binary_part(binary, skip, Kernel.byte_size(binary) - skip)
+    total_size = Kernel.byte_size(binary)
+
+    if skip > total_size do
+      raise ArgumentError,
+            "Invalid group bounds: skip #{skip} exceeds binary size #{total_size}"
+    end
+
+    binary_part(binary, skip, total_size - skip)
   end
 end

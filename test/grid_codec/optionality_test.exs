@@ -46,6 +46,15 @@ defmodule GridCodec.OptionalityTest do
     end
   end
 
+  defmodule RequiredVarCodec do
+    use GridCodec.Struct
+
+    defcodec do
+      field :id, :u64
+      field :name, :string16, presence: :required
+    end
+  end
+
   # ============================================================================
   # Optional Field Tests (default behavior)
   # ============================================================================
@@ -98,6 +107,23 @@ defmodule GridCodec.OptionalityTest do
     test "encode raises for second required field" do
       assert_raise ArgumentError, ~r/required field :count cannot be nil/, fn ->
         RequiredCodec.encode(%RequiredCodec{id: 1, count: nil})
+      end
+    end
+  end
+
+  describe "required variable-length fields" do
+    test "encode/decode with required string value" do
+      data = %RequiredVarCodec{id: 123, name: "alice"}
+      binary = RequiredVarCodec.encode(data)
+      {:ok, decoded} = RequiredVarCodec.decode(binary)
+
+      assert decoded.id == 123
+      assert decoded.name == "alice"
+    end
+
+    test "encode raises when required string is nil" do
+      assert_raise ArgumentError, ~r/required field :name cannot be nil/, fn ->
+        RequiredVarCodec.encode(%RequiredVarCodec{id: 123, name: nil})
       end
     end
   end

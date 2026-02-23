@@ -41,6 +41,9 @@ defmodule GridCodec.Schema.Parser do
       }
   """
 
+  @default_max_identifiers 2_048
+  @default_max_identifier_length 128
+
   defmodule Schema do
     @moduledoc "Parsed schema structure"
     defstruct name: nil,
@@ -49,6 +52,15 @@ defmodule GridCodec.Schema.Parser do
               types: %{},
               enums: %{},
               structs: %{}
+
+    @type t :: %__MODULE__{
+            name: atom() | nil,
+            id: integer() | nil,
+            version: integer(),
+            types: map(),
+            enums: map(),
+            structs: map()
+          }
   end
 
   defmodule StructDef do
@@ -88,23 +100,35 @@ defmodule GridCodec.Schema.Parser do
 
   @doc """
   Parses a `.grid` file and returns a Schema struct.
+
+  ## Options
+
+  - `:max_identifiers` - Maximum unique non-numeric identifiers allowed (default: #{@default_max_identifiers})
+  - `:max_identifier_length` - Maximum identifier length in bytes (default: #{@default_max_identifier_length})
   """
-  @spec parse_file(String.t()) :: {:ok, Schema.t()} | {:error, term()}
-  def parse_file(path) do
+  @spec parse_file(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def parse_file(path, opts \\ []) do
     case File.read(path) do
-      {:ok, content} -> parse(content)
+      {:ok, content} -> parse(content, opts)
       {:error, reason} -> {:error, {:file_error, path, reason}}
     end
   end
 
   @doc """
   Parses `.grid` content string and returns a Schema struct.
+
+  ## Options
+
+  - `:max_identifiers` - Maximum unique non-numeric identifiers allowed (default: #{@default_max_identifiers})
+  - `:max_identifier_length` - Maximum identifier length in bytes (default: #{@default_max_identifier_length})
   """
-  @spec parse(String.t()) :: {:ok, Schema.t()} | {:error, term()}
-  def parse(content) when is_binary(content) do
-    content
-    |> tokenize()
-    |> parse_tokens()
+  @spec parse(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def parse(content, opts \\ []) when is_binary(content) do
+    tokens = tokenize(content)
+
+    with :ok <- validate_identifier_safety(tokens, opts) do
+      parse_tokens(tokens)
+    end
   end
 
   # ============================================================================
@@ -189,6 +213,67 @@ defmodule GridCodec.Schema.Parser do
 
       true ->
         tokenize_stream(rest, [{:word, token} | acc])
+    end
+  end
+
+  defp validate_identifier_safety(tokens, opts) do
+    max_identifiers = Keyword.get(opts, :max_identifiers, @default_max_identifiers)
+
+    max_identifier_length =
+      Keyword.get(opts, :max_identifier_length, @default_max_identifier_length)
+
+    identifiers =
+      tokens
+      |> Enum.flat_map(fn
+        {:word, word} when is_binary(word) -> [word]
+        _ -> []
+      end)
+      |> Enum.reject(&looks_like_integer?/1)
+      |> MapSet.new()
+      |> MapSet.to_list()
+
+    with :ok <- validate_identifier_lengths(identifiers, max_identifier_length),
+         :ok <- validate_identifier_format(identifiers),
+         :ok <- validate_identifier_budget(identifiers, max_identifiers) do
+      :ok
+    end
+  end
+
+  defp validate_identifier_lengths(identifiers, max_identifier_length) do
+    case Enum.find(identifiers, fn word -> byte_size(word) > max_identifier_length end) do
+      nil ->
+        :ok
+
+      word ->
+        {:error, {:identifier_too_long, word, byte_size(word), max_identifier_length}}
+    end
+  end
+
+  defp validate_identifier_format(identifiers) do
+    case Enum.find(identifiers, fn word -> not valid_identifier?(word) end) do
+      nil -> :ok
+      word -> {:error, {:invalid_identifier, word}}
+    end
+  end
+
+  defp validate_identifier_budget(identifiers, max_identifiers) do
+    count = length(identifiers)
+
+    if count > max_identifiers do
+      {:error, {:too_many_identifiers, count, max_identifiers}}
+    else
+      :ok
+    end
+  end
+
+  defp valid_identifier?(word) do
+    Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_?]*$/, word)
+  end
+
+  defp looks_like_integer?(word) do
+    case Integer.parse(word) do
+      {_int, ""} -> true
+      _ -> false
     end
   end
 

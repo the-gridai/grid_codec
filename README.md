@@ -102,6 +102,30 @@ Key modules:
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
 
+Guides:
+
+- `docs/getting-started.md` - First codec, encode/decode, zero-copy access
+- `docs/schemas.md` - `.grid` schema syntax and usage
+- `docs/schema-evolution.md` - Versioning and rollout guidance
+- `docs/performance.md` - Profiling and optimization practices
+- `docs/troubleshooting.md` - Common errors and fixes
+
+## Common Tasks
+
+```bash
+# Run all quality checks
+mix check
+
+# Run tests only
+mix test
+
+# Build ExDoc docs
+mix docs
+
+# Run profiler
+./profile/run.sh
+```
+
 ## Example App
 
 For real-world usage examples and benchmarks:

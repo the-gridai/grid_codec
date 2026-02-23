@@ -51,7 +51,7 @@ defmodule GridCodec.Types.I8 do
     quote do
       case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
         nil -> unquote(null_val)
-        v -> v
+        v -> unquote(GridCodec.Types.Integer.validate_signed_ast(quote(do: v), 8, field_name))
       end :: signed - 8
     end
   end

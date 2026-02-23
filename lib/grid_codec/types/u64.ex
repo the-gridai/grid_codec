@@ -62,16 +62,22 @@ defmodule GridCodec.Types.U64 do
       :little ->
         quote do
           case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-            nil -> unquote(null_val)
-            v -> v
+            nil ->
+              unquote(null_val)
+
+            v ->
+              unquote(GridCodec.Types.Integer.validate_unsigned_ast(quote(do: v), 64, field_name))
           end :: unsigned - little - 64
         end
 
       :big ->
         quote do
           case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-            nil -> unquote(null_val)
-            v -> v
+            nil ->
+              unquote(null_val)
+
+            v ->
+              unquote(GridCodec.Types.Integer.validate_unsigned_ast(quote(do: v), 64, field_name))
           end :: unsigned - big - 64
         end
     end

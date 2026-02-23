@@ -99,7 +99,7 @@ defmodule GridCodec.MixProject do
       links: %{
         "GitHub" => @source_url
       },
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+      files: ~w(lib docs .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 
@@ -110,6 +110,11 @@ defmodule GridCodec.MixProject do
       source_ref: "v#{@version}",
       extras: [
         "README.md": [title: "Overview"],
+        "docs/getting-started.md": [title: "Getting Started"],
+        "docs/schemas.md": [title: "Schemas"],
+        "docs/schema-evolution.md": [title: "Schema Evolution"],
+        "docs/performance.md": [title: "Performance Guide"],
+        "docs/troubleshooting.md": [title: "Troubleshooting"],
         "CHANGELOG.md": [title: "Changelog"],
         LICENSE: [title: "License"]
       ],
