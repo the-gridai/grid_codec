@@ -26,6 +26,9 @@ defmodule ExampleApp.MixProject do
       # JSON support (for transcoder)
       {:jason, "~> 1.4"},
 
+      # Protobuf for benchmarking comparison
+      {:protobuf, "~> 0.13"},
+
       # Benchmarking
       {:benchee, "~> 1.3"}
     ]

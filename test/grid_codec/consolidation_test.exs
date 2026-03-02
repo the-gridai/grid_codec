@@ -43,7 +43,7 @@ defmodule GridCodec.ConsolidationTest do
     end
   end
 
-  describe "Mix.Compilers.GridCodec" do
+  describe "Mix.Tasks.Compile.GridCodec" do
     defmodule CodecA do
       use GridCodec.Struct, template_id: 201, schema_id: 600
 
@@ -85,7 +85,7 @@ defmodule GridCodec.ConsolidationTest do
   end
 
   describe "conflict detection" do
-    # Note: Actual conflict detection happens in Mix.Compilers.GridCodec.validate_codecs/1
+    # Note: Actual conflict detection happens in Mix.Tasks.Compile.GridCodec
     # We test the validation logic directly
 
     test "validate_codecs detects duplicate template_ids" do

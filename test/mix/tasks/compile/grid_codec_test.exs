@@ -1,15 +1,12 @@
-defmodule Mix.Compilers.GridCodecTest do
+defmodule Mix.Tasks.Compile.GridCodecTest do
   use ExUnit.Case, async: false
 
-  # Note: async: false because we're testing the Mix compiler which modifies global state
-
-  # Clear the registry cache before each test
   setup do
     GridCodec.Registry.clear_cache()
     :ok
   end
 
-  describe "Mix.Compilers.GridCodec" do
+  describe "Mix.Tasks.Compile.GridCodec" do
     test "compiler runs and generates registry" do
       # Create test codecs (using unique IDs to avoid conflicts with other tests)
       defmodule TestCodec1 do

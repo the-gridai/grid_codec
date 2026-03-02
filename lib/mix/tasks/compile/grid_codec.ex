@@ -1,4 +1,4 @@
-defmodule Mix.Compilers.GridCodec do
+defmodule Mix.Tasks.Compile.GridCodec do
   @moduledoc """
   Mix compiler for GridCodec registry consolidation.
 
