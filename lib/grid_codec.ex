@@ -390,6 +390,15 @@ defmodule GridCodec do
             "Use MyCodec.decode/1 instead."
   end
 
+  @doc """
+  Inspects a GridCodec binary for debugging and operational diagnostics.
+
+  Delegates to `GridCodec.BinaryInspector.inspect/2`.
+  """
+  @spec inspect_binary(binary(), keyword()) ::
+          {:ok, GridCodec.BinaryInspector.inspect_result()} | {:error, term()}
+  defdelegate inspect_binary(binary, opts \\ []), to: GridCodec.BinaryInspector, as: :inspect
+
   @type compare_op :: :< | :<= | :> | :>= | :== | :!=
 
   @doc """

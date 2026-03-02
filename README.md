@@ -126,6 +126,8 @@ Key modules:
 - `GridCodec.Group` – Repeating groups (variable-length collections)
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
+- `GridCodec.BinaryInspector` – Binary diagnostics (header/layout/value inspection)
+- `GridCodec.Json` – JSON interchange adapters (`to_map/from_map/to_json/from_json`)
 
 Guides:
 

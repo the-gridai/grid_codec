@@ -40,8 +40,21 @@ defmodule GridCodec.Struct.Compiler do
     # Calculate offsets
     {field_offsets, block_length} = calculate_offsets(fixed_fields, align_fields)
 
-    # Build struct field list with defaults
-    {struct_fields, enforce_keys} = build_struct_fields(fields)
+    # Validate :since field ordering (must be non-decreasing in fixed block)
+    validate_since_ordering(fixed_fields)
+
+    # Build field_versions from :since opts
+    field_versions = build_field_versions(fields)
+
+    # Pre-compute null sentinel block for version-aware decoding
+    null_fixed_block = compute_null_fixed_block(fixed_fields, field_offsets, block_length, endian)
+
+    # Process groups — auto-generate entry codecs from field declarations when
+    # entry_encoder/entry_decoder are not explicitly provided
+    {processed_groups, auto_group_fns} = process_groups(groups, custom_types, endian)
+
+    # Build struct field list with defaults (includes group names with default [])
+    {struct_fields, enforce_keys} = build_struct_fields(fields, groups)
 
     # Build schema metadata
     field_names = Enum.map(fields, fn {name, _, _} -> name end)
@@ -56,20 +69,20 @@ defmodule GridCodec.Struct.Compiler do
       block_length: block_length,
       fixed_fields: Enum.map(fixed_fields, fn {name, _, _, _} -> name end),
       var_fields: Enum.map(var_fields, fn {name, _, _, _} -> name end),
-      field_versions: %{}
+      field_versions: field_versions
     }
 
-    # Generate encoder/decoder AST
-    encoder_clauses = generate_encoder_clauses(fixed_fields, var_fields, groups, endian)
-    # Direct struct encoder - pattern matches struct fields directly, no Map.from_struct
-    struct_encoder_body =
-      generate_struct_encoder(fixed_fields, var_fields, groups, endian, env.module)
+    # Generate encoder/decoder AST (using processed_groups with auto-generated codecs)
+    encoder_clauses =
+      generate_encoder_clauses(fixed_fields, var_fields, processed_groups, endian)
 
-    # Map-based decoder (for decode_map function)
-    decoder_body = generate_decoder(fixed_fields, var_fields, groups, endian)
-    # Direct struct decoder - builds struct directly, avoiding map->struct conversion
+    struct_encoder_body =
+      generate_struct_encoder(fixed_fields, var_fields, processed_groups, endian, env.module)
+
+    decoder_body = generate_decoder(fixed_fields, var_fields, processed_groups, endian)
+
     struct_decoder_body =
-      generate_struct_decoder(fixed_fields, var_fields, groups, endian, env.module)
+      generate_struct_decoder(fixed_fields, var_fields, processed_groups, endian, env.module)
 
     getter_macro = generate_getter_macro(fixed_fields, var_fields, groups, field_offsets, endian)
 
@@ -112,6 +125,13 @@ defmodule GridCodec.Struct.Compiler do
       # Store header for encode/decode
       @__gridcodec_header_opts__ unquote(header_opts)
       @__gridcodec_header_size__ 8
+
+      # Version-aware decoding: null sentinel block for padding shorter binaries
+      @__null_fixed_block__ unquote(null_fixed_block)
+      @__current_block_length__ unquote(block_length)
+
+      # Auto-generated group entry codecs
+      unquote_splicing(auto_group_fns)
 
       # ========================================================================
       # Encode API
@@ -183,11 +203,10 @@ defmodule GridCodec.Struct.Compiler do
       def decode(binary, opts \\ [])
 
       def decode(binary, []) when is_binary(binary) do
-        # Default: expect header
         case GridCodec.Header.decode(binary) do
           {:ok, header, payload} ->
             with :ok <- validate_header(header) do
-              decode_payload(payload)
+              decode_versioned_payload(payload, header.block_length)
             end
 
           {:error, _} = error ->
@@ -200,7 +219,7 @@ defmodule GridCodec.Struct.Compiler do
           case GridCodec.Header.decode(binary) do
             {:ok, header, payload} ->
               with :ok <- validate_header(header) do
-                decode_payload(payload)
+                decode_versioned_payload(payload, header.block_length)
               end
 
             {:error, _} = error ->
@@ -209,6 +228,18 @@ defmodule GridCodec.Struct.Compiler do
         else
           decode_payload(binary)
         end
+      end
+
+      defp decode_versioned_payload(payload, header_block_length)
+           when header_block_length >= @__current_block_length__ do
+        decode_payload(payload)
+      end
+
+      defp decode_versioned_payload(payload, header_block_length) do
+        <<fixed_data::binary-size(header_block_length), after_fixed::binary>> = payload
+        padding_size = @__current_block_length__ - header_block_length
+        padding = binary_part(@__null_fixed_block__, header_block_length, padding_size)
+        decode_payload(<<fixed_data::binary, padding::binary, after_fixed::binary>>)
       end
 
       # Internal: decode payload only (no header)
@@ -256,7 +287,7 @@ defmodule GridCodec.Struct.Compiler do
   # Struct Field Generation
   # ============================================================================
 
-  defp build_struct_fields(fields) do
+  defp build_struct_fields(fields, groups) do
     struct_fields =
       Enum.map(fields, fn {name, _type, opts} ->
         presence = Keyword.get(opts, :presence, :optional)
@@ -272,6 +303,8 @@ defmodule GridCodec.Struct.Compiler do
         {name, field_default}
       end)
 
+    group_fields = Enum.map(groups, fn {name, _, _} -> {name, []} end)
+
     enforce_keys =
       fields
       |> Enum.filter(fn {_name, _type, opts} ->
@@ -279,7 +312,7 @@ defmodule GridCodec.Struct.Compiler do
       end)
       |> Enum.map(fn {name, _, _} -> name end)
 
-    {struct_fields, enforce_keys}
+    {struct_fields ++ group_fields, enforce_keys}
   end
 
   # ============================================================================
@@ -324,6 +357,188 @@ defmodule GridCodec.Struct.Compiler do
       end)
 
     {offsets, total}
+  end
+
+  # ============================================================================
+  # Schema Evolution Support
+  # ============================================================================
+
+  defp validate_since_ordering(fixed_fields) do
+    since_values =
+      Enum.map(fixed_fields, fn {_name, _type, _module, opts} ->
+        Keyword.get(opts, :since, 1)
+      end)
+
+    unless since_values == Enum.sort(since_values) do
+      labels =
+        Enum.map(fixed_fields, fn {name, _type, _module, opts} ->
+          "#{name} (since: #{Keyword.get(opts, :since, 1)})"
+        end)
+
+      raise CompileError,
+        description:
+          "Fields with :since must be declared after all earlier-version fields " <>
+            "in the fixed block. Fixed field order: #{Enum.join(labels, ", ")}"
+    end
+  end
+
+  defp build_field_versions(fields) do
+    fields
+    |> Enum.filter(fn {_, _, opts} -> Keyword.has_key?(opts, :since) end)
+    |> Enum.map(fn {name, _, opts} -> {name, Keyword.get(opts, :since)} end)
+    |> Map.new()
+  end
+
+  defp compute_null_fixed_block(fixed_fields, field_offsets, block_length, endian) do
+    if block_length == 0 do
+      <<>>
+    else
+      base = :binary.copy(<<0>>, block_length)
+
+      Enum.reduce(fixed_fields, base, fn {name, _type, module, _opts}, acc ->
+        offset = Map.get(field_offsets, name)
+        null_bytes = null_binary_for_type(module, endian)
+        size = byte_size(null_bytes)
+
+        <<prefix::binary-size(offset), _::binary-size(size), suffix::binary>> = acc
+        <<prefix::binary, null_bytes::binary, suffix::binary>>
+      end)
+    end
+  end
+
+  defp null_binary_for_type(module, endian) do
+    if function_exported?(module, :encode_value, 1) do
+      module.encode_value(nil)
+    else
+      null_val = module.null_value()
+      size = module.size()
+      encode_null_to_binary(null_val, size, endian)
+    end
+  end
+
+  defp encode_null_to_binary(:nan, 4, :little), do: <<0x00, 0x00, 0xC0, 0x7F>>
+  defp encode_null_to_binary(:nan, 4, :big), do: <<0x7F, 0xC0, 0x00, 0x00>>
+  defp encode_null_to_binary(:nan, 8, :little), do: <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x7F>>
+  defp encode_null_to_binary(:nan, 8, :big), do: <<0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>>
+  defp encode_null_to_binary(nil, size, _endian), do: <<0::size(size * 8)>>
+  defp encode_null_to_binary(val, _size, _endian) when is_binary(val), do: val
+
+  defp encode_null_to_binary(val, size, endian) when is_integer(val) do
+    bits = size * 8
+
+    case endian do
+      :little -> <<val::integer-little-size(bits)>>
+      :big -> <<val::integer-big-size(bits)>>
+    end
+  end
+
+  # ============================================================================
+  # Auto-Generated Group Entry Codecs
+  # ============================================================================
+
+  defp process_groups(groups, custom_types, endian) do
+    Enum.map_reduce(groups, [], fn {name, block, opts}, acc_fns ->
+      has_explicit_codecs =
+        Keyword.has_key?(opts, :entry_encoder) or Keyword.has_key?(opts, :entry_decoder)
+
+      group_fields = parse_group_fields(block)
+
+      if has_explicit_codecs or group_fields == [] do
+        {{name, block, opts}, acc_fns}
+      else
+        resolved = resolve_types(group_fields, custom_types)
+
+        var_fields =
+          Enum.filter(resolved, fn {_n, _t, mod, _o} -> mod.size() == :variable end)
+
+        if var_fields != [] do
+          names = Enum.map(var_fields, fn {n, _, _, _} -> n end)
+
+          raise CompileError,
+            description:
+              "Group :#{name} contains variable-length fields #{inspect(names)}. " <>
+                "Group entries must have only fixed-size fields."
+        end
+
+        encoder_fn = generate_auto_entry_encoder(name, resolved, endian)
+        decoder_fn = generate_auto_entry_decoder(name, resolved, endian)
+
+        encoder_fn_name = :"__encode_#{name}_entry__"
+        decoder_fn_name = :"__decode_#{name}_entry__"
+
+        encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
+        decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+
+        updated_opts =
+          opts
+          |> Keyword.put(:entry_encoder, encoder_capture)
+          |> Keyword.put(:entry_decoder, decoder_capture)
+
+        {{name, block, updated_opts}, acc_fns ++ [encoder_fn, decoder_fn]}
+      end
+    end)
+  end
+
+  defp parse_group_fields(block_ast) do
+    stmts =
+      case block_ast do
+        {:__block__, _, stmts} -> stmts
+        nil -> []
+        single -> [single]
+      end
+
+    Enum.flat_map(stmts, fn
+      {:field, _, [name, type]} when is_atom(name) -> [{name, type, []}]
+      {:field, _, [name, type, opts]} when is_atom(name) -> [{name, type, opts}]
+      _ -> []
+    end)
+  end
+
+  defp generate_auto_entry_encoder(group_name, resolved_fields, endian) do
+    fn_name = :"__encode_#{group_name}_entry__"
+    data_var = Macro.var(:entry, __MODULE__)
+
+    binary_parts =
+      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+        null_value = module.null_value()
+        module.encode_ast(name, null_value, endian, data_var)
+      end)
+
+    quote do
+      defp unquote(fn_name)(unquote(data_var)) when is_map(unquote(data_var)) do
+        <<unquote_splicing(binary_parts)>>
+      end
+    end
+  end
+
+  defp generate_auto_entry_decoder(group_name, resolved_fields, endian) do
+    fn_name = :"__decode_#{group_name}_entry__"
+
+    patterns =
+      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+        var = Macro.var(name, __MODULE__)
+        module.decode_pattern_ast(var, endian)
+      end)
+
+    result_pairs =
+      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+        var = Macro.var(name, __MODULE__)
+
+        value_ast =
+          if function_exported?(module, :decode_value_ast, 1) do
+            module.decode_value_ast(var)
+          else
+            var
+          end
+
+        {name, value_ast}
+      end)
+
+    quote do
+      defp unquote(fn_name)(<<unquote_splicing(patterns)>>) do
+        {:ok, %{unquote_splicing(result_pairs)}}
+      end
+    end
   end
 
   # ============================================================================
@@ -941,14 +1156,14 @@ defmodule GridCodec.Struct.Compiler do
       Enum.map(groups, fn {name, _block, opts} ->
         entry_decoder = Keyword.get(opts, :entry_decoder)
 
-        quote do
-          {unquote(name),
-           fn entry_binary ->
-             case unquote(entry_decoder) do
-               nil -> {:ok, entry_binary}
-               decoder -> decoder.(entry_binary)
-             end
-           end}
+        if entry_decoder do
+          quote do
+            {unquote(name), unquote(entry_decoder)}
+          end
+        else
+          quote do
+            {unquote(name), fn entry_binary -> {:ok, entry_binary} end}
+          end
         end
       end)
 
@@ -1381,6 +1596,52 @@ defmodule GridCodec.Struct.Compiler do
           has_header
         )
       end
+
+      @doc """
+      Encodes an Elixir value to its binary field representation.
+
+      Use this to pre-encode values for pinning in match patterns on
+      custom types (decimal, etc.) where the Elixir value differs from
+      the binary encoding.
+
+          require #{inspect(__MODULE__)}
+
+          encoded = #{inspect(__MODULE__)}.encode_field(:price, Decimal.new("123.45"))
+          case binary do
+            #{inspect(__MODULE__)}.match(price: ^encoded) -> :found
+            _ -> :not_found
+          end
+      """
+      defmacro encode_field(field_name, value) do
+        field_info = unquote(Macro.escape(field_info))
+
+        GridCodec.Struct.Compiler.__build_encode_field__(field_name, value, field_info)
+      end
+    end
+  end
+
+  @doc false
+  def __build_encode_field__(field_name, value, field_info) do
+    case Enum.find(field_info, fn {name, _, _, _, _} -> name == field_name end) do
+      nil ->
+        raise ArgumentError, "unknown field: #{inspect(field_name)}"
+
+      {_name, _type_atom, type_module, _offset, size} ->
+        if function_exported?(type_module, :encode_value, 1) do
+          quote do: unquote(type_module).encode_value(unquote(value))
+        else
+          quote do
+            value = unquote(value)
+
+            case unquote(size) do
+              1 -> <<value::8>>
+              2 -> <<value::little-16>>
+              4 -> <<value::little-32>>
+              8 -> <<value::little-64>>
+              n -> <<value::binary-size(n)>>
+            end
+          end
+        end
     end
   end
 
@@ -1460,21 +1721,31 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   defp build_typed_pattern(value, type_atom, type_module, size, endian) do
-    # OPTIMIZATION: If value is a compile-time literal, encode it and embed directly
-    # in the pattern. This enables true zero-copy matching without extraction + guard.
+    # If value is a compile-time literal, encode it and embed directly in the pattern.
+    # If value is a pin (^var), pass through for primitive types or auto-encode for
+    # custom types (decimal, etc.) that need conversion from Elixir values to binary.
+    # If value is a variable, generate a binding pattern.
     #
     # Examples:
-    #   match([is_authenticated: true])  -> <<..., 1::8, ...>>   (not x::8 when x == true)
-    #   match([status: :active])         -> <<..., 0::8, ...>>   (enum encoded at compile time)
+    #   match([is_authenticated: true])  -> <<..., 1::8, ...>>
+    #   match([status: :active])         -> <<..., 0::8, ...>>   (enum at compile time)
     #   match([amount: 5000])            -> <<..., 5000::little-64, ...>>
-    #   match([id: var])                 -> <<..., var::binary-16, ...>> (variable binding)
+    #   match([id: var])                 -> <<..., var::binary-16, ...>>
+    #   match([status: ^s])              -> <<..., ^s::8, ...>>  (pin, primitive)
+    #   match([price: ^p])               -> <<..., ^(Decimal.encode_value(p))::binary-9, ...>>
     #
-    case encode_literal_for_pattern(value, type_atom, type_module) do
-      {:ok, encoded} ->
-        build_literal_pattern(encoded, size, endian)
-
-      :not_literal ->
+    case value do
+      {:^, _, [_inner]} ->
         build_binding_pattern(value, size, endian)
+
+      _ ->
+        case encode_literal_for_pattern(value, type_atom, type_module) do
+          {:ok, encoded} ->
+            build_literal_pattern(encoded, size, endian)
+
+          :not_literal ->
+            build_binding_pattern(value, size, endian)
+        end
     end
   end
 
@@ -1590,6 +1861,28 @@ defmodule GridCodec.Struct.Compiler do
     all_specs = Map.new(fixed_specs ++ var_specs ++ group_specs)
 
     quote do
+      @doc false
+      def __field_specs__(opts \\ []) do
+        fixed =
+          if Keyword.get(opts, :header, true) do
+            unquote(Macro.escape(Map.new(fixed_specs)))
+          else
+            unquote(
+              Macro.escape(
+                Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+                  payload_offset = Map.get(field_offsets, name)
+                  {name, {module, payload_offset, endian}}
+                end)
+                |> Map.new()
+              )
+            )
+          end
+
+        var = unquote(Macro.escape(Map.new(var_specs)))
+        grp = unquote(Macro.escape(Map.new(group_specs)))
+        Map.merge(fixed, Map.merge(var, grp))
+      end
+
       @doc """
       Returns a field spec for use with `GridCodec.get/2`.
 

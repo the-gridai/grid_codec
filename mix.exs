@@ -127,7 +127,9 @@ defmodule GridCodec.MixProject do
           GridCodec.Group,
           GridCodec.Dispatch,
           GridCodec.Header,
-          GridCodec.Registry
+          GridCodec.Registry,
+          GridCodec.BinaryInspector,
+          GridCodec.Json
         ],
         Types: [
           GridCodec.Type,

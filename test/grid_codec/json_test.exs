@@ -148,4 +148,67 @@ defmodule GridCodec.JsonTest do
       assert order.active == order2.active
     end
   end
+
+  describe "interchange adapters" do
+    test "to_map/2 decodes binary to map" do
+      order = %TestOrder{
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        user_id: 100,
+        symbol: "SOL/USD",
+        quantity: 55,
+        active: true
+      }
+
+      binary = TestOrder.encode(order)
+      assert {:ok, map} = Json.to_map(binary, schema: TestOrder)
+      assert map.id == order.id
+      assert map.user_id == order.user_id
+      assert map.symbol == order.symbol
+      assert map.quantity == order.quantity
+      assert map.active == order.active
+    end
+
+    test "to_json/2 supports schema dispatch via header" do
+      order = %TestOrder{
+        id: "550e8400-e29b-41d4-a716-446655440000",
+        user_id: 100,
+        symbol: "SOL/USD",
+        quantity: 55,
+        active: true
+      }
+
+      binary = TestOrder.encode(order)
+      assert {:ok, json} = Json.to_json(binary)
+      decoded = Jason.decode!(json)
+
+      assert decoded["id"] == order.id
+      assert decoded["symbol"] == order.symbol
+    end
+
+    test "from_map/3 builds binary from map with header option" do
+      map = %{
+        "id" => "550e8400-e29b-41d4-a716-446655440000",
+        "user_id" => 7,
+        "symbol" => "BTC/USD",
+        "quantity" => 3,
+        "active" => false
+      }
+
+      assert {:ok, payload} = Json.from_map(map, TestOrder, header: false)
+      assert {:ok, decoded} = TestOrder.decode(payload, header: false)
+      assert decoded.user_id == 7
+      assert decoded.symbol == "BTC/USD"
+      assert decoded.active == false
+    end
+
+    test "from_json/3 decodes json to binary via adapter alias" do
+      json =
+        ~s({"id":"550e8400-e29b-41d4-a716-446655440000","user_id":22,"symbol":"XRP/USD","quantity":1,"active":true})
+
+      assert {:ok, binary} = Json.from_json(json, TestOrder)
+      assert {:ok, decoded} = TestOrder.decode(binary)
+      assert decoded.user_id == 22
+      assert decoded.symbol == "XRP/USD"
+    end
+  end
 end

@@ -1,0 +1,240 @@
+# Binary Layouts: Performance
+
+```elixir
+# Jason is required because grid_codec declares it as an optional dep
+# and lib/grid_codec/json.ex references %Jason.DecodeError{} at compile time.
+Mix.install([
+  {:grid_codec, path: Path.expand("../..", __DIR__)},
+  {:jason, "~> 1.4"},
+  {:kino, "~> 0.14"},
+  {:kino_vega_lite, "~> 0.1"}
+])
+```
+
+## Codec: 28-field ChatMessage (148 bytes)
+
+```elixir
+defmodule ChatMessage do
+  use GridCodec.Struct, template_id: 70, schema_id: 400
+
+  defcodec do
+    field :message_id, :u64
+    field :channel_id, :u64
+    field :guild_id, :u64
+    field :author_id, :u64
+    field :parent_id, :u64
+    field :nonce, :u64
+    field :content_length, :u32
+    field :content_hash, :u64
+    field :message_type, :u8
+    field :author_type, :u8
+    field :model_id, :u16
+    field :prompt_tokens, :u32
+    field :completion_tokens, :u32
+    field :temperature_x1k, :u32
+    field :top_p_x1k, :u32
+    field :max_tokens, :u32
+    field :latency_first_ms, :u32
+    field :latency_total_ms, :u32
+    field :cost_micros, :u64
+    field :rate_remaining, :u32
+    field :rate_reset_ms, :u32
+    field :status, :u8
+    field :flags, :u16
+    field :edit_count, :u8
+    field :reply_count, :u32
+    field :thread_id, :u64
+    field :created_at, :timestamp_us
+    field :edited_at, :timestamp_us
+  end
+end
+
+:ok
+```
+
+```elixir
+now = System.system_time(:microsecond)
+
+chat = %ChatMessage{
+  message_id: 99_001, channel_id: 42, guild_id: 1, author_id: 7,
+  parent_id: 0, nonce: 12345, content_length: 256, content_hash: 0xDEADBEEF,
+  message_type: 1, author_type: 2, model_id: 3,
+  prompt_tokens: 150, completion_tokens: 80,
+  temperature_x1k: 700, top_p_x1k: 950, max_tokens: 4096,
+  latency_first_ms: 45, latency_total_ms: 1200, cost_micros: 3500,
+  rate_remaining: 88, rate_reset_ms: 60_000,
+  status: 2, flags: 1, edit_count: 0, reply_count: 3, thread_id: 0,
+  created_at: now, edited_at: now
+}
+
+bin = ChatMessage.encode(chat)
+{:ok, decoded} = ChatMessage.decode(bin)
+word = :erlang.system_info(:wordsize)
+
+Kino.DataTable.new([
+  %{measure: "Wire size", binary: "#{byte_size(bin)} B", struct: "—"},
+  %{measure: "Heap size", binary: "#{:erts_debug.size(bin) * word} B",
+    struct: "#{:erts_debug.size(decoded) * word} B"},
+  %{measure: "ETF size", binary: "#{byte_size(:erlang.term_to_binary(bin))} B",
+    struct: "#{byte_size(:erlang.term_to_binary(decoded))} B"}
+])
+```
+
+## 1. send/2 to N processes (same node)
+
+Binaries >64 bytes are reference-counted. Structs are deep-copied.
+
+```elixir
+measure_heap = fn msg, n ->
+  parent = self()
+  pids = Enum.map(1..n, fn _ ->
+    spawn(fn ->
+      receive do data ->
+        {_, mem} = :erlang.process_info(self(), :memory)
+        send(parent, {:mem, mem})
+        receive do :stop -> data end
+      end
+    end)
+  end)
+  Enum.each(pids, fn pid -> send(pid, msg) end)
+  heaps = for _ <- 1..n, do: receive(do: ({:mem, m} -> m))
+  Enum.each(pids, fn pid -> send(pid, :stop) end)
+  Enum.sum(heaps)
+end
+
+measure_heap.(bin, 5)
+measure_heap.(decoded, 5)
+
+results = for n <- [10, 50, 100, 500] do
+  b = measure_heap.(bin, n)
+  s = measure_heap.(decoded, n)
+  %{receivers: n, binary_kb: Float.round(b / 1024, 1),
+    struct_kb: Float.round(s / 1024, 1),
+    ratio: Float.round(s / max(b, 1), 1)}
+end
+
+Kino.DataTable.new(results, name: "Total receiver heap (KB)")
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+ratio_data = Enum.map(results, fn r ->
+  %{n: r.receivers, ratio: r.ratio}
+end)
+
+Vl.new(width: 500, height: 250, title: "Struct heap / Binary heap (higher = worse for structs)")
+|> Vl.data_from_values(ratio_data)
+|> Vl.mark(:bar)
+|> Vl.encode_field(:x, "n", type: :ordinal, title: "Receivers")
+|> Vl.encode_field(:y, "ratio", type: :quantitative, title: "Heap ratio (struct / binary)")
+```
+
+## 2. ETF serialization (cross-node)
+
+```elixir
+etf_bin = :erlang.term_to_binary(bin)
+etf_str = :erlang.term_to_binary(decoded)
+n = 200_000
+
+{ser_bin, _} = :timer.tc(fn -> for _ <- 1..n, do: :erlang.term_to_binary(bin) end)
+{ser_str, _} = :timer.tc(fn -> for _ <- 1..n, do: :erlang.term_to_binary(decoded) end)
+{des_bin, _} = :timer.tc(fn -> for _ <- 1..n, do: :erlang.binary_to_term(etf_bin) end)
+{des_str, _} = :timer.tc(fn -> for _ <- 1..n, do: :erlang.binary_to_term(etf_str) end)
+
+Kino.DataTable.new([
+  %{metric: "Wire size", binary: "#{byte_size(etf_bin)} B", struct: "#{byte_size(etf_str)} B",
+    ratio: "#{Float.round(byte_size(etf_str) / byte_size(etf_bin), 1)}x"},
+  %{metric: "Serialize #{n}", binary: "#{div(ser_bin, 1000)} ms", struct: "#{div(ser_str, 1000)} ms",
+    ratio: "#{Float.round(ser_str / max(ser_bin, 1), 1)}x"},
+  %{metric: "Deserialize #{n}", binary: "#{div(des_bin, 1000)} ms", struct: "#{div(des_str, 1000)} ms",
+    ratio: "#{Float.round(des_str / max(des_bin, 1), 1)}x"}
+])
+```
+
+## 3. Selective field access (2 of 28 fields)
+
+```elixir
+require ChatMessage
+n = 500_000
+
+{t_layout, _} = :timer.tc(fn ->
+  for _ <- 1..n do
+    case bin do ChatMessage.match(channel_id: ch, flags: f) -> {ch, f} end
+  end
+end)
+
+{t_decode, _} = :timer.tc(fn ->
+  for _ <- 1..n do
+    {:ok, s} = ChatMessage.decode(bin)
+    {s.channel_id, s.flags}
+  end
+end)
+
+{t_pre, _} = :timer.tc(fn ->
+  for _ <- 1..n, do: {decoded.channel_id, decoded.flags}
+end)
+
+Kino.DataTable.new([
+  %{approach: "Layout: match 2 fields from binary", ns: Float.round(t_layout / n * 1000, 1)},
+  %{approach: "Struct: pre-decoded map lookup", ns: Float.round(t_pre / n * 1000, 1)},
+  %{approach: "Struct: decode 28, read 2", ns: Float.round(t_decode / n * 1000, 1)}
+], name: "ns/op (#{n} iterations)")
+```
+
+## 4. Early rejection (70% filtered)
+
+```elixir
+require ChatMessage
+
+batch = Enum.map(1..1000, fn i ->
+  msg = cond do
+    rem(i, 10) < 3 -> %{chat | message_id: i, rate_remaining: 0}
+    rem(i, 10) < 5 -> %{chat | message_id: i, flags: 0, author_type: 1}
+    rem(i, 10) < 7 -> %{chat | message_id: i, content_length: 99_000_000}
+    true           -> %{chat | message_id: i}
+  end
+  ChatMessage.encode(msg)
+end)
+
+struct_filter = fn b ->
+  {:ok, s} = ChatMessage.decode(b)
+  s.rate_remaining > 0 and (s.flags > 0 or s.author_type == 2) and
+    s.content_length < 10_000_000 and s.message_type in [1, 2, 3, 4]
+end
+
+layout_filter = fn b ->
+  case b do
+    ChatMessage.match(rate_remaining: r, flags: f, author_type: at,
+                      content_length: cl, message_type: mt)
+    when r > 0 and (f > 0 or at == 2) and cl < 10_000_000 and mt in [1, 2, 3, 4] -> true
+    _ -> false
+  end
+end
+
+survivors = Enum.count(batch, layout_filter)
+
+{t_struct, _} = :timer.tc(fn -> Enum.each(batch, struct_filter) end)
+{t_layout, _} = :timer.tc(fn -> Enum.each(batch, layout_filter) end)
+
+Kino.DataTable.new([
+  %{approach: "Struct: decode all, then filter", ms: Float.round(t_struct / 1000, 2), decodes: 1000},
+  %{approach: "Layout: filter on binary", ms: Float.round(t_layout / 1000, 2), decodes: 0}
+], name: "1000 messages, #{survivors} pass, #{1000 - survivors} rejected")
+```
+
+## Syntax
+
+Today:
+
+```elixir
+defmacrop chat(fields), do: quote(do: ChatMessage.match(unquote(fields)))
+
+def auth(chat(user_id: uid, flags: f)) when uid > 0 and f > 0, do: true
+```
+
+Proposed:
+
+```elixir
+def auth(%ChatMessage<<user_id: uid, flags: f>>) when uid > 0 and f > 0, do: true
+```

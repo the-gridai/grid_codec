@@ -369,7 +369,18 @@ defmodule GridCodec.Registry do
   # This avoids calling :code.all_loaded() on every decode operation
   defp find_struct_codec(schema_id, template_id) do
     table = get_or_build_lookup_table()
-    Map.get(table, {schema_id, template_id})
+    key = {schema_id, template_id}
+
+    case Map.get(table, key) do
+      nil ->
+        # Fallback refresh for dynamic module loading in dev/test.
+        refreshed = build_lookup_table()
+        :persistent_term.put({__MODULE__, :codec_lookup_table}, refreshed)
+        Map.get(refreshed, key)
+
+      module ->
+        module
+    end
   end
 
   defp get_or_build_lookup_table do
@@ -377,21 +388,7 @@ defmodule GridCodec.Registry do
       :not_found ->
         # Build lookup table once: {schema_id, template_id} => module
         # This is expensive but only happens once
-        table =
-          :code.all_loaded()
-          |> Enum.reduce(%{}, fn {mod, _}, acc ->
-            if is_gridcodec_struct?(mod) do
-              try do
-                schema_id = mod.__schema_id__()
-                template_id = mod.__template_id__()
-                Map.put(acc, {schema_id, template_id}, mod)
-              rescue
-                _ -> acc
-              end
-            else
-              acc
-            end
-          end)
+        table = build_lookup_table()
 
         :persistent_term.put({__MODULE__, :codec_lookup_table}, table)
         table
@@ -399,6 +396,23 @@ defmodule GridCodec.Registry do
       table ->
         table
     end
+  end
+
+  defp build_lookup_table do
+    :code.all_loaded()
+    |> Enum.reduce(%{}, fn {mod, _}, acc ->
+      if is_gridcodec_struct?(mod) do
+        try do
+          schema_id = mod.__schema_id__()
+          template_id = mod.__template_id__()
+          Map.put(acc, {schema_id, template_id}, mod)
+        rescue
+          _ -> acc
+        end
+      else
+        acc
+      end
+    end)
   end
 
   defp passes_namespace?(_mod, nil), do: true
