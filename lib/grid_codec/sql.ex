@@ -323,10 +323,21 @@ defmodule GridCodec.SQL do
         sql_read_expr(name, type, type_mod, offset)
       end)
 
-    var_select_exprs =
-      Enum.map(var_fields, fn {name, type, _opts} ->
-        var_offset = @header_size + block_length
-        sql_read_var_expr(name, type, var_offset)
+    # Variable-length fields are sequential: each starts after the previous one's
+    # 2-byte length prefix + content. We track the cumulative offset in SQL.
+    {var_select_exprs, _} =
+      Enum.map_reduce(var_fields, nil, fn {name, type, _opts}, prev_offset_expr ->
+        offset_expr =
+          case prev_offset_expr do
+            nil ->
+              "#{@header_size + block_length}"
+
+            prev ->
+              "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
+          end
+
+        expr = sql_read_var_expr(name, type, offset_expr)
+        {expr, offset_expr}
       end)
 
     all_exprs = Enum.map_join(select_exprs ++ var_select_exprs, ",\n  ", & &1)
@@ -400,10 +411,10 @@ defmodule GridCodec.SQL do
     end
   end
 
-  defp sql_read_var_expr(name, type, base_offset) do
+  defp sql_read_var_expr(name, type, offset_expr) do
     case type do
       t when t in [:string, :string16] ->
-        "gridcodec.read_string16(data, #{base_offset}) AS \"#{name}\""
+        "gridcodec.read_string16(data, (#{offset_expr})::int) AS \"#{name}\""
 
       :string8 ->
         "'unsupported:string8'::text AS \"#{name}\""

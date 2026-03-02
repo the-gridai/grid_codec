@@ -135,6 +135,48 @@ defmodule GridCodec.SQLTest do
     end
   end
 
+  describe "generate/1 with multiple variable-length fields" do
+    defmodule MultiStringCodec do
+      use GridCodec.Struct, template_id: 610, schema_id: 61, name: "MultiString"
+
+      defcodec do
+        field :id, :u64
+        field :name, :string16
+        field :description, :string16
+        field :category, :string16
+      end
+    end
+
+    test "generates chained offsets for consecutive string fields" do
+      sql = SQL.generate(MultiStringCodec)
+
+      assert sql =~ "decode_multistring"
+      assert sql =~ ~s("name" text)
+      assert sql =~ ~s("description" text)
+      assert sql =~ ~s("category" text)
+
+      lines = String.split(sql, "\n")
+
+      name_line = Enum.find(lines, &String.contains?(&1, "AS \"name\""))
+      desc_line = Enum.find(lines, &String.contains?(&1, "AS \"description\""))
+      cat_line = Enum.find(lines, &String.contains?(&1, "AS \"category\""))
+
+      assert name_line != nil
+      assert desc_line != nil
+      assert cat_line != nil
+
+      refute desc_line == name_line
+      refute cat_line == desc_line
+    end
+
+    test "each var field offset depends on previous field length" do
+      sql = SQL.generate(MultiStringCodec)
+
+      assert sql =~ "read_u16(data,"
+      assert sql =~ "+ 2 + gridcodec.read_u16"
+    end
+  end
+
   describe "generate_all/0" do
     test "includes helpers and at least one codec" do
       sql = SQL.generate_all()
