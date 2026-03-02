@@ -201,13 +201,13 @@ defmodule Mix.Tasks.Compile.GridCodec do
     encode_clauses =
       Enum.map(codecs, fn %{module: mod} ->
         quote do
-          def encode(%unquote(mod){} = struct, opts \\ []), do: unquote(mod).encode(struct, opts)
+          def encode(%unquote(mod){} = struct, opts), do: unquote(mod).encode(struct, opts)
         end
       end)
 
     encode_fallback =
       quote do
-        def encode(struct, _opts \\ []) do
+        def encode(struct, _opts) do
           raise ArgumentError,
                 "Cannot encode #{inspect(struct.__struct__)} - not a registered GridCodec struct"
         end
@@ -235,6 +235,7 @@ defmodule Mix.Tasks.Compile.GridCodec do
         unquote(lookup_fallback)
 
         @doc "Encode a struct to binary (with header by default)"
+        def encode(struct, opts \\ [])
         unquote_splicing(encode_clauses)
         unquote(encode_fallback)
 
