@@ -309,10 +309,15 @@ defmodule GridCodec.Type do
   end
 
   defp gridcodec_type_module?(module) do
-    Code.ensure_loaded?(module) and
-      function_exported?(module, :size, 0) and
-      function_exported?(module, :encode_ast, 4) and
-      function_exported?(module, :decode_pattern_ast, 2)
+    case Code.ensure_compiled(module) do
+      {:module, _} ->
+        function_exported?(module, :size, 0) and
+          function_exported?(module, :encode_ast, 4) and
+          function_exported?(module, :decode_pattern_ast, 2)
+
+      _ ->
+        false
+    end
   end
 
   @doc """
