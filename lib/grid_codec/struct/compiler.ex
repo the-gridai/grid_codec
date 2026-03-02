@@ -106,13 +106,17 @@ defmodule GridCodec.Struct.Compiler do
     match_macro = generate_match_macro(fixed_fields, field_offsets, block_length, endian)
     field_macro = generate_field_macro(fixed_fields, var_fields, groups, field_offsets, endian)
 
-    # Header options for framed messages
+    # Header: precompute the 8-byte binary at compile time
     header_opts = [
       block_length: block_length,
       template_id: template_id,
       schema_id: schema_id,
       version: version
     ]
+
+    header_binary =
+      <<block_length::little-16, template_id::little-16, schema_id::little-16,
+        version::little-16>>
 
     module = env.module
 
@@ -139,6 +143,7 @@ defmodule GridCodec.Struct.Compiler do
 
       # Store header for encode/decode
       @__gridcodec_header_opts__ unquote(header_opts)
+      @__gridcodec_header__ unquote(header_binary)
       @__gridcodec_header_size__ 8
 
       # Version-aware decoding: null sentinel block for padding shorter binaries
@@ -172,17 +177,14 @@ defmodule GridCodec.Struct.Compiler do
       def encode(struct, opts \\ [])
 
       def encode(%unquote(module){} = struct, []) do
-        # Default: include header
-        header = GridCodec.Header.encode(@__gridcodec_header_opts__)
         payload = encode_payload(struct)
-        <<header::binary, payload::binary>>
+        <<@__gridcodec_header__::binary, payload::binary>>
       end
 
       def encode(%unquote(module){} = struct, opts) do
         if Keyword.get(opts, :header, true) do
-          header = GridCodec.Header.encode(@__gridcodec_header_opts__)
           payload = encode_payload(struct)
-          <<header::binary, payload::binary>>
+          <<@__gridcodec_header__::binary, payload::binary>>
         else
           encode_payload(struct)
         end
@@ -617,87 +619,29 @@ defmodule GridCodec.Struct.Compiler do
         Keyword.get(opts, :presence) == :constant
       end)
 
+    has_defaults =
+      Enum.any?(non_constant_fixed_fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :default) != nil
+      end)
+
     if can_use_fast_path and
          (not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)) do
-      # Generate struct pattern with ALL field variables (fixed + var)
-      all_fields = non_constant_fixed_fields ++ var_fields
-
-      pattern_pairs =
-        for {name, _, _, _} <- all_fields do
-          var = Macro.var(name, __MODULE__)
-          {name, var}
-        end
-
-      struct_pattern = quote do: %unquote(struct_module){unquote_splicing(pattern_pairs)}
-
-      # Build map with preprocessed values (nil -> default where applicable)
-      extracted_data_pairs =
-        for {name, _, _, opts} <- non_constant_fixed_fields do
-          var = Macro.var(name, __MODULE__)
-          default = Keyword.get(opts, :default)
-
-          value_expr =
-            if default != nil do
-              quote do
-                case unquote(var) do
-                  nil -> unquote(default)
-                  v -> v
-                end
-              end
-            else
-              var
-            end
-
-          {name, value_expr}
-        end
-
-      extracted_data = {:%{}, [], extracted_data_pairs}
-
-      # Generate binary parts for fixed fields
-      fixed_binary_parts =
-        Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-          presence = Keyword.get(opts, :presence, :optional)
-          const_value = Keyword.get(opts, :value)
-          null_value = module.null_value()
-
-          case presence do
-            :constant ->
-              module.encode_ast(
-                name,
-                const_value,
-                endian,
-                quote(do: %{unquote(name) => unquote(const_value)})
-              )
-
-            _ ->
-              module.encode_ast(name, null_value, endian, extracted_data)
-          end
-        end)
-
-      fixed_binary_ast =
-        if fixed_binary_parts == [] do
-          quote do: <<>>
-        else
-          quote do: <<unquote_splicing(fixed_binary_parts)>>
-        end
-
-      # Generate var field encoding (if any)
-      if var_fields == [] do
-        quote do
-          defp encode_payload(unquote(struct_pattern)) do
-            unquote(fixed_binary_ast)
-          end
-        end
+      if has_defaults do
+        generate_struct_encoder_with_defaults(
+          fixed_fields,
+          var_fields,
+          non_constant_fixed_fields,
+          endian,
+          struct_module
+        )
       else
-        var_encoding_ast = generate_inline_var_encoder(var_fields)
-
-        quote do
-          defp encode_payload(unquote(struct_pattern)) do
-            fixed_block = unquote(fixed_binary_ast)
-            var_data = unquote(var_encoding_ast)
-            <<fixed_block::binary, var_data::binary>>
-          end
-        end
+        generate_struct_encoder_direct(
+          fixed_fields,
+          var_fields,
+          non_constant_fixed_fields,
+          endian,
+          struct_module
+        )
       end
     else
       # Fall back to map-based encoding for complex codecs with groups or required fields
@@ -705,6 +649,165 @@ defmodule GridCodec.Struct.Compiler do
         defp encode_payload(%unquote(struct_module){} = struct) do
           data = Map.from_struct(struct)
           encode_map(data)
+        end
+      end
+    end
+  end
+
+  # Fast path: no :default fields. Pass the struct directly as data_var to encode_ast.
+  # Eliminates intermediate map allocation and redundant :maps.get calls.
+  defp generate_struct_encoder_direct(
+         fixed_fields,
+         var_fields,
+         _non_constant_fixed_fields,
+         endian,
+         struct_module
+       ) do
+    struct_var = Macro.var(:__struct__, __MODULE__)
+
+    # Only pattern match var fields (for inline encoding); pass struct to encode_ast
+    var_pattern_pairs =
+      for {name, _, _, _} <- var_fields do
+        var = Macro.var(name, __MODULE__)
+        {name, var}
+      end
+
+    struct_pattern =
+      if var_fields == [] do
+        quote do: %unquote(struct_module){} = unquote(struct_var)
+      else
+        quote do:
+                %unquote(struct_module){unquote_splicing(var_pattern_pairs)} = unquote(struct_var)
+      end
+
+    fixed_binary_parts =
+      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
+        presence = Keyword.get(opts, :presence, :optional)
+        const_value = Keyword.get(opts, :value)
+        null_value = module.null_value()
+
+        case presence do
+          :constant ->
+            module.encode_ast(
+              name,
+              const_value,
+              endian,
+              quote(do: %{unquote(name) => unquote(const_value)})
+            )
+
+          _ ->
+            module.encode_ast(name, null_value, endian, struct_var)
+        end
+      end)
+
+    fixed_binary_ast =
+      if fixed_binary_parts == [] do
+        quote do: <<>>
+      else
+        quote do: <<unquote_splicing(fixed_binary_parts)>>
+      end
+
+    if var_fields == [] do
+      quote do
+        defp encode_payload(unquote(struct_pattern)) do
+          unquote(fixed_binary_ast)
+        end
+      end
+    else
+      var_encoding_ast = generate_inline_var_encoder(var_fields)
+
+      quote do
+        defp encode_payload(unquote(struct_pattern)) do
+          fixed_block = unquote(fixed_binary_ast)
+          var_data = unquote(var_encoding_ast)
+          <<fixed_block::binary, var_data::binary>>
+        end
+      end
+    end
+  end
+
+  # Slower path for codecs with :default fields. Builds extracted_data map
+  # to apply defaults before encoding.
+  defp generate_struct_encoder_with_defaults(
+         fixed_fields,
+         var_fields,
+         non_constant_fixed_fields,
+         endian,
+         struct_module
+       ) do
+    all_fields = non_constant_fixed_fields ++ var_fields
+
+    pattern_pairs =
+      for {name, _, _, _} <- all_fields do
+        var = Macro.var(name, __MODULE__)
+        {name, var}
+      end
+
+    struct_pattern = quote do: %unquote(struct_module){unquote_splicing(pattern_pairs)}
+
+    extracted_data_pairs =
+      for {name, _, _, opts} <- non_constant_fixed_fields do
+        var = Macro.var(name, __MODULE__)
+        default = Keyword.get(opts, :default)
+
+        value_expr =
+          if default != nil do
+            quote do
+              case unquote(var) do
+                nil -> unquote(default)
+                v -> v
+              end
+            end
+          else
+            var
+          end
+
+        {name, value_expr}
+      end
+
+    extracted_data = {:%{}, [], extracted_data_pairs}
+
+    fixed_binary_parts =
+      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
+        presence = Keyword.get(opts, :presence, :optional)
+        const_value = Keyword.get(opts, :value)
+        null_value = module.null_value()
+
+        case presence do
+          :constant ->
+            module.encode_ast(
+              name,
+              const_value,
+              endian,
+              quote(do: %{unquote(name) => unquote(const_value)})
+            )
+
+          _ ->
+            module.encode_ast(name, null_value, endian, extracted_data)
+        end
+      end)
+
+    fixed_binary_ast =
+      if fixed_binary_parts == [] do
+        quote do: <<>>
+      else
+        quote do: <<unquote_splicing(fixed_binary_parts)>>
+      end
+
+    if var_fields == [] do
+      quote do
+        defp encode_payload(unquote(struct_pattern)) do
+          unquote(fixed_binary_ast)
+        end
+      end
+    else
+      var_encoding_ast = generate_inline_var_encoder(var_fields)
+
+      quote do
+        defp encode_payload(unquote(struct_pattern)) do
+          fixed_block = unquote(fixed_binary_ast)
+          var_data = unquote(var_encoding_ast)
+          <<fixed_block::binary, var_data::binary>>
         end
       end
     end
