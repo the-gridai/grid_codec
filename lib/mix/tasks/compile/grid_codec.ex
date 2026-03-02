@@ -130,7 +130,8 @@ defmodule Mix.Tasks.Compile.GridCodec do
       function_exported?(module, :__schema_id__, 0)
   end
 
-  defp validate_codecs(codecs) do
+  @doc false
+  def validate_codecs(codecs) do
     conflicts =
       codecs
       |> Enum.group_by(fn %{schema_id: s, template_id: t} -> {s, t} end)
@@ -183,7 +184,8 @@ defmodule Mix.Tasks.Compile.GridCodec do
     File.write!(manifest_path(), :erlang.term_to_binary(manifest))
   end
 
-  defp build_registry_ast(codecs) do
+  @doc false
+  def build_registry_ast(codecs, module_name \\ GridCodec.Registry) do
     # Generate lookup/2 clauses
     lookup_clauses =
       Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
@@ -220,7 +222,7 @@ defmodule Mix.Tasks.Compile.GridCodec do
     codec_modules = Enum.map(codecs, & &1.module)
 
     quote do
-      defmodule GridCodec.Registry do
+      defmodule unquote(module_name) do
         @moduledoc """
         Auto-generated GridCodec registry.
 
@@ -252,19 +254,18 @@ defmodule Mix.Tasks.Compile.GridCodec do
   end
 
   defp build_decode_body(codecs) do
-    dispatch_clauses =
+    all_clauses =
       Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
-        quote do
-          {unquote(sid), unquote(tid)} -> unquote(mod).decode(payload, header: false)
-        end
+        pattern = {:{}, [], [sid, tid]}
+        body = quote(do: unquote(mod).decode(payload, header: false))
+        {:->, [], [[pattern], body]}
       end)
 
-    fallback_clause =
-      quote do
-        _ -> {:error, :unknown_codec}
-      end
+    fallback = {:->, [], [[{:_, [], nil}], {:error, :unknown_codec}]}
+    all_clauses = all_clauses ++ [fallback]
 
-    all_clauses = dispatch_clauses ++ [fallback_clause]
+    match_expr = quote(do: {header.schema_id, header.template_id})
+    dispatch_case = {:case, [], [match_expr, [do: all_clauses]]}
 
     quote do
       def decode(binary, opts \\ [])
@@ -272,9 +273,7 @@ defmodule Mix.Tasks.Compile.GridCodec do
       def decode(binary, []) when is_binary(binary) do
         case GridCodec.Header.decode(binary) do
           {:ok, header, payload} ->
-            case {header.schema_id, header.template_id} do
-              (unquote_splicing(all_clauses))
-            end
+            unquote(dispatch_case)
 
           {:error, _} = error ->
             error
@@ -285,9 +284,7 @@ defmodule Mix.Tasks.Compile.GridCodec do
         if Keyword.get(opts, :header, true) do
           case GridCodec.Header.decode(binary) do
             {:ok, header, payload} ->
-              case {header.schema_id, header.template_id} do
-                (unquote_splicing(all_clauses))
-              end
+              unquote(dispatch_case)
 
             {:error, _} = error ->
               error

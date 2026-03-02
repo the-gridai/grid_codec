@@ -1,67 +1,93 @@
 defmodule Mix.Tasks.Compile.GridCodecTest do
   use ExUnit.Case, async: false
 
-  setup do
-    GridCodec.Registry.clear_cache()
-    :ok
-  end
+  describe "build_registry_ast/1" do
+    test "generates valid, compilable registry with single codec" do
+      codecs = [
+        %{module: GridCodec.TestSupport.OrderEvent, schema_id: 60, template_id: 600}
+      ]
 
-  describe "Mix.Tasks.Compile.GridCodec" do
-    test "compiler runs and generates registry" do
-      # Create test codecs (using unique IDs to avoid conflicts with other tests)
-      defmodule TestCodec1 do
-        use GridCodec.Struct, template_id: 9301, schema_id: 9800
+      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, GridCodec.TestRegistry)
+      assert [{GridCodec.TestRegistry, _binary}] = Code.compile_quoted(ast)
 
-        defcodec do
-          field :id, :u64
-        end
-      end
-
-      defmodule TestCodec2 do
-        use GridCodec.Struct, template_id: 9302, schema_id: 9800
-
-        defcodec do
-          field :value, :u32
-        end
-      end
-
-      # Force compilation
-      Code.ensure_loaded(TestCodec1)
-      Code.ensure_loaded(TestCodec2)
-
-      # The compiler should have run during mix compile
-      # In test environment, we can verify the registry works
-      assert {:ok, TestCodec1} = GridCodec.Registry.lookup(9800, 9301)
-      assert {:ok, TestCodec2} = GridCodec.Registry.lookup(9800, 9302)
+      assert {:ok, GridCodec.TestSupport.OrderEvent} = GridCodec.TestRegistry.lookup(60, 600)
+      assert {:error, :unknown_codec} = GridCodec.TestRegistry.lookup(99, 99)
+      assert GridCodec.TestRegistry.consolidated?()
+      assert GridCodec.TestRegistry.list_codecs() == [GridCodec.TestSupport.OrderEvent]
     end
 
-    test "compiler validates no conflicts" do
-      # This test verifies that if we had conflicts, the compiler would catch them
-      # In practice, conflicts are caught at compile time
-      defmodule ConflictCodec1 do
-        use GridCodec.Struct, template_id: 9401, schema_id: 9900
+    test "generates valid registry with multiple codecs" do
+      defmodule RegCodecA do
+        use GridCodec.Struct, template_id: 9501, schema_id: 9500
 
         defcodec do
           field :id, :u64
         end
       end
 
-      defmodule ConflictCodec2 do
-        use GridCodec.Struct, template_id: 9401, schema_id: 9900
+      defmodule RegCodecB do
+        use GridCodec.Struct, template_id: 9502, schema_id: 9500
 
         defcodec do
           field :value, :u32
         end
       end
 
-      # Both should compile, but only one will be found by lookup
-      # (The last one loaded wins in the fallback registry)
-      Code.ensure_loaded(ConflictCodec1)
-      Code.ensure_loaded(ConflictCodec2)
+      codecs = [
+        %{module: RegCodecA, schema_id: 9500, template_id: 9501},
+        %{module: RegCodecB, schema_id: 9500, template_id: 9502}
+      ]
 
-      # The lookup will find one of them (implementation dependent)
-      result = GridCodec.Registry.lookup(9900, 9401)
-      assert result in [{:ok, ConflictCodec1}, {:ok, ConflictCodec2}]
+      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, GridCodec.TestRegistry2)
+      assert [{GridCodec.TestRegistry2, _binary}] = Code.compile_quoted(ast)
+
+      assert {:ok, RegCodecA} = GridCodec.TestRegistry2.lookup(9500, 9501)
+      assert {:ok, RegCodecB} = GridCodec.TestRegistry2.lookup(9500, 9502)
+      assert {:error, :unknown_codec} = GridCodec.TestRegistry2.lookup(9500, 9999)
+    end
+
+    test "encode and decode dispatch correctly on generated registry" do
+      codecs = [
+        %{module: GridCodec.TestSupport.OrderEvent, schema_id: 60, template_id: 600}
+      ]
+
+      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, GridCodec.TestRegistry3)
+      [{GridCodec.TestRegistry3, _}] = Code.compile_quoted(ast)
+
+      event = %GridCodec.TestSupport.OrderEvent{
+        order_id: <<1::128>>,
+        side: :buy,
+        status: :open,
+        price: 100,
+        quantity: 10,
+        timestamp: System.system_time(:microsecond)
+      }
+
+      binary = GridCodec.TestRegistry3.encode(event)
+      assert {:ok, decoded} = GridCodec.TestRegistry3.decode(binary)
+      assert decoded.side == :buy
+      assert decoded.price == 100
+    end
+  end
+
+  describe "conflict detection" do
+    test "validate_codecs detects duplicate template_ids" do
+      codecs = [
+        %{module: ModA, schema_id: 100, template_id: 1},
+        %{module: ModB, schema_id: 100, template_id: 1}
+      ]
+
+      assert {:error, conflicts} = Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+      assert length(conflicts) == 1
+    end
+
+    test "validate_codecs passes with unique ids" do
+      codecs = [
+        %{module: ModA, schema_id: 100, template_id: 1},
+        %{module: ModB, schema_id: 100, template_id: 2}
+      ]
+
+      assert :ok = Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
     end
   end
 end
