@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-02
+
+### Added
+- **Schema evolution with `:since`**: Decoder pads shorter binaries from older
+  schema versions using precomputed null sentinels — new fields decode as `nil`
+  - `:since` option on field definitions for schema version tracking
+  - `field_versions` map in `__schema__/0` metadata
+  - Compile-time validation that `:since` values are non-decreasing in the fixed block
+  - Zero overhead on same-version decode (single integer comparison fast path)
+- **Auto-generated group entry codecs**: Groups with field declarations now
+  generate entry encoder/decoder automatically from the type system
+  - Eliminates manual binary encode/decode boilerplate for group entries
+  - Compile-time rejection of variable-length fields in group entries
+  - Group names included in `defstruct` with default `[]`
+- **`GridCodec.BinaryInspector`**: Runtime binary inspection and diagnostics
+  - `GridCodec.inspect_binary/2` top-level API
+- **Type-aware field comparison**: `compare/5` and `compare_binaries/4` for
+  comparing fields directly on encoded binaries without full decode
+- **`encode_field/2` macro**: Pre-encode values for pin matching on custom types
+- **JSON transcoding improvements**: Enhanced `GridCodec.Json` encoding/decoding
+
+### Fixed
+- Dead `nil` branch in group decoder generation (eliminated Elixir 1.19 type warnings)
+
 ## [0.7.0] - 2026-01-09
 
 ### Added

@@ -36,6 +36,3 @@ coverage_output.txt
 /example_app/_build/
 /example_app/deps/
 /example_app/cover/
-
-# Benchmarks directory has been migrated to example_app/benchmarks/
-# /benchmarks/ - removed
