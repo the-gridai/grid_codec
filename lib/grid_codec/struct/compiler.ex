@@ -33,6 +33,21 @@ defmodule GridCodec.Struct.Compiler do
         id -> id
       end
 
+    # Type name: explicit or derived from last segment of module name
+    type_name =
+      case Keyword.get(opts, :name) do
+        nil ->
+          env.module
+          |> Module.split()
+          |> List.last()
+
+        name when is_binary(name) ->
+          name
+
+        name when is_atom(name) ->
+          Atom.to_string(name)
+      end
+
     # Resolve field types
     resolved_fields = resolve_types(fields, custom_types)
     {fixed_fields, var_fields} = partition_fields(resolved_fields)
@@ -69,7 +84,8 @@ defmodule GridCodec.Struct.Compiler do
       block_length: block_length,
       fixed_fields: Enum.map(fixed_fields, fn {name, _, _, _} -> name end),
       var_fields: Enum.map(var_fields, fn {name, _, _, _} -> name end),
-      field_versions: field_versions
+      field_versions: field_versions,
+      type: type_name
     }
 
     # Generate encoder/decoder AST (using processed_groups with auto-generated codecs)
@@ -116,6 +132,7 @@ defmodule GridCodec.Struct.Compiler do
       def __template_id__, do: unquote(template_id)
       def __schema_id__, do: unquote(schema_id)
       def __version__, do: unquote(version)
+      def __type__, do: unquote(type_name)
       def __fields__, do: unquote(field_names)
       def block_length, do: unquote(block_length)
 

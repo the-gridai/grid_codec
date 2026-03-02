@@ -63,6 +63,8 @@ defmodule GridCodec.Struct do
   - `:template_id` - Unique message type identifier (default: hash of module name)
   - `:schema_id` - Schema namespace identifier (default: 0)
   - `:version` - Schema version (default: 1)
+  - `:name` - Stable type name for serialization (default: last segment of module name).
+    Used by `__type__/0` and `GridCodec.Registry.lookup_by_type/1` for EventStore integration.
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
   - `:types` - Custom type modules (default: [])

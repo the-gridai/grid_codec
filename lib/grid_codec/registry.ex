@@ -223,6 +223,39 @@ defmodule GridCodec.Registry do
   end
 
   @doc """
+  Look up a codec module by its type name.
+
+  The type name is set via the `:name` option on `use GridCodec.Struct`,
+  or defaults to the last segment of the module name.
+
+  Useful for EventStore integration where events are stored with a short
+  type string instead of the full Elixir module name.
+
+  ## Example
+
+      {:ok, MyApp.Events.OrderSubmitted} = GridCodec.Registry.lookup_by_type("OrderSubmitted")
+      {:error, :unknown_type} = GridCodec.Registry.lookup_by_type("NonExistent")
+  """
+  @spec lookup_by_type(String.t()) :: {:ok, module()} | {:error, :unknown_type}
+  def lookup_by_type(type_name) when is_binary(type_name) do
+    table = get_or_build_type_lookup_table()
+
+    case Map.get(table, type_name) do
+      nil ->
+        refreshed = build_type_lookup_table()
+        :persistent_term.put({__MODULE__, :type_lookup_table}, refreshed)
+
+        case Map.get(refreshed, type_name) do
+          nil -> {:error, :unknown_type}
+          module -> {:ok, module}
+        end
+
+      module ->
+        {:ok, module}
+    end
+  end
+
+  @doc """
   Encode a struct to binary.
 
   The struct must be a registered GridCodec struct.
@@ -360,9 +393,9 @@ defmodule GridCodec.Registry do
   @spec clear_cache() :: :ok
   def clear_cache do
     :persistent_term.erase({__MODULE__, :codec_lookup_table})
+    :persistent_term.erase({__MODULE__, :type_lookup_table})
     :ok
   rescue
-    # Ignore if the key doesn't exist
     ArgumentError -> :ok
   end
 
@@ -406,6 +439,33 @@ defmodule GridCodec.Registry do
           schema_id = mod.__schema_id__()
           template_id = mod.__template_id__()
           Map.put(acc, {schema_id, template_id}, mod)
+        rescue
+          _ -> acc
+        end
+      else
+        acc
+      end
+    end)
+  end
+
+  defp get_or_build_type_lookup_table do
+    case :persistent_term.get({__MODULE__, :type_lookup_table}, :not_found) do
+      :not_found ->
+        table = build_type_lookup_table()
+        :persistent_term.put({__MODULE__, :type_lookup_table}, table)
+        table
+
+      table ->
+        table
+    end
+  end
+
+  defp build_type_lookup_table do
+    :code.all_loaded()
+    |> Enum.reduce(%{}, fn {mod, _}, acc ->
+      if is_gridcodec_struct?(mod) and function_exported?(mod, :__type__, 0) do
+        try do
+          Map.put(acc, mod.__type__(), mod)
         rescue
           _ -> acc
         end
