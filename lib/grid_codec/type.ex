@@ -289,14 +289,30 @@ defmodule GridCodec.Type do
 
   Returns `{:ok, module}` if found, or `{:error, :unknown_type}` if not.
   """
-  @spec lookup(atom(), map()) :: {:ok, module()} | {:error, :unknown_type}
-  def lookup(type_atom, custom_types \\ %{}) do
+  @spec lookup(atom() | module(), map()) :: {:ok, module()} | {:error, :unknown_type}
+  def lookup(type_atom, custom_types \\ %{})
+
+  def lookup(type_atom, custom_types) when is_atom(type_atom) do
     all_types = Map.merge(builtin_types(), custom_types)
 
     case Map.fetch(all_types, type_atom) do
-      {:ok, module} -> {:ok, module}
-      :error -> {:error, :unknown_type}
+      {:ok, module} ->
+        {:ok, module}
+
+      :error ->
+        if gridcodec_type_module?(type_atom) do
+          {:ok, type_atom}
+        else
+          {:error, :unknown_type}
+        end
     end
+  end
+
+  defp gridcodec_type_module?(module) do
+    Code.ensure_loaded?(module) and
+      function_exported?(module, :size, 0) and
+      function_exported?(module, :encode_ast, 4) and
+      function_exported?(module, :decode_pattern_ast, 2)
   end
 
   @doc """
