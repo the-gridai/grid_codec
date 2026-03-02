@@ -15,7 +15,8 @@ defmodule ExampleApp.MixProject do
 
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {ExampleApp.Application, []}
     ]
   end
 
@@ -26,6 +27,10 @@ defmodule ExampleApp.MixProject do
 
       # JSON support (for transcoder)
       {:jason, "~> 1.4"},
+
+      # PostgreSQL for SQL integration testing
+      {:ecto_sql, "~> 3.12"},
+      {:postgrex, "~> 0.19"},
 
       # Serialization formats for benchmarking
       {:protobuf, "~> 0.13"},
