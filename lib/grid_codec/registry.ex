@@ -465,7 +465,23 @@ defmodule GridCodec.Registry do
     |> Enum.reduce(%{}, fn {mod, _}, acc ->
       if is_gridcodec_struct?(mod) and function_exported?(mod, :__type__, 0) do
         try do
-          Map.put(acc, mod.__type__(), mod)
+          type = mod.__type__()
+
+          case Map.get(acc, type) do
+            nil ->
+              Map.put(acc, type, mod)
+
+            existing ->
+              require Logger
+
+              Logger.warning(
+                "GridCodec type name collision: #{inspect(type)} is claimed by " <>
+                  "both #{inspect(existing)} and #{inspect(mod)}. " <>
+                  "Use the :name option to assign unique type names."
+              )
+
+              acc
+          end
         rescue
           _ -> acc
         end

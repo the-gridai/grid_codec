@@ -51,12 +51,13 @@ defmodule GridCodec.TypeNameTest do
       assert ExplicitAtomName.__type__() == "TradeFilled"
     end
 
-    test "defaults to last segment of module name" do
-      assert DefaultName.__type__() == "DefaultName"
+    test "defaults to full module path" do
+      assert DefaultName.__type__() == "GridCodec.TypeNameTest.DefaultName"
     end
 
-    test "deeply nested module uses last segment" do
-      assert Deep.Nested.Module.EventCreated.__type__() == "EventCreated"
+    test "deeply nested module uses full path" do
+      assert Deep.Nested.Module.EventCreated.__type__() ==
+               "GridCodec.TypeNameTest.Deep.Nested.Module.EventCreated"
     end
   end
 
@@ -70,7 +71,7 @@ defmodule GridCodec.TypeNameTest do
     end
 
     test "default name in schema" do
-      assert DefaultName.__schema__().type == "DefaultName"
+      assert DefaultName.__schema__().type == "GridCodec.TypeNameTest.DefaultName"
     end
   end
 
@@ -89,7 +90,8 @@ defmodule GridCodec.TypeNameTest do
     end
 
     test "finds module by default type name" do
-      assert {:ok, DefaultName} = GridCodec.Registry.lookup_by_type("DefaultName")
+      assert {:ok, DefaultName} =
+               GridCodec.Registry.lookup_by_type("GridCodec.TypeNameTest.DefaultName")
     end
 
     test "returns error for unknown type" do

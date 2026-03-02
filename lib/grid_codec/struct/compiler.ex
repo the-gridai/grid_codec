@@ -33,13 +33,11 @@ defmodule GridCodec.Struct.Compiler do
         id -> id
       end
 
-    # Type name: explicit or derived from last segment of module name
+    # Type name: explicit via :name, or full module path (safe default, no collisions)
     type_name =
       case Keyword.get(opts, :name) do
         nil ->
-          env.module
-          |> Module.split()
-          |> List.last()
+          env.module |> Module.split() |> Enum.join(".")
 
         name when is_binary(name) ->
           name

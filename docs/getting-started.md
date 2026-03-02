@@ -83,8 +83,44 @@ GridCodec.compare(binary, spec, :>=, 1000)
 GridCodec.compare(binary_a, spec, :>, binary_b, rhs: :binary)
 ```
 
+## 7) Type Names for EventStore Integration
+
+Every codec has a stable type name, accessible via `__type__/0`. By default it
+is the full module path:
+
+```elixir
+MyApp.Events.UserCreated.__type__()
+#=> "MyApp.Events.UserCreated"
+```
+
+Set the `:name` option for short, clean names:
+
+```elixir
+defmodule MyApp.Events.UserCreated do
+  use GridCodec.Struct, template_id: 1, schema_id: 100, name: "user_created"
+
+  defcodec do
+    field :user_id, :uuid
+    field :score, :u64
+  end
+end
+
+MyApp.Events.UserCreated.__type__()
+#=> "user_created"
+```
+
+Use `GridCodec.Registry.lookup_by_type/1` for reverse lookup:
+
+```elixir
+{:ok, MyApp.Events.UserCreated} = GridCodec.Registry.lookup_by_type("user_created")
+```
+
+This enables compact event type strings in EventStore/Commanded instead of full
+Elixir module names.
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.
+- See `docs/schema-evolution.md` for `:since` and backward compatibility.
 - See `docs/performance.md` for profiling and optimization.
 - See `docs/troubleshooting.md` for common errors.

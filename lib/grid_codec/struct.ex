@@ -63,7 +63,8 @@ defmodule GridCodec.Struct do
   - `:template_id` - Unique message type identifier (default: hash of module name)
   - `:schema_id` - Schema namespace identifier (default: 0)
   - `:version` - Schema version (default: 1)
-  - `:name` - Stable type name for serialization (default: last segment of module name).
+  - `:name` - Stable type name for serialization (default: full module path, e.g.,
+    `"MyApp.Events.OrderSubmitted"`). Set explicitly for short names.
     Used by `__type__/0` and `GridCodec.Registry.lookup_by_type/1` for EventStore integration.
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
@@ -300,6 +301,7 @@ defmodule GridCodec.Struct do
   - `__schema__/0` - Returns schema metadata
   - `__template_id__/0` - Returns template ID
   - `__schema_id__/0` - Returns schema ID
+  - `__type__/0` - Returns the stable type name (from `:name` option or module name)
   - `__fields__/0` - Returns list of field names
   """
   defmacro defcodec(do: block) do

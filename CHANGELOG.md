@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-02
+
+### Added
+- **Stable type names**: `:name` option on `use GridCodec.Struct` for short,
+  module-independent type strings (e.g., `"OrderSubmitted"` instead of
+  `"Elixir.MyApp.Events.OrderSubmitted"`)
+  - `__type__/0` generated on every codec module
+  - Defaults to last segment of module name when not specified
+  - Accepts string or atom values
+  - Type name included in `__schema__/0` metadata
+- **`GridCodec.Registry.lookup_by_type/1`**: Reverse lookup from type name
+  string to codec module, enabling EventStore/Commanded serializer integration
+
 ## [0.8.0] - 2026-03-02
 
 ### Added
