@@ -14,6 +14,12 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       assert {:error, :unknown_codec} = GridCodec.TestRegistry.lookup(99, 99)
       assert GridCodec.TestRegistry.consolidated?()
       assert GridCodec.TestRegistry.list_codecs() == [GridCodec.TestSupport.OrderEvent]
+
+      assert {:ok, GridCodec.TestSupport.OrderEvent} =
+               GridCodec.TestRegistry.lookup_by_type("OrderEvent")
+
+      assert {:error, :unknown_type} = GridCodec.TestRegistry.lookup_by_type("NonExistent")
+      assert GridCodec.TestRegistry.clear_cache() == :ok
     end
 
     test "generates valid registry with multiple codecs" do

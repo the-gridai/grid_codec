@@ -221,6 +221,13 @@ defmodule Mix.Tasks.Compile.GridCodec do
     # Generate list_codecs/0
     codec_modules = Enum.map(codecs, & &1.module)
 
+    # Build type name -> module map for lookup_by_type/1
+    type_map =
+      codecs
+      |> Enum.filter(fn %{module: mod} -> function_exported?(mod, :__type__, 0) end)
+      |> Enum.map(fn %{module: mod} -> {mod.__type__(), mod} end)
+      |> Map.new()
+
     quote do
       defmodule unquote(module_name) do
         @moduledoc """
@@ -236,6 +243,14 @@ defmodule Mix.Tasks.Compile.GridCodec do
         unquote_splicing(lookup_clauses)
         unquote(lookup_fallback)
 
+        @doc "Look up a codec module by its type name"
+        def lookup_by_type(type_name) when is_binary(type_name) do
+          case unquote(Macro.escape(type_map)) do
+            %{^type_name => module} -> {:ok, module}
+            _ -> {:error, :unknown_type}
+          end
+        end
+
         @doc "Encode a struct to binary (with header by default)"
         def encode(struct, opts \\ [])
         unquote_splicing(encode_clauses)
@@ -249,6 +264,9 @@ defmodule Mix.Tasks.Compile.GridCodec do
 
         @doc "Check if this is a consolidated registry"
         def consolidated?, do: true
+
+        @doc "Clear cache (no-op for consolidated registry)"
+        def clear_cache, do: :ok
       end
     end
   end

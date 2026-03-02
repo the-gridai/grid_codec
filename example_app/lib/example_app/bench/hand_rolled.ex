@@ -4,6 +4,11 @@ defmodule ExampleApp.Bench.HandRolled do
   @null_u64 18_446_744_073_709_551_615
   @null_u32 4_294_967_295
   @null_u8 255
+  @max_u64 18_446_744_073_709_551_615
+  @max_u32 4_294_967_295
+  @max_u8 255
+  @min_i64 -9_223_372_036_854_775_808
+  @max_i64 9_223_372_036_854_775_807
 
   def encode(%{
         order_id: order_id,
@@ -18,13 +23,13 @@ defmodule ExampleApp.Bench.HandRolled do
     encoded_symbol = encode_string16(symbol)
 
     <<
-      (order_id || <<0::128>>)::binary-size(16),
-      (user_id || @null_u64)::unsigned-little-64,
-      (side || @null_u8)::unsigned-8,
-      (price || @null_u64)::unsigned-little-64,
-      (quantity || @null_u32)::unsigned-little-32,
-      (timestamp || 0)::signed-little-64,
-      (flags || @null_u8)::unsigned-8,
+      validate_binary16(order_id, :order_id)::binary-size(16),
+      validate_u64(user_id, :user_id)::unsigned-little-64,
+      validate_u8(side, :side)::unsigned-8,
+      validate_u64(price, :price)::unsigned-little-64,
+      validate_u32(quantity, :quantity)::unsigned-little-32,
+      validate_i64(timestamp, :timestamp)::signed-little-64,
+      validate_u8(flags, :flags)::unsigned-8,
       encoded_symbol::binary
     >>
   end
@@ -54,6 +59,36 @@ defmodule ExampleApp.Bench.HandRolled do
       ) do
     if price == @null_u64, do: nil, else: price
   end
+
+  defp validate_binary16(nil, _), do: <<0::128>>
+  defp validate_binary16(v, _) when is_binary(v) and byte_size(v) == 16, do: v
+
+  defp validate_binary16(v, name),
+    do: raise(ArgumentError, "field #{inspect(name)} expects 16-byte binary, got: #{inspect(v)}")
+
+  defp validate_u64(nil, _), do: @null_u64
+  defp validate_u64(v, _) when is_integer(v) and v >= 0 and v <= @max_u64, do: v
+
+  defp validate_u64(v, name),
+    do: raise(ArgumentError, "field #{inspect(name)} expects u64, got: #{inspect(v)}")
+
+  defp validate_u32(nil, _), do: @null_u32
+  defp validate_u32(v, _) when is_integer(v) and v >= 0 and v <= @max_u32, do: v
+
+  defp validate_u32(v, name),
+    do: raise(ArgumentError, "field #{inspect(name)} expects u32, got: #{inspect(v)}")
+
+  defp validate_u8(nil, _), do: @null_u8
+  defp validate_u8(v, _) when is_integer(v) and v >= 0 and v <= @max_u8, do: v
+
+  defp validate_u8(v, name),
+    do: raise(ArgumentError, "field #{inspect(name)} expects u8, got: #{inspect(v)}")
+
+  defp validate_i64(nil, _), do: 0
+  defp validate_i64(v, _) when is_integer(v) and v >= @min_i64 and v <= @max_i64, do: v
+
+  defp validate_i64(v, name),
+    do: raise(ArgumentError, "field #{inspect(name)} expects i64, got: #{inspect(v)}")
 
   defp encode_string16(nil), do: <<0::little-16>>
 
