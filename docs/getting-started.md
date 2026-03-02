@@ -118,6 +118,92 @@ Use `GridCodec.Registry.lookup_by_type/1` for reverse lookup:
 This enables compact event type strings in EventStore/Commanded instead of full
 Elixir module names.
 
+## 8) Custom Types
+
+### Enums
+
+Define domain enums as standalone modules:
+
+```elixir
+defmodule MyApp.Types.OrderSide do
+  use GridCodec.Types.Enum, encoding: :u8
+
+  defenum do
+    value :buy
+    value :sell
+  end
+end
+```
+
+Reference them directly as field types — no registration needed:
+
+```elixir
+defmodule MyApp.Events.OrderPlaced do
+  use GridCodec.Struct, template_id: 2, schema_id: 100
+
+  alias MyApp.Types.OrderSide
+
+  defcodec do
+    field :order_id, :uuid_string
+    field :side, OrderSide
+    field :price, :decimal
+  end
+end
+```
+
+Any module that implements the `GridCodec.Type` behaviour can be used as a field
+type. The compiler detects it automatically at compile time.
+
+### Bitsets
+
+Pack multiple boolean flags into a single integer:
+
+```elixir
+defmodule MyApp.Types.Permissions do
+  use GridCodec.Types.Bitset, size: :u8
+
+  flag :read,    0
+  flag :write,   1
+  flag :admin,   2
+end
+```
+
+### Fixed-Length Strings
+
+For fields with a known maximum length (e.g., currency codes, ticker symbols):
+
+```elixir
+defmodule MyApp.Types.CurrencyCode do
+  use GridCodec.Types.CharArray, length: 3
+end
+
+defmodule MyApp.Types.Symbol do
+  use GridCodec.Types.CharArray, length: 8
+end
+```
+
+### Parameterization
+
+Custom types are parameterized at the **module definition**, not per-field. If you
+need the same base type with different parameters, define separate modules:
+
+```elixir
+defmodule MyApp.Types.ShortName do
+  use GridCodec.Types.CharArray, length: 16
+end
+
+defmodule MyApp.Types.LongDescription do
+  use GridCodec.Types.CharArray, length: 256
+end
+
+defcodec do
+  field :name, MyApp.Types.ShortName
+  field :description, MyApp.Types.LongDescription
+end
+```
+
+This keeps all type behavior resolved at compile time — no runtime dispatch.
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.
