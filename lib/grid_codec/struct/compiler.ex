@@ -418,8 +418,13 @@ defmodule GridCodec.Struct.Compiler do
 
   defp encode_null_to_binary(:nan, 4, :little), do: <<0x00, 0x00, 0xC0, 0x7F>>
   defp encode_null_to_binary(:nan, 4, :big), do: <<0x7F, 0xC0, 0x00, 0x00>>
-  defp encode_null_to_binary(:nan, 8, :little), do: <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x7F>>
-  defp encode_null_to_binary(:nan, 8, :big), do: <<0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>>
+
+  defp encode_null_to_binary(:nan, 8, :little),
+    do: <<0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF8, 0x7F>>
+
+  defp encode_null_to_binary(:nan, 8, :big),
+    do: <<0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00>>
+
   defp encode_null_to_binary(nil, size, _endian), do: <<0::size(size * 8)>>
   defp encode_null_to_binary(val, _size, _endian) when is_binary(val), do: val
 

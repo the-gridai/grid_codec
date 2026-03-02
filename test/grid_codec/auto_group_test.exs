@@ -121,7 +121,11 @@ defmodule GridCodec.AutoGroupTest do
         account_id: uuid,
         snapshot_at: ts,
         balances: [
-          %{instrument_id: <<2::128>>, available: Decimal.new("1000.50"), locked: Decimal.new("50.25")},
+          %{
+            instrument_id: <<2::128>>,
+            available: Decimal.new("1000.50"),
+            locked: Decimal.new("50.25")
+          },
           %{instrument_id: <<3::128>>, available: Decimal.new("500"), locked: nil}
         ]
       }
