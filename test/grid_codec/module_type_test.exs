@@ -79,4 +79,72 @@ defmodule GridCodec.ModuleTypeTest do
       assert {:ok, GridCodec.Types.U64} = GridCodec.Type.lookup(:u64)
     end
   end
+
+  # ============================================================================
+  # Cross-module compilation: types defined in separate files (test/support/)
+  # This exercises the Code.ensure_compiled path that fails with ensure_loaded
+  # ============================================================================
+
+  describe "cross-module type references (separate files)" do
+    alias GridCodec.TestSupport.OrderEvent
+
+    test "roundtrip with types from separate modules" do
+      struct = %OrderEvent{
+        order_id: <<1::128>>,
+        side: :buy,
+        status: :open,
+        price: 50_000,
+        quantity: 100,
+        timestamp: System.system_time(:microsecond)
+      }
+
+      binary = OrderEvent.encode(struct)
+      assert {:ok, decoded} = OrderEvent.decode(binary)
+
+      assert decoded.order_id == <<1::128>>
+      assert decoded.side == :buy
+      assert decoded.status == :open
+      assert decoded.price == 50_000
+      assert decoded.quantity == 100
+    end
+
+    test "nil custom type values roundtrip" do
+      struct = %OrderEvent{
+        order_id: <<1::128>>,
+        side: nil,
+        status: nil,
+        price: 100,
+        quantity: 1,
+        timestamp: System.system_time(:microsecond)
+      }
+
+      binary = OrderEvent.encode(struct)
+      assert {:ok, decoded} = OrderEvent.decode(binary)
+
+      assert decoded.side == nil
+      assert decoded.status == nil
+    end
+
+    test "all enum values roundtrip correctly" do
+      for side <- [:buy, :sell], status <- [:open, :filled, :cancelled] do
+        struct = %OrderEvent{
+          order_id: <<1::128>>,
+          side: side,
+          status: status,
+          price: 100,
+          quantity: 1,
+          timestamp: System.system_time(:microsecond)
+        }
+
+        binary = OrderEvent.encode(struct)
+        assert {:ok, decoded} = OrderEvent.decode(binary)
+        assert decoded.side == side
+        assert decoded.status == status
+      end
+    end
+
+    test "__type__ returns configured name" do
+      assert OrderEvent.__type__() == "OrderEvent"
+    end
+  end
 end
