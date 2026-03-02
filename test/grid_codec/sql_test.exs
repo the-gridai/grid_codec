@@ -177,6 +177,40 @@ defmodule GridCodec.SQLTest do
     end
   end
 
+  describe "generate/1 universal JSONB decoder" do
+    test "generate_all includes universal decode function" do
+      sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
+
+      assert sql =~ "gridcodec.decode(type_name text, data bytea)"
+      assert sql =~ "RETURNS jsonb"
+      assert sql =~ "WHEN type_name = 'OrderEvent'"
+    end
+
+    test "generates per-codec JSON helper functions" do
+      sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
+
+      assert sql =~ "gridcodec.decode_orderevent_json(data bytea)"
+      assert sql =~ "jsonb_build_object"
+    end
+
+    test "JSON function includes all field names as keys" do
+      sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
+
+      assert sql =~ "'order_id'"
+      assert sql =~ "'side'"
+      assert sql =~ "'status'"
+      assert sql =~ "'price'"
+      assert sql =~ "'quantity'"
+      assert sql =~ "'timestamp'"
+    end
+
+    test "unknown type returns error object" do
+      sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
+
+      assert sql =~ "unknown type"
+    end
+  end
+
   describe "generate_all/0" do
     test "includes helpers and at least one codec" do
       sql = SQL.generate_all()

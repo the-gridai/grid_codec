@@ -204,8 +204,9 @@ defmodule GridCodec.SQL do
 
     helpers = generate_helpers()
     codec_sql = Enum.map_join(codecs, "\n", &generate/1)
+    universal_decoder = generate_universal_decoder(codecs)
 
-    helpers <> "\n" <> codec_sql
+    helpers <> "\n" <> codec_sql <> "\n" <> universal_decoder
   end
 
   @doc """
@@ -354,6 +355,145 @@ defmodule GridCodec.SQL do
     $$ LANGUAGE sql IMMUTABLE STRICT;
 
     """
+  end
+
+  # ============================================================================
+  # Private: Universal JSONB Decoder
+  # ============================================================================
+
+  defp generate_universal_decoder(codecs) do
+    when_clauses =
+      Enum.map_join(codecs, "\n    ", fn mod ->
+        type_name = mod.__type__()
+        fn_name = type_name |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
+        "WHEN type_name = '#{type_name}' THEN gridcodec.decode_#{fn_name}_json(data)"
+      end)
+
+    json_fns = Enum.map_join(codecs, "\n", &generate_json_function/1)
+
+    json_fns <>
+      """
+      -- Universal decoder: returns any event as JSONB by type name
+      --
+      -- Usage:
+      --   SELECT gridcodec.decode(event_type, data) FROM events;
+      --   SELECT gridcodec.decode(event_type, data)->>'side' FROM events;
+      --
+      CREATE OR REPLACE FUNCTION gridcodec.decode(type_name text, data bytea)
+      RETURNS jsonb AS $$
+      SELECT CASE
+        #{when_clauses}
+        ELSE jsonb_build_object('_error', 'unknown type: ' || type_name)
+      END;
+      $$ LANGUAGE sql IMMUTABLE STRICT;
+
+      """
+  end
+
+  defp generate_json_function(module) do
+    schema = module.__schema__()
+    type_name = module.__type__()
+    field_specs = module.__field_specs__()
+    fields = schema.fields
+    block_length = schema.block_length
+
+    fn_name = type_name |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
+
+    fixed_fields =
+      fields
+      |> Enum.filter(fn {name, _type, _opts} ->
+        case Map.get(field_specs, name) do
+          {:variable, _} -> false
+          {:group, _} -> false
+          nil -> false
+          _ -> true
+        end
+      end)
+
+    var_fields =
+      fields
+      |> Enum.filter(fn {name, _type, _opts} ->
+        match?({:variable, _}, Map.get(field_specs, name))
+      end)
+
+    fixed_pairs =
+      Enum.map(fixed_fields, fn {name, type, _opts} ->
+        {type_mod, offset, _endian} = Map.fetch!(field_specs, name)
+        value_expr = sql_json_value_expr(name, type, type_mod, offset)
+        "'#{name}', #{value_expr}"
+      end)
+
+    {var_pairs, _} =
+      Enum.map_reduce(var_fields, nil, fn {name, type, _opts}, prev_offset_expr ->
+        offset_expr =
+          case prev_offset_expr do
+            nil -> "#{@header_size + block_length}"
+            prev -> "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
+          end
+
+        value_expr = sql_json_var_value_expr(name, type, offset_expr)
+        {"'#{name}', #{value_expr}", offset_expr}
+      end)
+
+    all_pairs = Enum.join(fixed_pairs ++ var_pairs, ",\n    ")
+
+    """
+    CREATE OR REPLACE FUNCTION gridcodec.decode_#{fn_name}_json(data bytea)
+    RETURNS jsonb AS $$
+    SELECT jsonb_build_object(
+      #{all_pairs}
+    );
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
+    """
+  end
+
+  defp sql_json_value_expr(_name, type, _type_mod, offset) do
+    cond do
+      enum_type?(type) ->
+        table = enum_table_name(type)
+        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset}))"
+
+      type in [:u8, :i8] ->
+        "CASE WHEN get_byte(data, #{offset}) = 255 THEN NULL ELSE get_byte(data, #{offset}) END"
+
+      type == :u16 ->
+        "gridcodec.read_u16(data, #{offset})"
+
+      type == :u32 ->
+        "CASE WHEN gridcodec.read_u32(data, #{offset}) = 4294967295 THEN NULL ELSE gridcodec.read_u32(data, #{offset}) END"
+
+      type == :u64 ->
+        "CASE WHEN gridcodec.read_u64(data, #{offset}) = 18446744073709551615 THEN NULL ELSE gridcodec.read_u64(data, #{offset}) END"
+
+      type == :i64 ->
+        "gridcodec.read_i64(data, #{offset})"
+
+      type in [:uuid, :uuid_string] ->
+        "gridcodec.read_uuid_nullable(data, #{offset})::text"
+
+      type == :bool ->
+        "gridcodec.read_bool(data, #{offset})"
+
+      type == :decimal ->
+        "gridcodec.read_decimal(data, #{offset})"
+
+      type == :timestamp_us ->
+        "gridcodec.read_timestamp_us(data, #{offset})"
+
+      true ->
+        "NULL"
+    end
+  end
+
+  defp sql_json_var_value_expr(_name, type, offset_expr) do
+    case type do
+      t when t in [:string, :string16] ->
+        "gridcodec.read_string16(data, (#{offset_expr})::int)"
+
+      _ ->
+        "NULL"
+    end
   end
 
   # ============================================================================
