@@ -51,15 +51,18 @@ defmodule Mix.Tasks.Compile.GridCodec do
     # Validate no conflicts
     case validate_codecs(codecs) do
       :ok ->
-        # Generate and compile the registry module
-        registry_path = Path.join(consolidation_path, "Elixir.GridCodec.Registry.beam")
+        if codecs == [] do
+          {:ok, []}
+        else
+          registry_path = Path.join(consolidation_path, "Elixir.GridCodec.Registry.beam")
 
-        if should_regenerate?(registry_path, codecs) do
-          generate_registry(codecs, registry_path)
-          Mix.shell().info("Generated GridCodec.Registry with #{length(codecs)} codec(s)")
+          if should_regenerate?(registry_path, codecs) do
+            generate_registry(codecs, registry_path)
+            Mix.shell().info("Generated GridCodec.Registry with #{length(codecs)} codec(s)")
+          end
+
+          {:ok, []}
         end
-
-        {:ok, []}
 
       {:error, conflicts} ->
         for {key, modules} <- conflicts do
