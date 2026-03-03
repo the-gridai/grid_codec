@@ -26,6 +26,9 @@ defmodule GridCodec.Struct.Compiler do
     align_fields = Keyword.get(opts, :align, false)
     generate_typespec = Keyword.get(opts, :generate_typespec, true)
 
+    telemetry_enabled =
+      Keyword.get(opts, :telemetry, Application.get_env(:grid_codec, :telemetry, false))
+
     # Template ID: explicit or hash of module name
     template_id =
       case Keyword.get(opts, :template_id) do
@@ -205,42 +208,8 @@ defmodule GridCodec.Struct.Compiler do
       # Auto-generated group entry codecs
       unquote_splicing(auto_group_fns)
 
-      # ========================================================================
-      # Encode API
-      # ========================================================================
-
-      @doc """
-      Encodes a struct to binary.
-
-      By default, includes an 8-byte header for dispatch via `GridCodec.decode/1`.
-
-      ## Options
-
-      - `:header` - Include header (default: `true`)
-
-      ## Examples
-
-          # With header (default) - can be decoded by GridCodec.decode/1
-          binary = #{inspect(unquote(module))}.encode(struct)
-
-          # Without header - payload only
-          payload = #{inspect(unquote(module))}.encode(struct, header: false)
-      """
-      def encode(struct, opts \\ [])
-
-      def encode(%unquote(module){} = struct, []) do
-        payload = encode_payload(struct)
-        <<@__gridcodec_header__::binary, payload::binary>>
-      end
-
-      def encode(%unquote(module){} = struct, opts) do
-        if Keyword.get(opts, :header, true) do
-          payload = encode_payload(struct)
-          <<@__gridcodec_header__::binary, payload::binary>>
-        else
-          encode_payload(struct)
-        end
-      end
+      # Encode/Decode API with optional telemetry
+      unquote(generate_encode_api(module, type_name, schema_id, template_id, telemetry_enabled))
 
       # Internal: encode payload only (no header)
       unquote(struct_encoder_body)
@@ -252,52 +221,7 @@ defmodule GridCodec.Struct.Compiler do
       # Decode API
       # ========================================================================
 
-      @doc """
-      Decodes binary to a #{inspect(unquote(module))} struct.
-
-      By default, expects an 8-byte header (from `encode/1` or `GridCodec.encode/1`).
-
-      ## Options
-
-      - `:header` - Expect header (default: `true`)
-
-      ## Examples
-
-          # With header (default)
-          {:ok, struct} = #{inspect(unquote(module))}.decode(binary)
-
-          # Without header - payload only
-          {:ok, struct} = #{inspect(unquote(module))}.decode(payload, header: false)
-      """
-      def decode(binary, opts \\ [])
-
-      def decode(binary, []) when is_binary(binary) do
-        case GridCodec.Header.decode(binary) do
-          {:ok, header, payload} ->
-            with :ok <- validate_header(header) do
-              decode_versioned_payload(payload, header.block_length)
-            end
-
-          {:error, _} = error ->
-            error
-        end
-      end
-
-      def decode(binary, opts) when is_binary(binary) do
-        if Keyword.get(opts, :header, true) do
-          case GridCodec.Header.decode(binary) do
-            {:ok, header, payload} ->
-              with :ok <- validate_header(header) do
-                decode_versioned_payload(payload, header.block_length)
-              end
-
-            {:error, _} = error ->
-              error
-          end
-        else
-          decode_payload(binary)
-        end
-      end
+      unquote(generate_decode_api(module, type_name, schema_id, template_id, telemetry_enabled))
 
       defp decode_versioned_payload(payload, header_block_length)
            when header_block_length >= @__current_block_length__ do
@@ -2547,6 +2471,206 @@ defmodule GridCodec.Struct.Compiler do
 
           spec ->
             Macro.escape(spec)
+        end
+      end
+    end
+  end
+
+  # ============================================================================
+  # Encode/Decode API Generation (extracted to reduce __before_compile__ complexity)
+  # ============================================================================
+
+  defp generate_encode_api(module, type_name, schema_id, template_id, telemetry?) do
+    telemetry_meta = %{
+      module: module,
+      type_name: type_name,
+      schema_id: schema_id,
+      template_id: template_id
+    }
+
+    if telemetry? do
+      quote do
+        @doc """
+        Encodes a struct to binary.
+
+        Emits `[:grid_codec, :encode]` telemetry event with duration and byte size.
+
+        ## Options
+
+        - `:header` - Include header (default: `true`)
+        """
+        def encode(struct, opts \\ [])
+
+        def encode(%unquote(module){} = struct, []) do
+          start = :erlang.monotonic_time()
+          payload = encode_payload(struct)
+          binary = <<@__gridcodec_header__::binary, payload::binary>>
+
+          :telemetry.execute(
+            [:grid_codec, :encode],
+            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
+            unquote(Macro.escape(telemetry_meta))
+          )
+
+          binary
+        end
+
+        def encode(%unquote(module){} = struct, opts) do
+          start = :erlang.monotonic_time()
+
+          binary =
+            if Keyword.get(opts, :header, true) do
+              payload = encode_payload(struct)
+              <<@__gridcodec_header__::binary, payload::binary>>
+            else
+              encode_payload(struct)
+            end
+
+          :telemetry.execute(
+            [:grid_codec, :encode],
+            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
+            unquote(Macro.escape(telemetry_meta))
+          )
+
+          binary
+        end
+      end
+    else
+      quote do
+        @doc """
+        Encodes a struct to binary.
+
+        ## Options
+
+        - `:header` - Include header (default: `true`)
+        """
+        def encode(struct, opts \\ [])
+
+        def encode(%unquote(module){} = struct, []) do
+          payload = encode_payload(struct)
+          <<@__gridcodec_header__::binary, payload::binary>>
+        end
+
+        def encode(%unquote(module){} = struct, opts) do
+          if Keyword.get(opts, :header, true) do
+            payload = encode_payload(struct)
+            <<@__gridcodec_header__::binary, payload::binary>>
+          else
+            encode_payload(struct)
+          end
+        end
+      end
+    end
+  end
+
+  defp generate_decode_api(module, type_name, schema_id, template_id, telemetry?) do
+    telemetry_meta = %{
+      module: module,
+      type_name: type_name,
+      schema_id: schema_id,
+      template_id: template_id
+    }
+
+    if telemetry? do
+      quote do
+        @doc """
+        Decodes binary to a struct.
+
+        Emits `[:grid_codec, :decode]` telemetry event with duration and byte size.
+
+        ## Options
+
+        - `:header` - Expect header (default: `true`)
+        """
+        def decode(binary, opts \\ [])
+
+        def decode(binary, []) when is_binary(binary) do
+          start = :erlang.monotonic_time()
+
+          result =
+            case GridCodec.Header.decode(binary) do
+              {:ok, header, payload} ->
+                with :ok <- validate_header(header) do
+                  decode_versioned_payload(payload, header.block_length)
+                end
+
+              {:error, _} = error ->
+                error
+            end
+
+          :telemetry.execute(
+            [:grid_codec, :decode],
+            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
+            unquote(Macro.escape(telemetry_meta))
+          )
+
+          result
+        end
+
+        def decode(binary, opts) when is_binary(binary) do
+          start = :erlang.monotonic_time()
+
+          result =
+            if Keyword.get(opts, :header, true) do
+              case GridCodec.Header.decode(binary) do
+                {:ok, header, payload} ->
+                  with :ok <- validate_header(header) do
+                    decode_versioned_payload(payload, header.block_length)
+                  end
+
+                {:error, _} = error ->
+                  error
+              end
+            else
+              decode_payload(binary)
+            end
+
+          :telemetry.execute(
+            [:grid_codec, :decode],
+            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
+            unquote(Macro.escape(telemetry_meta))
+          )
+
+          result
+        end
+      end
+    else
+      quote do
+        @doc """
+        Decodes binary to a struct.
+
+        ## Options
+
+        - `:header` - Expect header (default: `true`)
+        """
+        def decode(binary, opts \\ [])
+
+        def decode(binary, []) when is_binary(binary) do
+          case GridCodec.Header.decode(binary) do
+            {:ok, header, payload} ->
+              with :ok <- validate_header(header) do
+                decode_versioned_payload(payload, header.block_length)
+              end
+
+            {:error, _} = error ->
+              error
+          end
+        end
+
+        def decode(binary, opts) when is_binary(binary) do
+          if Keyword.get(opts, :header, true) do
+            case GridCodec.Header.decode(binary) do
+              {:ok, header, payload} ->
+                with :ok <- validate_header(header) do
+                  decode_versioned_payload(payload, header.block_length)
+                end
+
+              {:error, _} = error ->
+                error
+            end
+          else
+            decode_payload(binary)
+          end
         end
       end
     end

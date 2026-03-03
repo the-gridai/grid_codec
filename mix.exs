@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.11.1"
+  @version "0.12.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -82,6 +82,9 @@ defmodule GridCodec.MixProject do
 
       # Optional - JSON transcoder support
       {:jason, "~> 1.4", optional: true},
+
+      # Telemetry (optional, for instrumented encode/decode)
+      {:telemetry, "~> 1.0"},
 
       # Dev/Test - Code quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},

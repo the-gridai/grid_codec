@@ -27,7 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
-## [0.11.1] - 2026-03-04
+## [0.12.0] - 2026-03-04
+
+### Added
+- **Optional telemetry** for encode/decode: per-module `telemetry: true` option
+  or global `config :grid_codec, telemetry: true`. Emits `[:grid_codec, :encode]`
+  and `[:grid_codec, :decode]` events with `duration` (native time), `bytes`,
+  and metadata (`module`, `type_name`, `schema_id`, `template_id`). Zero
+  overhead when disabled (default) — no timing code generated.
 
 ### Changed
 - **Enum**: `to_integer/1` and `to_atom/1` now use pattern-matched function clauses
