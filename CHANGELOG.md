@@ -35,9 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `[:grid_codec, :decode]` events with `duration` (native time), `bytes`,
   and metadata (`module`, `type_name`, `schema_id`, `template_id`). Zero
   overhead when disabled (default) — no timing code generated.
-- **`GridCodec.PromEx` plugin** — optional PromEx plugin providing Prometheus
-  histograms for encode/decode latency and byte sizes, tagged by `type_name`.
-  Only compiled when `prom_ex` is a dependency of the consuming application.
+- **`GridCodec.Telemetry.Metrics`** — metric definitions for PromEx, LiveDashboard,
+  or any `Telemetry.Metrics` consumer. `prom_ex_metrics/1` returns PromEx-compatible
+  `Event.build` tuples; `metric_definitions/1` returns raw metric structs.
+  Always compiles (no PromEx dependency required at grid_codec level).
 - **Grafana dashboard** (`grafana/grid_codec.json`) — pre-built dashboard with
   encode/decode latency percentiles (p50/p90/p99), throughput, and binary sizes.
 
