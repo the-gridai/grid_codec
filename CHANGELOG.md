@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `[:grid_codec, :decode]` events with `duration` (native time), `bytes`,
   and metadata (`module`, `type_name`, `schema_id`, `template_id`). Zero
   overhead when disabled (default) — no timing code generated.
+- **`telemetry_min_duration` option** — skip emitting events when duration is
+  below a threshold (in `:native` time units). Filters out cheap operations
+  so histograms focus on the latency you care about. Per-module or global config.
 - **`GridCodec.Telemetry.Metrics`** — metric definitions for PromEx, LiveDashboard,
   or any `Telemetry.Metrics` consumer. `prom_ex_metrics/1` returns PromEx-compatible
   `Event.build` tuples; `metric_definitions/1` returns raw metric structs.
