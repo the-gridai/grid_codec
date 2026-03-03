@@ -23,7 +23,6 @@ defmodule GridCodec.Struct.Compiler do
     version = Keyword.get(opts, :version, 1)
     schema_id = Keyword.get(opts, :schema_id, 0)
     endian = Keyword.get(opts, :endian, :little)
-    custom_types = Keyword.get(opts, :types, []) |> Enum.into(%{})
     align_fields = Keyword.get(opts, :align, false)
     generate_typespec = Keyword.get(opts, :generate_typespec, true)
 
@@ -48,7 +47,7 @@ defmodule GridCodec.Struct.Compiler do
       end
 
     # Resolve field types
-    resolved_fields = resolve_types(fields, custom_types)
+    resolved_fields = resolve_types(fields)
     {fixed_fields, var_fields} = partition_fields(resolved_fields)
 
     # Calculate offsets
@@ -56,6 +55,19 @@ defmodule GridCodec.Struct.Compiler do
     block_bits = block_length * 8
     has_variable_tail = var_fields != [] or groups != []
     framed_bits = 64 + block_bits
+
+    layout_doc =
+      build_layout_typedoc(fixed_fields, var_fields, groups, field_offsets, block_length)
+
+    framed_layout_doc =
+      build_framed_layout_typedoc(
+        fixed_fields,
+        var_fields,
+        groups,
+        field_offsets,
+        block_length,
+        framed_bits
+      )
 
     # Validate :since field ordering (must be non-decreasing in fixed block)
     validate_since_ordering(fixed_fields)
@@ -68,10 +80,12 @@ defmodule GridCodec.Struct.Compiler do
 
     # Process groups — auto-generate entry codecs from field declarations when
     # entry_encoder/entry_decoder are not explicitly provided
-    {processed_groups, auto_group_fns} = process_groups(groups, custom_types, endian)
+    {processed_groups, auto_group_fns} = process_groups(groups, endian)
 
     # Build struct field list with defaults (includes group names with default [])
     {struct_fields, enforce_keys} = build_struct_fields(fields, groups)
+    struct_type_ast = build_struct_type_ast(resolved_fields, groups)
+    struct_typedoc = build_struct_typedoc(resolved_fields, groups)
 
     # Build schema metadata
     field_names = Enum.map(fields, fn {name, _, _} -> name end)
@@ -134,10 +148,10 @@ defmodule GridCodec.Struct.Compiler do
       defstruct unquote(struct_fields)
 
       if unquote(generate_typespec) do
-        @typedoc "Struct representation for this codec module."
-        @type t() :: %__MODULE__{}
+        @typedoc unquote(struct_typedoc)
+        @type t() :: unquote(struct_type_ast)
 
-        @typedoc "Binary wire layout for this codec payload (header: false)."
+        @typedoc unquote(layout_doc)
         @type layout() ::
                 unquote(
                   if has_variable_tail do
@@ -147,7 +161,7 @@ defmodule GridCodec.Struct.Compiler do
                   end
                 )
 
-        @typedoc "Binary wire layout including the 8-byte GridCodec header."
+        @typedoc unquote(framed_layout_doc)
         @type framed_layout() ::
                 unquote(
                   if has_variable_tail do
@@ -159,12 +173,19 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       # Schema introspection
+      @spec __schema__() :: map()
       def __schema__, do: unquote(Macro.escape(schema))
+      @spec __template_id__() :: unquote(template_id)
       def __template_id__, do: unquote(template_id)
+      @spec __schema_id__() :: unquote(schema_id)
       def __schema_id__, do: unquote(schema_id)
+      @spec __version__() :: unquote(version)
       def __version__, do: unquote(version)
+      @spec __type__() :: String.t()
       def __type__, do: unquote(type_name)
+      @spec __fields__() :: [atom()]
       def __fields__, do: unquote(field_names)
+      @spec block_length() :: unquote(block_length)
       def block_length, do: unquote(block_length)
 
       # Mark this as a struct codec for registry discovery
@@ -361,13 +382,251 @@ defmodule GridCodec.Struct.Compiler do
     {struct_fields ++ group_fields, enforce_keys}
   end
 
+  defp build_struct_type_ast(resolved_fields, groups) do
+    typed_fields =
+      Enum.map(resolved_fields, fn {name, type_atom, module, opts} ->
+        presence = Keyword.get(opts, :presence, :optional)
+        const_value = Keyword.get(opts, :value)
+        base = base_field_type_ast(type_atom, module)
+
+        field_type_ast =
+          case presence do
+            :constant -> Macro.escape(const_value)
+            :required -> base
+            _ -> quote(do: unquote(base) | nil)
+          end
+
+        {name, field_type_ast}
+      end)
+
+    group_fields =
+      Enum.map(groups, fn {name, _block, _opts} ->
+        # Encode path expects list entries; decode path returns GridCodec.Group.t().
+        {name, quote(do: [map()] | GridCodec.Group.t())}
+      end)
+
+    quote do
+      %__MODULE__{unquote_splicing(typed_fields ++ group_fields)}
+    end
+  end
+
+  defp build_struct_typedoc(_resolved_fields, _groups), do: "Struct representation for this codec module."
+
+  defp base_field_type_ast(:u8, _module), do: quote(do: non_neg_integer())
+  defp base_field_type_ast(:u16, _module), do: quote(do: non_neg_integer())
+  defp base_field_type_ast(:u32, _module), do: quote(do: non_neg_integer())
+  defp base_field_type_ast(:u64, _module), do: quote(do: non_neg_integer())
+  defp base_field_type_ast(:i8, _module), do: quote(do: integer())
+  defp base_field_type_ast(:i16, _module), do: quote(do: integer())
+  defp base_field_type_ast(:i32, _module), do: quote(do: integer())
+  defp base_field_type_ast(:i64, _module), do: quote(do: integer())
+  defp base_field_type_ast(:f32, _module), do: quote(do: float())
+  defp base_field_type_ast(:f64, _module), do: quote(do: float())
+  defp base_field_type_ast(:uuid, _module), do: quote(do: <<_::128>>)
+  defp base_field_type_ast(:uuid_string, _module), do: quote(do: String.t())
+  defp base_field_type_ast(:bool, _module), do: quote(do: boolean())
+  defp base_field_type_ast(:string, _module), do: quote(do: String.t())
+  defp base_field_type_ast(:string8, _module), do: quote(do: String.t())
+  defp base_field_type_ast(:string16, _module), do: quote(do: String.t())
+  defp base_field_type_ast(:string32, _module), do: quote(do: String.t())
+
+  defp base_field_type_ast(type_atom, _module) when type_atom in [:timestamp_us, :timestamp_ns] do
+    quote(do: integer() | DateTime.t())
+  end
+
+  defp base_field_type_ast(:decimal, _module) do
+    quote(do: Decimal.t() | {integer(), integer()} | integer() | float())
+  end
+
+  defp base_field_type_ast(type_atom, module) when is_atom(type_atom) and is_atom(module) do
+    if module_has_type?(module, :t, 0) do
+      quote(do: unquote(module).t())
+    else
+      quote(do: term())
+    end
+  end
+
+  defp module_has_type?(module, type_name, arity) do
+    case Code.ensure_compiled(module) do
+      {:module, _} ->
+        case Code.Typespec.fetch_types(module) do
+          {:ok, types} ->
+            Enum.any?(types, fn
+              {:type, {^type_name, _ast, args}} -> length(args) == arity
+              {_, {^type_name, _ast, args}} -> length(args) == arity
+              _ -> false
+            end)
+
+          :error ->
+            false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp build_layout_typedoc(fixed_fields, var_fields, groups, _field_offsets, block_length) do
+    pattern_snippet = build_payload_pattern_snippet(fixed_fields, var_fields, groups)
+    variable_note = variable_note(var_fields, groups)
+
+    """
+    Binary payload layout (header: false).
+
+    Fixed block: #{block_length} bytes.
+    #{variable_note}
+
+    Pattern sketch:
+
+    ```elixir
+    #{pattern_snippet}
+    ```
+    """
+  end
+
+  defp build_framed_layout_typedoc(
+         fixed_fields,
+         var_fields,
+         groups,
+         field_offsets,
+         block_length,
+         framed_bits
+       ) do
+    payload_doc =
+      build_layout_typedoc(fixed_fields, var_fields, groups, field_offsets, block_length)
+
+    framed_pattern = build_framed_pattern_snippet(fixed_fields, var_fields, groups)
+
+    """
+    Framed binary layout (includes 8-byte GridCodec header).
+
+    Header (8 bytes): `block_length:u16, template_id:u16, schema_id:u16, version:u16`.
+    Total minimum size: #{div(framed_bits, 8)} bytes.
+
+    Pattern sketch:
+
+    ```elixir
+    #{framed_pattern}
+    ```
+
+    #{payload_doc}
+    """
+  end
+
+  defp build_payload_pattern_snippet(fixed_fields, var_fields, groups) do
+    fixed_segments =
+      Enum.map(fixed_fields, fn {name, type, module, _opts} ->
+        segment = pattern_segment_for_type(type, module)
+        "#{name}::#{segment}"
+      end)
+
+    tail_segments =
+      []
+      |> maybe_add_group_tail(groups)
+      |> maybe_add_var_tail(var_fields)
+
+    segments = fixed_segments ++ tail_segments
+
+    case segments do
+      [] ->
+        "<<>>"
+
+      list ->
+        lines = wrap_segments(list, 88)
+
+        "<<" <>
+          "\n" <>
+          Enum.map_join(lines, "\n", fn line -> "  #{line}" end) <>
+          "\n>>"
+    end
+  end
+
+  defp build_framed_pattern_snippet(fixed_fields, var_fields, groups) do
+    payload = build_payload_pattern_snippet(fixed_fields, var_fields, groups)
+
+    header =
+      "<<" <>
+        "\n" <>
+        "  block_length::little-unsigned-16,\n" <>
+        "  template_id::little-unsigned-16,\n" <>
+        "  schema_id::little-unsigned-16,\n" <>
+        "  version::little-unsigned-16,"
+
+    case payload do
+      "<<>>" ->
+        header <> "\n>>"
+
+      _ ->
+        payload_body =
+          payload
+          |> String.replace_prefix("<<\n", "")
+          |> String.replace_suffix("\n>>", "")
+          |> String.split("\n")
+          |> Enum.map_join("\n", fn line -> "  #{line}" end)
+
+        header <> "\n" <> payload_body <> "\n>>"
+    end
+  end
+
+  defp maybe_add_var_tail(segments, []), do: segments
+  defp maybe_add_var_tail(segments, _var_fields), do: segments ++ ["var_data::binary"]
+
+  defp maybe_add_group_tail(segments, []), do: segments
+  defp maybe_add_group_tail(segments, _groups), do: segments ++ ["groups::binary"]
+
+  defp wrap_segments(segments, max_width) do
+    Enum.reduce(segments, [], fn segment, acc ->
+      case acc do
+        [] ->
+          [segment]
+
+        [last | rest] ->
+          candidate = last <> ", " <> segment
+
+          if String.length(candidate) <= max_width do
+            [candidate | rest]
+          else
+            [segment, last | rest]
+          end
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp pattern_segment_for_type(:u8, _module), do: "unsigned-8"
+  defp pattern_segment_for_type(:i8, _module), do: "signed-8"
+  defp pattern_segment_for_type(:u16, _module), do: "unsigned-little-16"
+  defp pattern_segment_for_type(:i16, _module), do: "signed-little-16"
+  defp pattern_segment_for_type(:u32, _module), do: "unsigned-little-32"
+  defp pattern_segment_for_type(:i32, _module), do: "signed-little-32"
+  defp pattern_segment_for_type(:u64, _module), do: "unsigned-little-64"
+  defp pattern_segment_for_type(:i64, _module), do: "signed-little-64"
+  defp pattern_segment_for_type(:f32, _module), do: "float-little-32"
+  defp pattern_segment_for_type(:f64, _module), do: "float-little-64"
+  defp pattern_segment_for_type(:bool, _module), do: "unsigned-8"
+  defp pattern_segment_for_type(:uuid, _module), do: "binary-size(16)"
+  defp pattern_segment_for_type(:uuid_string, _module), do: "binary-size(16)"
+  defp pattern_segment_for_type(:decimal, _module), do: "binary-size(9)"
+  defp pattern_segment_for_type(:timestamp_us, _module), do: "signed-little-64"
+  defp pattern_segment_for_type(:timestamp_ns, _module), do: "signed-little-64"
+  defp pattern_segment_for_type(_type, module), do: "binary-size(#{module.size()})"
+
+  defp variable_note([], []), do: "No variable section (fixed-size payload only)."
+
+  defp variable_note(var_fields, groups) do
+    parts = []
+    parts = if groups != [], do: parts ++ ["contains group section"], else: parts
+    parts = if var_fields != [], do: parts ++ ["contains var-data section"], else: parts
+    "Variable section: " <> Enum.join(parts, " and ") <> "."
+  end
+
   # ============================================================================
   # Type Resolution (from GridCodec.Compiler)
   # ============================================================================
 
-  defp resolve_types(fields, custom_types) do
+  defp resolve_types(fields) do
     Enum.map(fields, fn {name, type_atom, opts} ->
-      case GridCodec.Type.lookup(type_atom, custom_types) do
+      case GridCodec.Type.lookup(type_atom) do
         {:ok, module} ->
           {name, type_atom, module, opts}
 
@@ -487,7 +746,7 @@ defmodule GridCodec.Struct.Compiler do
   # Auto-Generated Group Entry Codecs
   # ============================================================================
 
-  defp process_groups(groups, custom_types, endian) do
+  defp process_groups(groups, endian) do
     Enum.map_reduce(groups, [], fn {name, block, opts}, acc_fns ->
       has_explicit_codecs =
         Keyword.has_key?(opts, :entry_encoder) or Keyword.has_key?(opts, :entry_decoder)
@@ -497,7 +756,7 @@ defmodule GridCodec.Struct.Compiler do
       if has_explicit_codecs or group_fields == [] do
         {{name, block, opts}, acc_fns}
       else
-        resolved = resolve_types(group_fields, custom_types)
+        resolved = resolve_types(group_fields)
 
         var_fields =
           Enum.filter(resolved, fn {_n, _t, mod, _o} -> mod.size() == :variable end)

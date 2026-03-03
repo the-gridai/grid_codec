@@ -11,6 +11,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Compile-time code generation** – No runtime reflection overhead
 - **Struct-based API** – Natural Elixir structs with binary serialization
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
+- **Generic top-level types** – `GridCodec.layout()`, `GridCodec.framed_layout()`, and `GridCodec.codec_data()`
 
 ## Installation
 

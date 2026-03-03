@@ -227,6 +227,14 @@ defmodule MyApp.Events.UserCreated do
 end
 ```
 
+For generic app specs where codec type is not known in advance, use top-level
+GridCodec types:
+
+```elixir
+@spec publish(GridCodec.codec_data()) :: :ok
+def publish(data), do: ...
+```
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.

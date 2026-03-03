@@ -10,7 +10,7 @@ defmodule ExampleApp.Events.OrderCreated do
   alias ExampleApp.Types.OrderSide
 
   defcodec do
-    field :order_id, :uuid
+    field :order_id, :uuid, presence: :required
     field :user_id, :u64
     field :symbol, :string16
     field :side, OrderSide

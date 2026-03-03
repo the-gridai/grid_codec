@@ -519,35 +519,33 @@ defmodule GridCodec.SQL do
   end
 
   defp sql_read_expr(name, type, type_mod, offset) do
-    cond do
-      enum_type?(type) ->
-        table = enum_table_name(type)
+    if enum_type?(type) do
+      table = enum_table_name(type)
 
-        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset})) AS \"#{name}\""
+      "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset})) AS \"#{name}\""
+    else
+      null_expr = null_check_expr(type, type_mod, offset)
 
-      true ->
-        null_expr = null_check_expr(type, type_mod, offset)
-
-        read =
-          cond do
-            type in [:u8, :i8] -> "gridcodec.read_u8(data, #{offset})"
-            type == :u16 -> "gridcodec.read_u16(data, #{offset})"
-            type == :i16 -> "gridcodec.read_u16(data, #{offset})"
-            type == :u32 -> "gridcodec.read_u32(data, #{offset})"
-            type == :i32 -> "gridcodec.read_u32(data, #{offset})"
-            type == :u64 -> "gridcodec.read_u64(data, #{offset})"
-            type == :i64 -> "gridcodec.read_i64(data, #{offset})"
-            type in [:uuid, :uuid_string] -> "gridcodec.read_uuid_nullable(data, #{offset})"
-            type == :bool -> "gridcodec.read_bool(data, #{offset})"
-            type == :decimal -> "gridcodec.read_decimal(data, #{offset})"
-            type == :timestamp_us -> "gridcodec.read_timestamp_us(data, #{offset})"
-            true -> "'unsupported:#{type}'::text"
-          end
-
-        case null_expr do
-          nil -> "#{read} AS \"#{name}\""
-          check -> "CASE WHEN #{check} THEN NULL ELSE #{read} END AS \"#{name}\""
+      read =
+        cond do
+          type in [:u8, :i8] -> "gridcodec.read_u8(data, #{offset})"
+          type == :u16 -> "gridcodec.read_u16(data, #{offset})"
+          type == :i16 -> "gridcodec.read_u16(data, #{offset})"
+          type == :u32 -> "gridcodec.read_u32(data, #{offset})"
+          type == :i32 -> "gridcodec.read_u32(data, #{offset})"
+          type == :u64 -> "gridcodec.read_u64(data, #{offset})"
+          type == :i64 -> "gridcodec.read_i64(data, #{offset})"
+          type in [:uuid, :uuid_string] -> "gridcodec.read_uuid_nullable(data, #{offset})"
+          type == :bool -> "gridcodec.read_bool(data, #{offset})"
+          type == :decimal -> "gridcodec.read_decimal(data, #{offset})"
+          type == :timestamp_us -> "gridcodec.read_timestamp_us(data, #{offset})"
+          true -> "'unsupported:#{type}'::text"
         end
+
+      case null_expr do
+        nil -> "#{read} AS \"#{name}\""
+        check -> "CASE WHEN #{check} THEN NULL ELSE #{read} END AS \"#{name}\""
+      end
     end
   end
 

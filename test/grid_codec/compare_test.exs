@@ -11,14 +11,14 @@ defmodule GridCodec.CompareTest do
   end
 
   defmodule CompareCodec do
-    use GridCodec.Struct, template_id: 9001, schema_id: 42, types: [side: SideEnum]
+    use GridCodec.Struct, template_id: 9001, schema_id: 42
 
     defcodec do
       field :id, :u64
       field :price, :u64
       field :delta, :i32
       field :amount, :decimal
-      field :side, :side
+      field :side, SideEnum
       field :note, :string16
     end
   end

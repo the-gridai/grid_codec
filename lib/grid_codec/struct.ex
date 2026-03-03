@@ -69,7 +69,6 @@ defmodule GridCodec.Struct do
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
   - `:generate_typespec` - Auto-generate `t()`, `layout()`, and `framed_layout()` types (default: true)
-  - `:types` - Custom type modules (default: [])
   - `:grid_file` - Path to `.grid` schema file (optional)
   - `:message` - Message name in schema file (required with `:grid_file`)
 
@@ -120,6 +119,12 @@ defmodule GridCodec.Struct do
 
   @doc false
   defmacro __using__(opts \\ []) do
+    if Keyword.has_key?(opts, :types) do
+      raise ArgumentError,
+            "The :types option has been removed. Use direct module references in fields instead, " <>
+              "for example: field :side, MyApp.Types.Side"
+    end
+
     grid_file = Keyword.get(opts, :grid_file)
     grid_schema = Keyword.get(opts, :grid_schema)
     message_name = Keyword.get(opts, :message)

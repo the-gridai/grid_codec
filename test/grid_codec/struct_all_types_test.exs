@@ -207,10 +207,10 @@ defmodule GridCodec.StructAllTypesTest do
     end
 
     defmodule EnumStruct do
-      use GridCodec.Struct, template_id: 104, schema_id: 1, types: [status: OrderStatus]
+      use GridCodec.Struct, template_id: 104, schema_id: 1
 
       defcodec do
-        field :status, :status
+        field :status, OrderStatus
       end
     end
 
@@ -240,10 +240,10 @@ defmodule GridCodec.StructAllTypesTest do
     end
 
     defmodule BitsetStruct do
-      use GridCodec.Struct, template_id: 105, schema_id: 1, types: [flags: Flags]
+      use GridCodec.Struct, template_id: 105, schema_id: 1
 
       defcodec do
-        field :flags, :flags
+        field :flags, Flags
       end
     end
 
@@ -272,10 +272,10 @@ defmodule GridCodec.StructAllTypesTest do
     end
 
     defmodule CharArrayStruct do
-      use GridCodec.Struct, template_id: 106, schema_id: 1, types: [symbol8: Symbol8]
+      use GridCodec.Struct, template_id: 106, schema_id: 1
 
       defcodec do
-        field :symbol, :symbol8
+        field :symbol, Symbol8
       end
     end
 

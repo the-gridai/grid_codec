@@ -121,4 +121,27 @@ defmodule GridCodec.TopLevelApiTest do
       assert via_gridcodec == via_module
     end
   end
+
+  describe "generic GridCodec typespecs" do
+    test "defines top-level generic layout and struct types" do
+      assert has_type?(GridCodec, :layout, 0)
+      assert has_type?(GridCodec, :framed_layout, 0)
+      assert has_type?(GridCodec, :codec_struct, 0)
+      assert has_type?(GridCodec, :codec_data, 0)
+    end
+  end
+
+  defp has_type?(module, type_name, arity) do
+    case Code.Typespec.fetch_types(module) do
+      {:ok, types} ->
+        Enum.any?(types, fn
+          {:type, {^type_name, _type_ast, args}} -> length(args) == arity
+          {_, {^type_name, _type_ast, args}} -> length(args) == arity
+          _ -> false
+        end)
+
+      :error ->
+        false
+    end
+  end
 end

@@ -37,7 +37,10 @@ defmodule ExampleApp.MixProject do
       {:msgpax, "~> 2.4"},
 
       # Benchmarking
-      {:benchee, "~> 1.3"}
+      {:benchee, "~> 1.3"},
+
+      # Docs
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
     ]
   end
 

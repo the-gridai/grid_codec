@@ -26,6 +26,21 @@ defmodule ExampleApp.TypespecGenerationTest do
     assert is_binary(encode_payload(order))
   end
 
+  test "required field type omits nil in generated struct t/0" do
+    t_ast = fetch_type_ast!(OrderCreated, :t, 0)
+
+    assert {:type, _, :map, fields} = t_ast
+
+    order_id_type =
+      Enum.find_value(fields, fn
+        {:type, _, :map_field_exact, [{:atom, _, :order_id}, type_ast]} -> type_ast
+        _ -> nil
+      end)
+
+    refute is_nil(order_id_type)
+    refute union_with_nil?(order_id_type)
+  end
+
   test "generate_typespec: false skips generated types" do
     refute has_type?(OrderCreatedNoTypespecPlain, :t, 0)
     refute has_type?(OrderCreatedNoTypespecPlain, :layout, 0)
@@ -77,4 +92,10 @@ defmodule ExampleApp.TypespecGenerationTest do
         flunk("Could not fetch types for #{inspect(module)}")
     end
   end
+
+  defp union_with_nil?({:type, _, :union, members}) do
+    Enum.any?(members, &match?({:atom, _, nil}, &1))
+  end
+
+  defp union_with_nil?(_), do: false
 end

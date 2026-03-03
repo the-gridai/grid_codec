@@ -30,11 +30,13 @@ defmodule GridCodec.Types.Bitset do
   Then use it in your codec:
 
       defmodule MyApp.UserEvent do
-        use GridCodec.Struct, types: [permissions: MyApp.Permissions]
+        use GridCodec.Struct
+
+        alias MyApp.Permissions
 
         defcodec do
           field :user_id, :uuid
-          field :perms, :permissions
+          field :perms, Permissions
         end
       end
 

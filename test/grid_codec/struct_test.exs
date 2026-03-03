@@ -227,6 +227,25 @@ defmodule GridCodec.StructTest do
       assert {:type, _, :binary, [{:integer, _, ^framed_bits}, {:integer, _, 8}]} =
                fetch_type_ast!(GridCodec.TestSupport.OrderEventVar, :framed_layout, 0)
     end
+
+    test "required fields in t/0 are non-nil" do
+      id_type = fetch_struct_field_type_ast!(GridCodec.TestSupport.RequiredTypesStruct, :id)
+      price_type = fetch_struct_field_type_ast!(GridCodec.TestSupport.RequiredTypesStruct, :price)
+
+      quantity_type =
+        fetch_struct_field_type_ast!(GridCodec.TestSupport.RequiredTypesStruct, :quantity)
+
+      refute union_with_nil?(id_type)
+      refute union_with_nil?(price_type)
+      assert union_with_nil?(quantity_type)
+    end
+
+    test "constant fields in t/0 use literal type" do
+      version_type =
+        fetch_struct_field_type_ast!(GridCodec.TestSupport.ConstantTypesStruct, :version)
+
+      assert {:integer, _, 1} = version_type
+    end
   end
 
   defp has_type?(module, type_name, arity) do
@@ -256,4 +275,23 @@ defmodule GridCodec.StructTest do
         nil
     end
   end
+
+  defp fetch_struct_field_type_ast!(module, field_name) do
+    case fetch_type_ast!(module, :t, 0) do
+      {:type, _, :map, fields} ->
+        Enum.find_value(fields, fn
+          {:type, _, :map_field_exact, [{:atom, _, ^field_name}, type_ast]} -> type_ast
+          _ -> nil
+        end) || flunk("Field #{inspect(field_name)} not found in #{inspect(module)}.t/0")
+
+      other ->
+        flunk("Unexpected t/0 AST for #{inspect(module)}: #{inspect(other)}")
+    end
+  end
+
+  defp union_with_nil?({:type, _, :union, members}) do
+    Enum.any?(members, &match?({:atom, _, nil}, &1))
+  end
+
+  defp union_with_nil?(_), do: false
 end

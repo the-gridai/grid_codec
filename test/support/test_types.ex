@@ -3,8 +3,8 @@ defmodule GridCodec.TestSupport.Side do
   use GridCodec.Types.Enum, encoding: :u8
 
   defenum do
-    value(:buy)
-    value(:sell)
+    value(:buy, 0)
+    value(:sell, 1)
   end
 end
 
@@ -13,8 +13,8 @@ defmodule GridCodec.TestSupport.Status do
   use GridCodec.Types.Enum, encoding: :u8
 
   defenum do
-    value(:open)
-    value(:filled)
-    value(:cancelled)
+    value(:open, 0)
+    value(:filled, 1)
+    value(:cancelled, 2)
   end
 end

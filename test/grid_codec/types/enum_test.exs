@@ -131,6 +131,12 @@ defmodule GridCodec.Types.EnumTest do
         OrderSide.to_integer(:unknown)
       end
     end
+
+    test "generated enum types are available" do
+      assert has_type?(GridCodec.TestSupport.Side, :known, 0)
+      assert has_type?(GridCodec.TestSupport.Side, :t, 0)
+      assert has_type?(GridCodec.TestSupport.Side, :encoded, 0)
+    end
   end
 
   describe "roundtrip" do
@@ -146,6 +152,20 @@ defmodule GridCodec.Types.EnumTest do
       binary = OrderSide.encode(nil)
       {decoded, <<>>} = OrderSide.decode(binary)
       assert decoded == nil
+    end
+  end
+
+  defp has_type?(module, type_name, arity) do
+    case Code.Typespec.fetch_types(module) do
+      {:ok, types} ->
+        Enum.any?(types, fn
+          {:type, {^type_name, _type_ast, args}} -> length(args) == arity
+          {_, {^type_name, _type_ast, args}} -> length(args) == arity
+          _ -> false
+        end)
+
+      :error ->
+        false
     end
   end
 end

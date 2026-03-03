@@ -185,7 +185,7 @@ defmodule GridCodec do
 
   ## Custom Types
 
-  Register custom types via the `:types` option:
+  Use custom type modules directly in your field definitions:
 
       defmodule MyApp.Types.Money do
         @behaviour GridCodec.Type
@@ -193,15 +193,45 @@ defmodule GridCodec do
       end
 
       defmodule MyCodec do
-        use GridCodec.Struct, types: [money: MyApp.Types.Money]
+        use GridCodec.Struct
+
+        alias MyApp.Types.Money
 
         defcodec do
-          field :price, :money
+          field :price, Money
         end
       end
 
   See `GridCodec.Type` for the behaviour specification.
   """
+
+  @typedoc """
+  Generic payload binary layout for GridCodec messages (`header: false`).
+
+  This is intentionally broad (`binary()`), because payload size depends on the
+  concrete codec module and whether it has variable-length sections.
+  """
+  @type layout() :: binary()
+
+  @typedoc """
+  Generic framed binary layout for GridCodec messages.
+
+  Framed binaries include at least the 8-byte GridCodec header, followed by a
+  byte-aligned payload.
+  """
+  @type framed_layout() :: <<_::64, _::_*8>>
+
+  @typedoc """
+  Generic struct shape for GridCodec codec structs.
+
+  Concrete codec modules expose a more precise `t()` type.
+  """
+  @type codec_struct() :: %{required(:__struct__) => module(), optional(atom()) => term()}
+
+  @typedoc """
+  Generic GridCodec data type: payload binary, framed binary, or codec struct.
+  """
+  @type codec_data() :: layout() | framed_layout() | codec_struct()
 
   # ============================================================================
   # Field and Group Macros (used by GridCodec.Struct)

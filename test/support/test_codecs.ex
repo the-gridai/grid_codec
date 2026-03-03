@@ -38,3 +38,24 @@ defmodule GridCodec.TestSupport.OrderEventVar do
     field :symbol, :string16
   end
 end
+
+defmodule GridCodec.TestSupport.RequiredTypesStruct do
+  @moduledoc false
+  use GridCodec.Struct, template_id: 603, schema_id: 60
+
+  defcodec do
+    field :id, :uuid, presence: :required
+    field :price, :u64, presence: :required
+    field :quantity, :u32
+  end
+end
+
+defmodule GridCodec.TestSupport.ConstantTypesStruct do
+  @moduledoc false
+  use GridCodec.Struct, template_id: 604, schema_id: 60
+
+  defcodec do
+    field :id, :u64
+    field :version, :u8, presence: :constant, value: 1
+  end
+end

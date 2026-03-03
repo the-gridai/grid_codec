@@ -37,12 +37,15 @@ defmodule GridCodec.Types.Enum do
   ## Using in Codecs
 
       defmodule OrderEvent do
-        use GridCodec.Struct, types: [side: OrderSide, status: OrderStatus]
+        use GridCodec.Struct
+
+        alias MyApp.Types.OrderSide
+        alias MyApp.Types.OrderStatus
 
         defcodec do
           field :id, :u64
-          field :side, :side
-          field :status, :status
+          field :side, OrderSide
+          field :status, OrderStatus
         end
       end
 
@@ -76,12 +79,16 @@ defmodule GridCodec.Types.Enum do
   @doc """
   Behavior callbacks for enum types.
   """
+  @type known_value() :: atom()
+  @type value() :: known_value() | non_neg_integer() | nil
+  @type encoded() :: binary()
+
   @callback values() :: [{atom(), non_neg_integer()}]
   @callback encoding() :: :u8 | :u16 | :u32
-  @callback encode(atom() | non_neg_integer() | nil) :: binary()
-  @callback decode(binary()) :: {atom() | non_neg_integer() | nil, binary()}
-  @callback to_integer(atom()) :: non_neg_integer()
-  @callback to_atom(non_neg_integer()) :: atom() | non_neg_integer()
+  @callback encode(value()) :: encoded()
+  @callback decode(encoded()) :: {value(), binary()}
+  @callback to_integer(known_value()) :: non_neg_integer()
+  @callback to_atom(non_neg_integer()) :: known_value() | non_neg_integer()
 
   @doc false
   defmacro __using__(opts) do
@@ -145,12 +152,43 @@ defmodule GridCodec.Types.Enum do
     encoding = Module.get_attribute(env.module, :enum_encoding)
 
     {size, null_value, encode_spec, decode_spec} = encoding_specs(encoding)
+    known_type_ast = known_union_ast(values)
+    encoded_type_ast = quote(do: <<_::unquote(size * 8)>>)
+    known_names = Enum.map(values, fn {name, _} -> name end)
+    known_names_doc = known_names |> Enum.map(&inspect/1) |> Enum.join(", ")
+
+    value_doc = """
+    Decoded enum value.
+
+    Returns one of:
+    - known enum atom (`known()`)
+    - unknown raw integer (forward-compatible values)
+    - `nil` for the enum null sentinel
+    """
+
+    encoded_doc =
+      "Fixed-width binary representation for this enum encoding. " <>
+        "Encoding: `#{encoding}` (#{size} byte(s), null sentinel #{null_value})."
+
+    encode_spec_little = encode_segment_spec(size, :little)
+    encode_spec_big = encode_segment_spec(size, :big)
+    get_raw_little_ast = get_raw_value_ast(size, :little)
+    get_raw_big_ast = get_raw_value_ast(size, :big)
 
     # Build lookup maps
     to_int_map = Map.new(values)
     to_atom_map = Map.new(values, fn {k, v} -> {v, k} end)
 
     quote do
+      @typedoc "Known enum atoms declared in `defenum`: #{unquote(known_names_doc)}."
+      @type known() :: unquote(known_type_ast)
+
+      @typedoc unquote(value_doc)
+      @type t() :: known() | non_neg_integer() | nil
+
+      @typedoc unquote(encoded_doc)
+      @type encoded() :: unquote(encoded_type_ast)
+
       @impl GridCodec.Types.Enum
       def values, do: unquote(Macro.escape(values))
 
@@ -167,6 +205,7 @@ defmodule GridCodec.Types.Enum do
       def null_value, do: unquote(null_value)
 
       @impl GridCodec.Types.Enum
+      @spec to_integer(known()) :: non_neg_integer()
       def to_integer(name) when is_atom(name) do
         case unquote(Macro.escape(to_int_map)) do
           %{^name => int} -> int
@@ -175,6 +214,7 @@ defmodule GridCodec.Types.Enum do
       end
 
       @impl GridCodec.Types.Enum
+      @spec to_atom(non_neg_integer()) :: known() | non_neg_integer()
       def to_atom(int) when is_integer(int) do
         case unquote(Macro.escape(to_atom_map)) do
           %{^int => name} -> name
@@ -184,6 +224,7 @@ defmodule GridCodec.Types.Enum do
       end
 
       @impl GridCodec.Types.Enum
+      @spec encode(t()) :: encoded()
       def encode(nil), do: <<unquote(null_value)::unquote(encode_spec)>>
 
       def encode(name) when is_atom(name) do
@@ -196,6 +237,7 @@ defmodule GridCodec.Types.Enum do
       end
 
       @impl GridCodec.Types.Enum
+      @spec decode(encoded()) :: {t(), binary()}
       def decode(<<unquote(null_value)::unquote(decode_spec), rest::binary>>) do
         {nil, rest}
       end
@@ -209,18 +251,11 @@ defmodule GridCodec.Types.Enum do
       def encode_ast(field_name, default, endian, data_var) do
         mod = __MODULE__
         null_val = unquote(null_value)
-        sz = unquote(size) * 8
 
-        # Generate binary segment expression (not a binary!)
-        # Must return: integer_expression :: unsigned-endian-size
         encode_spec =
-          case {endian, unquote(size)} do
-            {:little, 1} -> quote do: unsigned - 8
-            {:little, 2} -> quote do: unsigned - little - 16
-            {:little, 4} -> quote do: unsigned - little - 32
-            {:big, 1} -> quote do: unsigned - 8
-            {:big, 2} -> quote do: unsigned - big - 16
-            {:big, 4} -> quote do: unsigned - big - 32
+          case endian do
+            :little -> unquote(Macro.escape(encode_spec_little))
+            :big -> unquote(Macro.escape(encode_spec_big))
           end
 
         quote do
@@ -278,30 +313,9 @@ defmodule GridCodec.Types.Enum do
       @doc false
       def get_value(binary, offset, endian) when is_binary(binary) do
         raw =
-          case {endian, unquote(size)} do
-            {:little, 1} ->
-              <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
-              value
-
-            {:big, 1} ->
-              <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
-              value
-
-            {:little, 2} ->
-              <<_::binary-size(offset), value::unsigned-little-16, _::binary>> = binary
-              value
-
-            {:big, 2} ->
-              <<_::binary-size(offset), value::unsigned-big-16, _::binary>> = binary
-              value
-
-            {:little, 4} ->
-              <<_::binary-size(offset), value::unsigned-little-32, _::binary>> = binary
-              value
-
-            {:big, 4} ->
-              <<_::binary-size(offset), value::unsigned-big-32, _::binary>> = binary
-              value
+          case endian do
+            :little -> unquote(get_raw_little_ast)
+            :big -> unquote(get_raw_big_ast)
           end
 
         case raw do
@@ -335,5 +349,66 @@ defmodule GridCodec.Types.Enum do
 
   defp encoding_specs(:u32) do
     {4, 4_294_967_295, quote(do: little - unsigned - 32), quote(do: little - unsigned - 32)}
+  end
+
+  defp known_union_ast(values) do
+    values
+    |> Enum.map(fn {name, _} -> name end)
+    |> case do
+      [] ->
+        quote(do: atom())
+
+      [single] ->
+        single
+
+      [first | rest] ->
+        Enum.reduce(rest, first, fn atom, acc ->
+          quote(do: unquote(acc) | unquote(atom))
+        end)
+    end
+  end
+
+  defp encode_segment_spec(1, :little), do: quote(do: unsigned - 8)
+  defp encode_segment_spec(1, :big), do: quote(do: unsigned - 8)
+  defp encode_segment_spec(2, :little), do: quote(do: unsigned - little - 16)
+  defp encode_segment_spec(2, :big), do: quote(do: unsigned - big - 16)
+  defp encode_segment_spec(4, :little), do: quote(do: unsigned - little - 32)
+  defp encode_segment_spec(4, :big), do: quote(do: unsigned - big - 32)
+
+  defp get_raw_value_ast(1, :little) do
+    quote do
+      <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
+      value
+    end
+  end
+
+  defp get_raw_value_ast(1, :big), do: get_raw_value_ast(1, :little)
+
+  defp get_raw_value_ast(2, :little) do
+    quote do
+      <<_::binary-size(offset), value::unsigned-little-16, _::binary>> = binary
+      value
+    end
+  end
+
+  defp get_raw_value_ast(2, :big) do
+    quote do
+      <<_::binary-size(offset), value::unsigned-big-16, _::binary>> = binary
+      value
+    end
+  end
+
+  defp get_raw_value_ast(4, :little) do
+    quote do
+      <<_::binary-size(offset), value::unsigned-little-32, _::binary>> = binary
+      value
+    end
+  end
+
+  defp get_raw_value_ast(4, :big) do
+    quote do
+      <<_::binary-size(offset), value::unsigned-big-32, _::binary>> = binary
+      value
+    end
   end
 end

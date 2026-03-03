@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed legacy `:types` option on `use GridCodec.Struct`; custom type modules are now
+  referenced directly in `field/2` (for example `field :side, MyApp.Types.Side`)
+- Improved generated codec typespecs and typedocs:
+  - `t()` now emits more specific field types instead of broad `term()`
+  - Required fields are typed as non-`nil` in generated struct types
+  - `layout()` / `framed_layout()` docs now include compact binary pattern sketches
+  - Added literal return specs for generated constant metadata functions
+
+### Added
+- Generic top-level types on `GridCodec` for app-level specs:
+  - `GridCodec.layout/0`
+  - `GridCodec.framed_layout/0`
+  - `GridCodec.codec_struct/0`
+  - `GridCodec.codec_data/0`
+
+### Docs
+- Updated docs/examples/tests to reflect direct module type usage and current
+  generated typespec behavior
+
 ## [0.10.0] - 2026-03-03
 
 ### Added
