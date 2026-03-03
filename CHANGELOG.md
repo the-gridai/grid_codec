@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-03
+
+### Added
+- **Auto-generated codec typespecs** for `GridCodec.Struct` modules (enabled by default)
+  - `@type t() :: %__MODULE__{}`
+  - `@type layout()` for payload binaries (`header: false`)
+  - `@type framed_layout()` for binaries that include the 8-byte GridCodec header
+- **`generate_typespec: false` option** to disable generated types and let modules
+  provide custom `@type` declarations without conflicts
+
+### Changed
+- Generated `layout()` and `framed_layout()` are now size-aware:
+  - Fixed-size codecs use exact bit-size binary types
+  - Codecs with variable fields/groups use minimum fixed-block size plus byte-aligned tail
+
+### Documentation
+- Updated `GridCodec.Struct` docs with generated type details and the
+  `generate_typespec` option
+- Added Getting Started guide section for auto-generated typespecs and opt-out usage
+- Updated README feature list to include `framed_layout()`
+
+### Tests
+- Added core tests for default type generation, opt-out behavior, and binary type shape
+- Added example app tests that validate generated types in consumer usage, including:
+  - opt-out modules with no generated types
+  - custom user-defined types preserved when generation is disabled
+
 ## [0.9.0] - 2026-03-02
 
 ### Added

@@ -204,6 +204,29 @@ end
 
 This keeps all type behavior resolved at compile time — no runtime dispatch.
 
+## 9) Auto-Generated Typespecs
+
+`use GridCodec.Struct` generates typespecs by default:
+
+```elixir
+@type t() :: %__MODULE__{}
+@type layout() :: <<...>>          # payload (header: false)
+@type framed_layout() :: <<...>>   # with GridCodec header
+```
+
+Disable this behavior with `generate_typespec: false`:
+
+```elixir
+defmodule MyApp.Events.UserCreated do
+  use GridCodec.Struct, template_id: 1, schema_id: 100, generate_typespec: false
+
+  defcodec do
+    field :user_id, :uuid
+    field :score, :u64
+  end
+end
+```
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.

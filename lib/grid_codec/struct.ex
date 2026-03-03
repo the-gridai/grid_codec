@@ -68,6 +68,7 @@ defmodule GridCodec.Struct do
     Used by `__type__/0` and `GridCodec.Registry.lookup_by_type/1` for EventStore integration.
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
+  - `:generate_typespec` - Auto-generate `t()`, `layout()`, and `framed_layout()` types (default: true)
   - `:types` - Custom type modules (default: [])
   - `:grid_file` - Path to `.grid` schema file (optional)
   - `:message` - Message name in schema file (required with `:grid_file`)
@@ -303,6 +304,16 @@ defmodule GridCodec.Struct do
   - `__schema_id__/0` - Returns schema ID
   - `__type__/0` - Returns the stable type name (from `:name` option or module name)
   - `__fields__/0` - Returns list of field names
+
+  ## Generated Types
+
+  By default, `GridCodec.Struct` also emits:
+
+  - `@type t() :: %__MODULE__{}` - Struct type
+  - `@type layout()` - Wire layout payload type (`header: false`)
+  - `@type framed_layout()` - Wire layout including 8-byte GridCodec header
+
+  Pass `generate_typespec: false` to disable automatic type generation.
   """
   defmacro defcodec(do: block) do
     quote do

@@ -14,3 +14,27 @@ defmodule GridCodec.TestSupport.OrderEvent do
     field :timestamp, :timestamp_us
   end
 end
+
+defmodule GridCodec.TestSupport.OrderEventNoTypespec do
+  @moduledoc false
+  use GridCodec.Struct,
+    template_id: 601,
+    schema_id: 60,
+    name: "OrderEventNoTypespec",
+    generate_typespec: false
+
+  defcodec do
+    field :order_id, :uuid
+    field :price, :u64
+  end
+end
+
+defmodule GridCodec.TestSupport.OrderEventVar do
+  @moduledoc false
+  use GridCodec.Struct, template_id: 602, schema_id: 60, name: "OrderEventVar"
+
+  defcodec do
+    field :order_id, :uuid
+    field :symbol, :string16
+  end
+end

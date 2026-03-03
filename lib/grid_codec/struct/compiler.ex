@@ -25,6 +25,7 @@ defmodule GridCodec.Struct.Compiler do
     endian = Keyword.get(opts, :endian, :little)
     custom_types = Keyword.get(opts, :types, []) |> Enum.into(%{})
     align_fields = Keyword.get(opts, :align, false)
+    generate_typespec = Keyword.get(opts, :generate_typespec, true)
 
     # Template ID: explicit or hash of module name
     template_id =
@@ -52,6 +53,9 @@ defmodule GridCodec.Struct.Compiler do
 
     # Calculate offsets
     {field_offsets, block_length} = calculate_offsets(fixed_fields, align_fields)
+    block_bits = block_length * 8
+    has_variable_tail = var_fields != [] or groups != []
+    framed_bits = 64 + block_bits
 
     # Validate :since field ordering (must be non-decreasing in fixed block)
     validate_since_ordering(fixed_fields)
@@ -128,6 +132,31 @@ defmodule GridCodec.Struct.Compiler do
 
       # Generate defstruct
       defstruct unquote(struct_fields)
+
+      if unquote(generate_typespec) do
+        @typedoc "Struct representation for this codec module."
+        @type t() :: %__MODULE__{}
+
+        @typedoc "Binary wire layout for this codec payload (header: false)."
+        @type layout() ::
+                unquote(
+                  if has_variable_tail do
+                    quote(do: <<_::unquote(block_bits), _::_*8>>)
+                  else
+                    quote(do: <<_::unquote(block_bits)>>)
+                  end
+                )
+
+        @typedoc "Binary wire layout including the 8-byte GridCodec header."
+        @type framed_layout() ::
+                unquote(
+                  if has_variable_tail do
+                    quote(do: <<_::unquote(framed_bits), _::_*8>>)
+                  else
+                    quote(do: <<_::unquote(framed_bits)>>)
+                  end
+                )
+      end
 
       # Schema introspection
       def __schema__, do: unquote(Macro.escape(schema))

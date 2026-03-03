@@ -10,6 +10,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Sub-binary sharing** – One encode, many readers with no memory copies
 - **Compile-time code generation** – No runtime reflection overhead
 - **Struct-based API** – Natural Elixir structs with binary serialization
+- **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
 
 ## Installation
 

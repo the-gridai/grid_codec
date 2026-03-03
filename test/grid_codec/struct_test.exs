@@ -192,4 +192,68 @@ defmodule GridCodec.StructTest do
       assert struct.bool_field == true
     end
   end
+
+  describe "typespec generation" do
+    test "generates t/0 and layout/0 types by default" do
+      assert has_type?(GridCodec.TestSupport.OrderEvent, :t, 0)
+      assert has_type?(GridCodec.TestSupport.OrderEvent, :layout, 0)
+      assert has_type?(GridCodec.TestSupport.OrderEvent, :framed_layout, 0)
+    end
+
+    test "can disable generated types with generate_typespec: false" do
+      refute has_type?(GridCodec.TestSupport.OrderEventNoTypespec, :t, 0)
+      refute has_type?(GridCodec.TestSupport.OrderEventNoTypespec, :layout, 0)
+      refute has_type?(GridCodec.TestSupport.OrderEventNoTypespec, :framed_layout, 0)
+    end
+
+    test "fixed-size codecs get exact binary sizes for layout types" do
+      block_bits = GridCodec.TestSupport.OrderEvent.__schema__().block_length * 8
+      framed_bits = block_bits + 64
+
+      assert {:type, _, :binary, [{:integer, _, ^block_bits}, {:integer, _, 0}]} =
+               fetch_type_ast!(GridCodec.TestSupport.OrderEvent, :layout, 0)
+
+      assert {:type, _, :binary, [{:integer, _, ^framed_bits}, {:integer, _, 0}]} =
+               fetch_type_ast!(GridCodec.TestSupport.OrderEvent, :framed_layout, 0)
+    end
+
+    test "variable-size codecs get minimum size plus byte-aligned tail" do
+      block_bits = GridCodec.TestSupport.OrderEventVar.__schema__().block_length * 8
+      framed_bits = block_bits + 64
+
+      assert {:type, _, :binary, [{:integer, _, ^block_bits}, {:integer, _, 8}]} =
+               fetch_type_ast!(GridCodec.TestSupport.OrderEventVar, :layout, 0)
+
+      assert {:type, _, :binary, [{:integer, _, ^framed_bits}, {:integer, _, 8}]} =
+               fetch_type_ast!(GridCodec.TestSupport.OrderEventVar, :framed_layout, 0)
+    end
+  end
+
+  defp has_type?(module, type_name, arity) do
+    fetch_type_ast(module, type_name, arity) != nil
+  end
+
+  defp fetch_type_ast!(module, type_name, arity) do
+    case fetch_type_ast(module, type_name, arity) do
+      nil ->
+        flunk("Could not find type #{inspect(type_name)}/#{arity} in #{inspect(module)}")
+
+      ast ->
+        ast
+    end
+  end
+
+  defp fetch_type_ast(module, type_name, arity) do
+    case Code.Typespec.fetch_types(module) do
+      {:ok, types} ->
+        Enum.find_value(types, fn
+          {:type, {^type_name, type_ast, args}} when length(args) == arity -> type_ast
+          {_, {^type_name, type_ast, args}} when length(args) == arity -> type_ast
+          _ -> nil
+        end)
+
+      :error ->
+        nil
+    end
+  end
 end
