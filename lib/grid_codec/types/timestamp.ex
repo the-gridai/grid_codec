@@ -52,10 +52,14 @@ defmodule GridCodec.Types.TimestampMicros do
 
   @impl true
   def encode_ast(field_name, default, _endian, data_var) do
+    dt_mod = DateTime
+
     quote do
-      GridCodec.Types.TimestampMicros.encode_value(
-        :maps.get(unquote(field_name), unquote(data_var), unquote(default))
-      ) :: binary
+      case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
+        nil -> 0
+        %unquote(dt_mod){} = dt -> unquote(dt_mod).to_unix(dt, :microsecond)
+        n when is_integer(n) -> n
+      end :: little - signed - 64
     end
   end
 
@@ -197,10 +201,14 @@ defmodule GridCodec.Types.TimestampNanos do
 
   @impl true
   def encode_ast(field_name, default, _endian, data_var) do
+    dt_mod = DateTime
+
     quote do
-      GridCodec.Types.TimestampNanos.encode_value(
-        :maps.get(unquote(field_name), unquote(data_var), unquote(default))
-      ) :: binary
+      case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
+        nil -> 0
+        %unquote(dt_mod){} = dt -> unquote(dt_mod).to_unix(dt, :nanosecond)
+        n when is_integer(n) -> n
+      end :: little - signed - 64
     end
   end
 

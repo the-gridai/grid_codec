@@ -305,6 +305,146 @@ defmodule GridCodec.AutoGroupTest do
   end
 
   # ============================================================================
+  # Tests: Custom Enum Types in Groups
+  # ============================================================================
+
+  defmodule TestOrderSide do
+    use GridCodec.Types.Enum, encoding: :u8
+
+    defenum do
+      value(:buy)
+      value(:sell)
+    end
+  end
+
+  defmodule TestOrderStatus do
+    use GridCodec.Types.Enum, encoding: :u8
+
+    defenum do
+      value(:open)
+      value(:filled)
+      value(:cancelled)
+    end
+  end
+
+  defmodule OrdersWithEnum do
+    use GridCodec.Struct, template_id: 810, schema_id: 60, version: 1
+
+    alias GridCodec.AutoGroupTest.TestOrderSide
+
+    defcodec do
+      field :account_id, :uuid
+
+      group :orders do
+        field :order_id, :uuid
+        field :side, TestOrderSide
+        field :price, :u64
+        field :quantity, :u32
+      end
+    end
+  end
+
+  defmodule OrdersWithMultipleEnums do
+    use GridCodec.Struct, template_id: 811, schema_id: 60, version: 1
+
+    alias GridCodec.AutoGroupTest.TestOrderSide
+    alias GridCodec.AutoGroupTest.TestOrderStatus
+
+    defcodec do
+      field :id, :u64
+
+      group :orders do
+        field :side, TestOrderSide
+        field :status, TestOrderStatus
+        field :price, :u64
+      end
+    end
+  end
+
+  describe "custom enum types in groups" do
+    test "enum field in group roundtrips atom values" do
+      uuid = <<1::128>>
+
+      struct = %OrdersWithEnum{
+        account_id: uuid,
+        orders: [
+          %{order_id: <<2::128>>, side: :buy, price: 100, quantity: 10},
+          %{order_id: <<3::128>>, side: :sell, price: 200, quantity: 5}
+        ]
+      }
+
+      binary = OrdersWithEnum.encode(struct)
+      assert {:ok, decoded} = OrdersWithEnum.decode(binary)
+
+      assert decoded.account_id == uuid
+
+      orders = GridCodec.Group.to_list(decoded.orders)
+      assert length(orders) == 2
+
+      o1 = Enum.at(orders, 0)
+      assert o1.order_id == <<2::128>>
+      assert o1.side == :buy
+      assert o1.price == 100
+      assert o1.quantity == 10
+
+      o2 = Enum.at(orders, 1)
+      assert o2.order_id == <<3::128>>
+      assert o2.side == :sell
+      assert o2.price == 200
+      assert o2.quantity == 5
+    end
+
+    test "nil enum value in group entry roundtrips as nil" do
+      struct = %OrdersWithEnum{
+        account_id: <<1::128>>,
+        orders: [
+          %{order_id: <<2::128>>, side: nil, price: 100, quantity: 10}
+        ]
+      }
+
+      binary = OrdersWithEnum.encode(struct)
+      assert {:ok, decoded} = OrdersWithEnum.decode(binary)
+
+      [order] = GridCodec.Group.to_list(decoded.orders)
+      assert order.side == nil
+    end
+
+    test "multiple enum fields in same group" do
+      struct = %OrdersWithMultipleEnums{
+        id: 42,
+        orders: [
+          %{side: :buy, status: :open, price: 100},
+          %{side: :sell, status: :filled, price: 200},
+          %{side: :buy, status: :cancelled, price: 300}
+        ]
+      }
+
+      binary = OrdersWithMultipleEnums.encode(struct)
+      assert {:ok, decoded} = OrdersWithMultipleEnums.decode(binary)
+
+      orders = GridCodec.Group.to_list(decoded.orders)
+      assert length(orders) == 3
+
+      assert Enum.at(orders, 0) == %{side: :buy, status: :open, price: 100}
+      assert Enum.at(orders, 1) == %{side: :sell, status: :filled, price: 200}
+      assert Enum.at(orders, 2) == %{side: :buy, status: :cancelled, price: 300}
+    end
+
+    test "empty group with enum fields" do
+      struct = %OrdersWithEnum{
+        account_id: <<1::128>>,
+        orders: []
+      }
+
+      binary = OrdersWithEnum.encode(struct)
+      assert {:ok, decoded} = OrdersWithEnum.decode(binary)
+
+      assert GridCodec.Group.count(decoded.orders) == 0
+      assert GridCodec.Group.to_list(decoded.orders) == []
+    end
+  end
+
+  # ============================================================================
   # Tests: Compile-Time Validation
   # ============================================================================
 

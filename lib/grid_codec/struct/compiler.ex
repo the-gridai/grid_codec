@@ -807,19 +807,31 @@ defmodule GridCodec.Struct.Compiler do
 
         encoder_fn = generate_auto_entry_encoder(name, resolved, endian)
         decoder_fn = generate_auto_entry_decoder(name, resolved, endian)
+        batch_encoder_fn = generate_auto_batch_encoder(name, resolved, endian)
+        batch_decoder_fn = generate_auto_batch_decoder(name, resolved, endian)
 
         encoder_fn_name = :"__encode_#{name}_entry__"
         decoder_fn_name = :"__decode_#{name}_entry__"
+        batch_encoder_fn_name = :"__encode_#{name}_group__"
+        batch_decoder_fn_name = :"__decode_all_#{name}__"
 
         encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
         decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+        batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
+
+        block_length =
+          Enum.reduce(resolved, 0, fn {_, _, mod, _}, acc -> acc + mod.size() end)
 
         updated_opts =
           opts
           |> Keyword.put(:entry_encoder, encoder_capture)
           |> Keyword.put(:entry_decoder, decoder_capture)
+          |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+          |> Keyword.put(:batch_decoder, batch_decoder_capture)
+          |> Keyword.put(:block_length, block_length)
 
-        {{name, block, updated_opts}, acc_fns ++ [encoder_fn, decoder_fn]}
+        {{name, block, updated_opts},
+         acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
       end
     end)
   end
@@ -856,6 +868,38 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
+  # Generates a consolidated group encoder: direct local calls to the entry
+  # encoder (JIT-inlineable), no function captures, no anonymous wrappers.
+  defp generate_auto_batch_encoder(group_name, resolved_fields, _endian) do
+    group_fn = :"__encode_#{group_name}_group__"
+    loop_fn = :"__encode_#{group_name}_list__"
+    entry_fn = :"__encode_#{group_name}_entry__"
+
+    block_length =
+      Enum.reduce(resolved_fields, 0, fn {_, _, mod, _}, acc -> acc + mod.size() end)
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<0::little-16, 0::little-16>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        iodata = unquote(loop_fn)(entries)
+
+        :erlang.iolist_to_binary([
+          <<unquote(block_length)::little-16, count::little-16>> | iodata
+        ])
+      end
+
+      defp unquote(loop_fn)([]), do: []
+
+      defp unquote(loop_fn)([entry | rest]) do
+        [unquote(entry_fn)(entry) | unquote(loop_fn)(rest)]
+      end
+    end
+  end
+
   defp generate_auto_entry_decoder(group_name, resolved_fields, endian) do
     fn_name = :"__decode_#{group_name}_entry__"
 
@@ -882,6 +926,42 @@ defmodule GridCodec.Struct.Compiler do
     quote do
       defp unquote(fn_name)(<<unquote_splicing(patterns)>>) do
         {:ok, %{unquote_splicing(result_pairs)}}
+      end
+    end
+  end
+
+  # Generates a recursive batch decoder that pattern-matches all fields
+  # directly from the binary. No sub-binary, no dynamic dispatch, no {:ok, ...}
+  # tuple — maximum JIT throughput.
+  defp generate_auto_batch_decoder(group_name, resolved_fields, endian) do
+    fn_name = :"__decode_all_#{group_name}__"
+
+    patterns =
+      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+        var = Macro.var(name, __MODULE__)
+        module.decode_pattern_ast(var, endian)
+      end)
+
+    result_pairs =
+      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+        var = Macro.var(name, __MODULE__)
+
+        value_ast =
+          if function_exported?(module, :decode_value_ast, 1) do
+            module.decode_value_ast(var)
+          else
+            var
+          end
+
+        {name, value_ast}
+      end)
+
+    quote do
+      defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
+
+      defp unquote(fn_name)(<<unquote_splicing(patterns), rest::binary>>, acc) do
+        entry = %{unquote_splicing(result_pairs)}
+        unquote(fn_name)(rest, [entry | acc])
       end
     end
   end
@@ -925,17 +1005,12 @@ defmodule GridCodec.Struct.Compiler do
   # Generate a struct-specific encoder that pattern matches directly on struct fields
   # This avoids the overhead of Map.from_struct() and provides optimal performance
   defp generate_struct_encoder(fixed_fields, var_fields, groups, endian, struct_module) do
-    # Check if we have required field validation
     has_required =
       Enum.any?(fixed_fields ++ var_fields, fn {_, _, _, opts} ->
         Keyword.get(opts, :presence) == :required
       end)
 
-    # We can use fast path for:
-    # - No required fields (no validation needed)
-    # - No groups (groups need special handling)
-    # - With or without var_fields (we now handle those!)
-    can_use_fast_path = not has_required and groups == []
+    can_use_fast_path = not has_required
 
     non_constant_fixed_fields =
       Enum.reject(fixed_fields, fn {_, _, _, opts} ->
@@ -947,9 +1022,19 @@ defmodule GridCodec.Struct.Compiler do
         Keyword.get(opts, :default) != nil
       end)
 
-    if can_use_fast_path and
-         (not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)) do
-      if has_defaults do
+    has_fields = not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)
+
+    cond do
+      can_use_fast_path and groups != [] ->
+        generate_struct_encoder_with_groups(
+          fixed_fields,
+          var_fields,
+          groups,
+          endian,
+          struct_module
+        )
+
+      can_use_fast_path and has_fields and has_defaults ->
         generate_struct_encoder_with_defaults(
           fixed_fields,
           var_fields,
@@ -957,7 +1042,8 @@ defmodule GridCodec.Struct.Compiler do
           endian,
           struct_module
         )
-      else
+
+      can_use_fast_path and has_fields ->
         generate_struct_encoder_direct(
           fixed_fields,
           var_fields,
@@ -965,15 +1051,14 @@ defmodule GridCodec.Struct.Compiler do
           endian,
           struct_module
         )
-      end
-    else
-      # Fall back to map-based encoding for complex codecs with groups or required fields
-      quote do
-        defp encode_payload(%unquote(struct_module){} = struct) do
-          data = Map.from_struct(struct)
-          encode_map(data)
+
+      true ->
+        quote do
+          defp encode_payload(%unquote(struct_module){} = struct) do
+            data = Map.from_struct(struct)
+            encode_map(data)
+          end
         end
-      end
     end
   end
 
@@ -1132,6 +1217,98 @@ defmodule GridCodec.Struct.Compiler do
           var_data = unquote(var_encoding_ast)
           <<fixed_block::binary, var_data::binary>>
         end
+      end
+    end
+  end
+
+  # Struct encoder that pattern-matches fields directly, avoiding Map.from_struct.
+  # Handles fixed fields, groups, and optionally var fields in one function.
+  defp generate_struct_encoder_with_groups(
+         fixed_fields,
+         var_fields,
+         groups,
+         endian,
+         struct_module
+       ) do
+    struct_var = Macro.var(:__struct__, __MODULE__)
+
+    var_pattern_pairs =
+      for {name, _, _, _} <- var_fields do
+        {name, Macro.var(name, __MODULE__)}
+      end
+
+    struct_pattern =
+      if var_fields == [] do
+        quote do: %unquote(struct_module){} = unquote(struct_var)
+      else
+        quote do:
+                %unquote(struct_module){unquote_splicing(var_pattern_pairs)} = unquote(struct_var)
+      end
+
+    fixed_binary_parts =
+      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
+        presence = Keyword.get(opts, :presence, :optional)
+        const_value = Keyword.get(opts, :value)
+        null_value = module.null_value()
+
+        case presence do
+          :constant ->
+            module.encode_ast(
+              name,
+              const_value,
+              endian,
+              quote(do: %{unquote(name) => unquote(const_value)})
+            )
+
+          _ ->
+            module.encode_ast(name, null_value, endian, struct_var)
+        end
+      end)
+
+    fixed_binary_ast =
+      if fixed_binary_parts == [] do
+        quote do: <<>>
+      else
+        quote do: <<unquote_splicing(fixed_binary_parts)>>
+      end
+
+    group_encodings =
+      Enum.map(groups, fn {name, _block, opts} ->
+        encode_single_group_ast(name, opts, struct_var)
+      end)
+
+    body =
+      cond do
+        var_fields == [] and length(groups) == 1 ->
+          [group_enc] = group_encodings
+
+          quote do
+            fixed_block = unquote(fixed_binary_ast)
+            groups_bin = unquote(group_enc)
+            <<fixed_block::binary, groups_bin::binary>>
+          end
+
+        var_fields == [] ->
+          quote do
+            fixed_block = unquote(fixed_binary_ast)
+            groups_bin = :erlang.iolist_to_binary([unquote_splicing(group_encodings)])
+            <<fixed_block::binary, groups_bin::binary>>
+          end
+
+        true ->
+          var_encoding_ast = generate_inline_var_encoder(var_fields)
+
+          quote do
+            fixed_block = unquote(fixed_binary_ast)
+            groups_bin = :erlang.iolist_to_binary([unquote_splicing(group_encodings)])
+            var_data = unquote(var_encoding_ast)
+            <<fixed_block::binary, groups_bin::binary, var_data::binary>>
+          end
+      end
+
+    quote do
+      defp encode_payload(unquote(struct_pattern)) do
+        unquote(body)
       end
     end
   end
@@ -1305,22 +1482,46 @@ defmodule GridCodec.Struct.Compiler do
   defp generate_group_encoder(groups, data_var) do
     encodings =
       Enum.map(groups, fn {name, _block, opts} ->
-        entry_encoder = Keyword.get(opts, :entry_encoder)
-
-        if entry_encoder do
-          quote do
-            entries = :maps.get(unquote(name), unquote(data_var), [])
-            GridCodec.Group.encode(entries, unquote(entry_encoder))
-          end
-        else
-          quote do
-            :maps.get(unquote(name), unquote(data_var), <<0::little-16, 0::little-16>>)
-          end
-        end
+        encode_single_group_ast(name, opts, data_var)
       end)
 
     quote do
-      IO.iodata_to_binary([unquote_splicing(encodings)])
+      :erlang.iolist_to_binary([unquote_splicing(encodings)])
+    end
+  end
+
+  defp encode_single_group_ast(name, opts, data_var) do
+    batch_encoder = Keyword.get(opts, :batch_encoder)
+    entry_encoder = Keyword.get(opts, :entry_encoder)
+    block_length = Keyword.get(opts, :block_length)
+
+    cond do
+      batch_encoder ->
+        quote do
+          unquote(batch_encoder)(:maps.get(unquote(name), unquote(data_var), []))
+        end
+
+      entry_encoder && block_length ->
+        quote do
+          GridCodec.Group.encode_fast(
+            :maps.get(unquote(name), unquote(data_var), []),
+            unquote(entry_encoder),
+            unquote(block_length)
+          )
+        end
+
+      entry_encoder ->
+        quote do
+          GridCodec.Group.encode(
+            :maps.get(unquote(name), unquote(data_var), []),
+            unquote(entry_encoder)
+          )
+        end
+
+      true ->
+        quote do
+          :maps.get(unquote(name), unquote(data_var), <<0::little-16, 0::little-16>>)
+        end
     end
   end
 
@@ -1390,7 +1591,6 @@ defmodule GridCodec.Struct.Compiler do
         {name, value_ast}
       end)
 
-    group_decoding = generate_group_decoder(groups)
     var_decoding = generate_var_decoder(var_fields)
 
     if fixed_patterns == [] and groups == [] and var_fields == [] do
@@ -1416,21 +1616,22 @@ defmodule GridCodec.Struct.Compiler do
             end
 
           var_fields == [] ->
+            {group_steps, group_pairs, _final_rest} = generate_inline_group_steps(groups)
+
             quote do
-              fixed_map = %{unquote_splicing(fixed_result_pairs)}
-              {groups_map, _groups_rest} = unquote(group_decoding)
-              Map.merge(fixed_map, groups_map)
+              unquote_splicing(group_steps)
+              %{unquote_splicing(fixed_result_pairs ++ group_pairs)}
             end
 
           true ->
-            quote do
-              fixed_map = %{unquote_splicing(fixed_result_pairs)}
-              {groups_map, var_rest} = unquote(group_decoding)
-              {var_map, _final_rest} = unquote(var_decoding)
+            {group_steps, group_pairs, group_final_rest} = generate_inline_group_steps(groups)
 
-              fixed_map
-              |> Map.merge(groups_map)
-              |> Map.merge(var_map)
+            quote do
+              unquote_splicing(group_steps)
+              fixed_map = %{unquote_splicing(fixed_result_pairs ++ group_pairs)}
+              var_rest = unquote(group_final_rest)
+              {var_map, _final_rest} = unquote(var_decoding)
+              Map.merge(fixed_map, var_map)
             end
         end
 
@@ -1477,9 +1678,6 @@ defmodule GridCodec.Struct.Compiler do
         {name, value_ast}
       end)
 
-    group_decoding = generate_group_decoder(groups)
-    var_decoding = generate_var_decoder(var_fields)
-
     if fixed_patterns == [] and groups == [] and var_fields == [] do
       quote do
         if binary == <<>> do
@@ -1489,36 +1687,51 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
     else
-      # Generate result based on field types
       result_ast =
         cond do
           groups == [] and var_fields == [] ->
-            # Most common case - build struct directly (no intermediate map!)
             quote do: %unquote(struct_module){unquote_splicing(fixed_result_pairs)}
 
           groups == [] ->
-            # Fixed + var fields: decode var fields inline, build struct directly
             generate_inline_var_struct_decoder(fixed_result_pairs, var_fields, struct_module)
 
           var_fields == [] ->
-            # Fixed + groups: use Enum.reduce for groups (they're complex)
+            {group_steps, group_pairs, _final_rest} = generate_inline_group_steps(groups)
+
             quote do
-              fixed_map = %{unquote_splicing(fixed_result_pairs)}
-              {groups_map, _groups_rest} = unquote(group_decoding)
-              struct!(unquote(struct_module), Map.merge(fixed_map, groups_map))
+              unquote_splicing(group_steps)
+              %unquote(struct_module){unquote_splicing(fixed_result_pairs ++ group_pairs)}
             end
 
           true ->
-            # All three: groups need Enum.reduce, but we can still optimize var fields
-            quote do
-              fixed_map = %{unquote_splicing(fixed_result_pairs)}
-              {groups_map, var_rest} = unquote(group_decoding)
-              {var_map, _final_rest} = unquote(var_decoding)
+            {group_steps, group_pairs, group_final_rest} = generate_inline_group_steps(groups)
 
-              struct!(
-                unquote(struct_module),
-                fixed_map |> Map.merge(groups_map) |> Map.merge(var_map)
-              )
+            {var_bindings, _var_final_rest} =
+              Enum.reduce(var_fields, {[], group_final_rest}, fn {name, type, _module, _opts},
+                                                                 {bindings, r_var} ->
+                value_var = Macro.var(name, __MODULE__)
+                new_rest_var = Macro.var(:"__rest_var_#{name}__", __MODULE__)
+                decode_call = var_decode_ast(type, r_var)
+
+                binding =
+                  quote do
+                    {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
+                  end
+
+                {bindings ++ [binding], new_rest_var}
+              end)
+
+            var_pairs =
+              for {name, _type, _module, _opts} <- var_fields do
+                {name, Macro.var(name, __MODULE__)}
+              end
+
+            all_pairs = fixed_result_pairs ++ group_pairs ++ var_pairs
+
+            quote do
+              unquote_splicing(group_steps)
+              unquote_splicing(var_bindings)
+              %unquote(struct_module){unquote_splicing(all_pairs)}
             end
         end
 
@@ -1591,44 +1804,38 @@ defmodule GridCodec.Struct.Compiler do
   defp var_decode_ast(_type, rest_var),
     do: quote(do: GridCodec.Types.String.decode16(unquote(rest_var)))
 
-  defp generate_group_decoder([]) do
-    quote do
-      {%{}, rest}
-    end
-  end
+  # Generates inline group parsing steps and returns components for
+  # direct struct construction (no intermediate map).
+  defp generate_inline_group_steps(groups) do
+    {steps, final_rest_var, group_pairs} =
+      Enum.reduce(groups, {[], quote(do: rest), []}, fn {name, _block, opts},
+                                                        {steps, rest_var, pairs} ->
+        decoder = Keyword.get(opts, :entry_decoder) || quote(do: fn b -> {:ok, b} end)
+        batch_decoder = Keyword.get(opts, :batch_decoder)
+        group_var = Macro.var(:"__grp_#{name}__", __MODULE__)
+        new_rest = Macro.var(:"__rest_#{name}__", __MODULE__)
 
-  defp generate_group_decoder(groups) do
-    decode_steps =
-      Enum.map(groups, fn {name, _block, opts} ->
-        entry_decoder = Keyword.get(opts, :entry_decoder)
+        step =
+          if batch_decoder do
+            quote do
+              {unquote(group_var), unquote(new_rest)} =
+                GridCodec.Group.parse_with_rest!(
+                  unquote(rest_var),
+                  unquote(decoder),
+                  unquote(batch_decoder)
+                )
+            end
+          else
+            quote do
+              {unquote(group_var), unquote(new_rest)} =
+                GridCodec.Group.parse_with_rest!(unquote(rest_var), unquote(decoder))
+            end
+          end
 
-        if entry_decoder do
-          quote do
-            {unquote(name), unquote(entry_decoder)}
-          end
-        else
-          quote do
-            {unquote(name), fn entry_binary -> {:ok, entry_binary} end}
-          end
-        end
+        {steps ++ [step], new_rest, pairs ++ [{name, group_var}]}
       end)
 
-    quote do
-      Enum.reduce(
-        unquote(decode_steps),
-        {%{}, rest},
-        fn {name, decoder}, {acc, binary} ->
-          case GridCodec.Group.parse(binary, decoder) do
-            {:ok, group} ->
-              group_rest = GridCodec.Group.rest(group)
-              {Map.put(acc, name, group), group_rest}
-
-            {:error, reason} ->
-              raise "Failed to decode group #{inspect(name)}: #{inspect(reason)}"
-          end
-        end
-      )
-    end
+    {steps, group_pairs, final_rest_var}
   end
 
   defp generate_var_decoder([]) do

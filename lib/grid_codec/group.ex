@@ -112,10 +112,18 @@ defmodule GridCodec.Group do
           num_in_group: non_neg_integer(),
           block_length: non_neg_integer(),
           entries_offset: non_neg_integer(),
-          entry_decoder: (binary() -> {:ok, map()} | {:error, term()})
+          entry_decoder: (binary() -> {:ok, map()} | {:error, term()}),
+          batch_decoder: (binary(), [map()] -> [map()]) | nil
         }
 
-  defstruct [:binary, :num_in_group, :block_length, :entries_offset, :entry_decoder]
+  defstruct [
+    :binary,
+    :num_in_group,
+    :block_length,
+    :entries_offset,
+    :entry_decoder,
+    :batch_decoder
+  ]
 
   # ============================================================================
   # Encoding
@@ -196,6 +204,25 @@ defmodule GridCodec.Group do
     end
   end
 
+  @doc """
+  Fast encoding for auto-generated groups where block_length is known at compile time.
+
+  Skips per-entry size validation and first-entry double-encoding.
+  Uses single-pass count+encode via `:lists.mapfoldl`.
+  """
+  @spec encode_fast(list(), (term() -> binary()), pos_integer()) :: binary()
+  def encode_fast([], _entry_encoder, _block_length) do
+    <<0::little-16, 0::little-16>>
+  end
+
+  def encode_fast(entries, entry_encoder, block_length)
+      when is_list(entries) and is_function(entry_encoder, 1) do
+    {encoded, count} =
+      :lists.mapfoldl(fn entry, n -> {entry_encoder.(entry), n + 1} end, 0, entries)
+
+    :erlang.iolist_to_binary([<<block_length::little-16, count::little-16>> | encoded])
+  end
+
   # ============================================================================
   # Parsing
   # ============================================================================
@@ -268,6 +295,66 @@ defmodule GridCodec.Group do
            entry_decoder: entry_decoder
          }}
     end
+  end
+
+  @doc """
+  Parses a group and returns `{group, rest_binary}` in one call.
+
+  Raises on malformed data. Used by auto-generated decoders where the
+  binary format is trusted.
+  """
+  @spec parse_with_rest!(binary(), (binary() -> {:ok, map()} | {:error, term()})) ::
+          {t(), binary()}
+  def parse_with_rest!(binary, _entry_decoder) when byte_size(binary) < @header_size do
+    raise ArgumentError,
+          "Group binary too short: #{byte_size(binary)} bytes, need #{@header_size}"
+  end
+
+  def parse_with_rest!(
+        <<block_length::little-16, num_in_group::little-16, rest::binary>> = binary,
+        entry_decoder
+      ) do
+    parse_with_rest!(binary, block_length, num_in_group, rest, entry_decoder, nil)
+  end
+
+  @doc """
+  Like `parse_with_rest!/2` but also stores a batch decoder for fast `to_list`.
+
+  The batch decoder is a `(binary, acc) -> [map()]` function that decodes
+  all entries in a single pass without per-entry sub-binary allocation.
+  """
+  @spec parse_with_rest!(
+          binary(),
+          (binary() -> {:ok, map()} | {:error, term()}),
+          (binary(), [map()] -> [map()])
+        ) :: {t(), binary()}
+  def parse_with_rest!(
+        <<block_length::little-16, num_in_group::little-16, rest::binary>> = binary,
+        entry_decoder,
+        batch_decoder
+      ) do
+    parse_with_rest!(binary, block_length, num_in_group, rest, entry_decoder, batch_decoder)
+  end
+
+  defp parse_with_rest!(binary, block_length, num_in_group, rest, entry_decoder, batch_decoder) do
+    total_data = num_in_group * block_length
+
+    if byte_size(rest) < total_data do
+      raise ArgumentError,
+            "Insufficient group data: need #{total_data} bytes, have #{byte_size(rest)}"
+    end
+
+    group = %__MODULE__{
+      binary: binary,
+      num_in_group: num_in_group,
+      block_length: block_length,
+      entries_offset: @header_size,
+      entry_decoder: entry_decoder,
+      batch_decoder: batch_decoder
+    }
+
+    group_rest = binary_part(rest, total_data, byte_size(rest) - total_data)
+    {group, group_rest}
   end
 
   @doc """
@@ -410,10 +497,43 @@ defmodule GridCodec.Group do
   @doc """
   Decodes all entries into a list.
 
-  Use sparingly - prefer lazy iteration for large groups.
+  Uses sequential binary walking for maximum throughput.
+  Prefer lazy iteration via `stream/1` for large groups when
+  you don't need all entries.
   """
   @spec to_list(t()) :: [map()]
-  def to_list(group), do: map(group, & &1)
+  def to_list(%__MODULE__{num_in_group: 0}), do: []
+
+  def to_list(%__MODULE__{
+        batch_decoder: batch_fn,
+        binary: binary,
+        num_in_group: n,
+        block_length: bl,
+        entries_offset: offset
+      })
+      when is_function(batch_fn, 2) do
+    data = binary_part(binary, offset, n * bl)
+    batch_fn.(data, [])
+  end
+
+  def to_list(%__MODULE__{
+        binary: binary,
+        num_in_group: n,
+        block_length: bl,
+        entries_offset: offset,
+        entry_decoder: decoder
+      }) do
+    data = binary_part(binary, offset, n * bl)
+    decode_all_sequential(data, bl, decoder, [])
+  end
+
+  defp decode_all_sequential(<<>>, _bl, _decoder, acc), do: :lists.reverse(acc)
+
+  defp decode_all_sequential(data, bl, decoder, acc) do
+    <<entry::binary-size(bl), rest::binary>> = data
+    {:ok, decoded} = decoder.(entry)
+    decode_all_sequential(rest, bl, decoder, [decoded | acc])
+  end
 
   # ============================================================================
   # Utilities

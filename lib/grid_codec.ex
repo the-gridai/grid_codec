@@ -318,8 +318,16 @@ defmodule GridCodec do
       |> Enum.take(10)
   """
   defmacro group(name, opts \\ [], do: block) do
+    caller = __CALLER__
+
+    expanded_block =
+      Macro.prewalk(block, fn
+        {:__aliases__, _, _} = node -> Macro.expand(node, caller)
+        other -> other
+      end)
+
     quote do
-      @gridcodec_groups {unquote(name), unquote(Macro.escape(block)), unquote(opts)}
+      @gridcodec_groups {unquote(name), unquote(Macro.escape(expanded_block)), unquote(opts)}
     end
   end
 

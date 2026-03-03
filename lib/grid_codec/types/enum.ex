@@ -268,19 +268,26 @@ defmodule GridCodec.Types.Enum do
       end
 
       @impl GridCodec.Type
-      def decode_pattern_ast(var, _endian) do
-        sz = unquote(size)
-        # Return the raw bytes, we'll convert in decode_value_ast
-        quote do: unquote(var) :: binary - size(unquote(sz))
+      def decode_pattern_ast(var, endian) do
+        decode_spec =
+          case endian do
+            :little -> unquote(Macro.escape(encode_spec_little))
+            :big -> unquote(Macro.escape(encode_spec_big))
+          end
+
+        quote do: unquote(var) :: unquote(decode_spec)
       end
 
       @impl GridCodec.Type
       def decode_value_ast(var) do
+        null = unquote(null_value)
         mod = __MODULE__
 
         quote do
-          {value, ""} = unquote(mod).decode(unquote(var))
-          value
+          case unquote(var) do
+            unquote(null) -> nil
+            int -> unquote(mod).to_atom(int)
+          end
         end
       end
 

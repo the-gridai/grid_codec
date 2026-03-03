@@ -27,6 +27,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.11.0] - 2026-03-04
+
+### Added
+- **Custom types in groups**: Module aliases (enums, bitsets, char arrays, any
+  `GridCodec.Type` implementation) now resolve correctly inside `group do` blocks
+- **`:positive_decimal` type**: Optimized decimal for non-negative values (prices,
+  quantities, balances). Skips sign handling on encode/decode. Wire-compatible
+  with `:decimal` for positive values
+- **`Group.encode_fast/3`**: Fast encoding with compile-time block length — skips
+  per-entry size validation, single-pass count+encode via `:lists.mapfoldl`
+- **`Group.parse_with_rest!/2,3`**: Combined parse + rest extraction in one call
+- **Inline batch decoder**: Auto-generated `__decode_all_<group>__/2` function that
+  pattern-matches all fields directly from the binary in a single recursive loop.
+  No sub-binary allocation, no dynamic dispatch, no `{:ok, ...}` tuple per entry.
+  Used automatically by `Group.to_list/1`
+- **Inline batch encoder**: Auto-generated `__encode_<group>_group__/1` with direct
+  local function calls to the entry encoder (JIT-inlineable), replacing anonymous
+  function wrappers and dynamic captures
+
+### Changed
+- **Group encoding pipeline**: Struct encoder fast path now enabled for codecs with
+  groups (previously fell back to `Map.from_struct`). Compile-time block length
+  eliminates runtime size discovery
+- **Group decoding pipeline**: Inline sequential parsing replaces `Enum.reduce` over
+  runtime lists. Struct decoder builds the struct directly with all fields
+  (fixed + groups + var) in a single literal — no `Map.merge` + `struct!`
+- **`Group.to_list/1`**: Uses sequential binary walking instead of per-index access
+  with bounds checking. When batch decoder is available, dispatches to it for
+  maximum throughput
+- **Decimal encode inlined**: `encode_ast` now generates inline `case` expressions
+  that pattern-match `%Decimal{}` directly into binary segments, eliminating
+  `encode_value/1` and `from_decimal/1` function calls and tuple allocation
+- **Enum decode optimized**: `decode_pattern_ast` now extracts integers directly
+  from binary patterns (not sub-binaries), and `decode_value_ast` calls
+  `to_atom/1` directly instead of going through `decode/1` + tuple destructure
+- **Timestamp encode inlined**: Integer timestamps write directly into the outer
+  binary segment (`:: little-signed-64`) with no intermediate 8-byte binary
+
+### Performance (TradingPeriodSettled shape, 5k users + 50k orders)
+
+| Operation | v0.10.0 | v0.11.0 | Improvement |
+|-----------|---------|---------|-------------|
+| Encode | 38.8 ms / 17.0 MB | 33.8 ms / 9.4 MB | 1.15x faster, -45% memory |
+| Decode+list | 56.2 ms / 49.2 MB | 25.0 ms / 30.1 MB | 2.25x faster, -39% memory |
+| Full roundtrip | 90.5 ms / 66.6 MB | 64.6 ms / 40.7 MB | 1.40x faster, -39% memory |
+| Lazy decode | 150 ns / 536 B | 249 ns / 1.16 KB | O(1) regardless of size |
+
 ## [0.10.0] - 2026-03-03
 
 ### Added

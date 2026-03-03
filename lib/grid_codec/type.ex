@@ -278,6 +278,7 @@ defmodule GridCodec.Type do
       string32: GridCodec.Types.String32,
       # Composite types
       decimal: GridCodec.Types.Decimal,
+      positive_decimal: GridCodec.Types.PositiveDecimal,
       # Timestamps (i64)
       timestamp_us: GridCodec.Types.TimestampMicros,
       timestamp_ns: GridCodec.Types.TimestampNanos

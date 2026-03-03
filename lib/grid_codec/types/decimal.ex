@@ -57,20 +57,47 @@ defmodule GridCodec.Types.Decimal do
 
   @impl true
   def encode_ast(field_name, default, _endian, data_var) do
-    # Return a binary value that will be concatenated
+    null_m = @null_mantissa
+    dec_mod = Decimal
+
     quote do
-      GridCodec.Types.Decimal.encode_value(
-        :maps.get(unquote(field_name), unquote(data_var), unquote(default))
-      ) :: binary
+      case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
+        nil ->
+          <<unquote(null_m)::little-signed-64, 0::signed-8>>
+
+        %unquote(dec_mod){coef: :NaN} ->
+          <<unquote(null_m)::little-signed-64, 0::signed-8>>
+
+        %unquote(dec_mod){coef: :inf} ->
+          <<unquote(null_m)::little-signed-64, 0::signed-8>>
+
+        %unquote(dec_mod){sign: 1, coef: coef, exp: exp} ->
+          <<coef::little-signed-64, exp::signed-8>>
+
+        %unquote(dec_mod){coef: coef, exp: exp} ->
+          <<-coef::little-signed-64, exp::signed-8>>
+
+        {m, e} when is_integer(m) and is_integer(e) ->
+          <<m::little-signed-64, e::signed-8>>
+
+        n when is_integer(n) ->
+          <<n::little-signed-64, 0::signed-8>>
+      end :: binary - size(9)
     end
   end
 
   @doc false
   def encode_value(nil), do: <<@null_mantissa::little-signed-64, 0::signed-8>>
 
-  def encode_value(%Decimal{} = d) do
-    {mantissa, exponent} = from_decimal(d)
-    <<mantissa::little-signed-64, exponent::signed-8>>
+  def encode_value(%Decimal{coef: :NaN}), do: <<@null_mantissa::little-signed-64, 0::signed-8>>
+  def encode_value(%Decimal{coef: :inf}), do: <<@null_mantissa::little-signed-64, 0::signed-8>>
+
+  def encode_value(%Decimal{sign: 1, coef: coef, exp: exp}) when is_integer(coef) do
+    <<coef::little-signed-64, exp::signed-8>>
+  end
+
+  def encode_value(%Decimal{coef: coef, exp: exp}) when is_integer(coef) do
+    <<-coef::little-signed-64, exp::signed-8>>
   end
 
   def encode_value({m, e}) when is_integer(m) and is_integer(e) do
