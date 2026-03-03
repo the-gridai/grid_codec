@@ -389,41 +389,37 @@ defmodule GridCodec.Types.Bitset do
         from_integer(integer)
       end
 
-      # GridCodec.Type implementation
+      # GridCodec.Type implementation — inlined, no IIFE wrappers
       @impl GridCodec.Type
       def encode_ast(name, _default, endian, data_var) do
-        # Generate proper binary segment specifier based on size
-        # Use separate case on endian only to avoid type checker warnings
+        mod = __MODULE__
         encode_spec = unquote(__MODULE__).__encode_spec__(@bitset_size, endian)
 
         quote do
-          (fn ->
-             flags = :maps.get(unquote(name), unquote(data_var), nil) || MapSet.new()
-             unquote(__MODULE__).to_integer(flags)
-           end).() :: unquote(encode_spec)
+          case :maps.get(unquote(name), unquote(data_var), nil) do
+            nil -> 0
+            flags -> unquote(mod).to_integer(flags)
+          end :: unquote(encode_spec)
         end
       end
 
       @impl GridCodec.Type
       def decode_pattern_ast(var, endian) do
-        # Generate proper binary segment specifier based on size
         decode_spec = unquote(__MODULE__).__decode_spec__(@bitset_size, endian)
-
-        quote do
-          unquote(var) :: unquote(decode_spec)
-        end
+        quote do: unquote(var) :: unquote(decode_spec)
       end
 
       @impl GridCodec.Type
       def decode_value_ast(var) do
+        mod = __MODULE__
+
         quote do
-          unquote(__MODULE__).from_integer(unquote(var))
+          unquote(mod).from_integer(unquote(var))
         end
       end
 
       @impl GridCodec.Type
       def getter_ast(offset, endian, payload_var) do
-        # Generate proper binary segment specifier based on size
         unquote(__MODULE__).__getter_body__(@bitset_size, endian, offset, payload_var, __MODULE__)
       end
 

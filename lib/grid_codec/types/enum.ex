@@ -175,9 +175,37 @@ defmodule GridCodec.Types.Enum do
     get_raw_little_ast = get_raw_value_ast(size, :little)
     get_raw_big_ast = get_raw_value_ast(size, :big)
 
-    # Build lookup maps
-    to_int_map = Map.new(values)
-    to_atom_map = Map.new(values, fn {k, v} -> {v, k} end)
+    # Lookup maps kept for backward compatibility (public encode/decode API)
+    _to_int_map = Map.new(values)
+    _to_atom_map = Map.new(values, fn {k, v} -> {v, k} end)
+
+    # Pre-build inline case clauses for encode_ast and decode_value_ast.
+    # These turn atom↔int conversion into direct comparisons (JIT jump tables)
+    # instead of runtime function calls + map lookups.
+    encode_atom_clauses =
+      for {atom_name, int_val} <- values do
+        {:->, [], [[atom_name], int_val]}
+      end
+
+    decode_int_clauses =
+      for {atom_name, int_val} <- values do
+        {:->, [], [[int_val], atom_name]}
+      end
+
+    # Pattern-matched function clauses for to_integer/to_atom
+    to_int_fn_clauses =
+      for {atom_name, int_val} <- values do
+        quote do
+          def to_integer(unquote(atom_name)), do: unquote(int_val)
+        end
+      end
+
+    to_atom_fn_clauses =
+      for {atom_name, int_val} <- values do
+        quote do
+          def to_atom(unquote(int_val)), do: unquote(atom_name)
+        end
+      end
 
     quote do
       @typedoc "Known enum atoms declared in `defenum`: #{unquote(known_names_doc)}."
@@ -206,30 +234,23 @@ defmodule GridCodec.Types.Enum do
 
       @impl GridCodec.Types.Enum
       @spec to_integer(known()) :: non_neg_integer()
+      unquote_splicing(to_int_fn_clauses)
+
       def to_integer(name) when is_atom(name) do
-        case unquote(Macro.escape(to_int_map)) do
-          %{^name => int} -> int
-          _ -> raise ArgumentError, "Unknown enum value: #{inspect(name)}"
-        end
+        raise ArgumentError, "Unknown enum value: #{inspect(name)}"
       end
 
       @impl GridCodec.Types.Enum
       @spec to_atom(non_neg_integer()) :: known() | non_neg_integer()
-      def to_atom(int) when is_integer(int) do
-        case unquote(Macro.escape(to_atom_map)) do
-          %{^int => name} -> name
-          # Unknown value - return raw integer
-          _ -> int
-        end
-      end
+      unquote_splicing(to_atom_fn_clauses)
+      def to_atom(int) when is_integer(int), do: int
 
       @impl GridCodec.Types.Enum
       @spec encode(t()) :: encoded()
       def encode(nil), do: <<unquote(null_value)::unquote(encode_spec)>>
 
       def encode(name) when is_atom(name) do
-        int = to_integer(name)
-        <<int::unquote(encode_spec)>>
+        <<to_integer(name)::unquote(encode_spec)>>
       end
 
       def encode(int) when is_integer(int) do
@@ -246,11 +267,11 @@ defmodule GridCodec.Types.Enum do
         {to_atom(int), rest}
       end
 
-      # GridCodec.Type callbacks for AST generation
+      # GridCodec.Type callbacks — fully inlined, no runtime function calls
       @impl GridCodec.Type
       def encode_ast(field_name, default, endian, data_var) do
-        mod = __MODULE__
         null_val = unquote(null_value)
+        atom_clauses = unquote(Macro.escape(encode_atom_clauses))
 
         encode_spec =
           case endian do
@@ -258,12 +279,17 @@ defmodule GridCodec.Types.Enum do
             :big -> unquote(Macro.escape(encode_spec_big))
           end
 
+        nil_clause = {:->, [], [[nil], null_val]}
+        v_var = Macro.var(:__v__, __MODULE__)
+        int_guard = {:when, [], [v_var, {:is_integer, [], [v_var]}]}
+        int_clause = {:->, [], [[int_guard], v_var]}
+        all_clauses = [nil_clause | atom_clauses] ++ [int_clause]
+
+        get_ast = quote do: :maps.get(unquote(field_name), unquote(data_var), unquote(default))
+        case_ast = {:case, [], [get_ast, [do: all_clauses]]}
+
         quote do
-          case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-            nil -> unquote(null_val)
-            v when is_atom(v) -> unquote(mod).to_integer(v)
-            v when is_integer(v) -> v
-          end :: unquote(encode_spec)
+          unquote(case_ast) :: unquote(encode_spec)
         end
       end
 
@@ -281,27 +307,37 @@ defmodule GridCodec.Types.Enum do
       @impl GridCodec.Type
       def decode_value_ast(var) do
         null = unquote(null_value)
-        mod = __MODULE__
+        int_clauses = unquote(Macro.escape(decode_int_clauses))
 
-        quote do
-          case unquote(var) do
-            unquote(null) -> nil
-            int -> unquote(mod).to_atom(int)
-          end
-        end
+        null_clause = {:->, [], [[null], nil]}
+        fallback_var = Macro.var(:__raw__, __MODULE__)
+        fallback_clause = {:->, [], [[fallback_var], fallback_var]}
+        all_clauses = [null_clause | int_clauses] ++ [fallback_clause]
+
+        {:case, [], [var, [do: all_clauses]]}
       end
 
       @impl GridCodec.Type
-      def getter_ast(offset, _endian, payload_var) do
-        mod = __MODULE__
-        sz = unquote(size)
+      def getter_ast(offset, endian, payload_var) do
+        null = unquote(null_value)
+        int_clauses = unquote(Macro.escape(decode_int_clauses))
+
+        decode_spec =
+          case endian do
+            :little -> unquote(Macro.escape(encode_spec_little))
+            :big -> unquote(Macro.escape(encode_spec_big))
+          end
+
+        null_clause = {:->, [], [[null], nil]}
+        fallback_var = Macro.var(:__raw__, __MODULE__)
+        fallback_clause = {:->, [], [[fallback_var], fallback_var]}
+        all_clauses = [null_clause | int_clauses] ++ [fallback_clause]
 
         quote do
-          <<_::binary-size(unquote(offset)), raw::binary-size(unquote(sz)), _::binary>> =
+          <<_::binary-size(unquote(offset)), raw_int::unquote(decode_spec), _::binary>> =
             unquote(payload_var)
 
-          {value, ""} = unquote(mod).decode(raw)
-          value
+          unquote({:case, [], [quote(do: raw_int), [do: all_clauses]]})
         end
       end
 

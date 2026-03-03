@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.11.1] - 2026-03-04
+
+### Changed
+- **Enum**: `to_integer/1` and `to_atom/1` now use pattern-matched function clauses
+  instead of runtime map lookups (JIT compiles to direct comparisons).
+  `encode_ast` and `decode_value_ast` generate fully inlined case clauses — no
+  function calls in the encode/decode hot path. `getter_ast` also inlined.
+- **Bitset**: Removed IIFE wrapper from `encode_ast`; uses direct case with nil
+  handling instead of anonymous function allocation
+- **CharArray**: Removed IIFE from `encode_ast`; `decode_value_ast` and `getter_ast`
+  now use `:binary.match/2` for null-byte detection instead of
+  `bin_to_list + take_while + list_to_bin` (pure binary ops, no list conversion).
+  `decode/1` also updated.
+- Added parallel decode benchmarks and threshold analysis scripts
+
 ## [0.11.0] - 2026-03-04
 
 ### Added

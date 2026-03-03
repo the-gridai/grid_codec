@@ -130,17 +130,14 @@ defmodule GridCodec.Types.CharArray do
       Trailing null bytes are stripped.
       """
       @spec decode(binary()) :: String.t()
-      def decode(binary) when byte_size(binary) == @char_array_length do
-        binary
-        |> :binary.bin_to_list()
-        |> Enum.take_while(&(&1 != 0))
-        |> :binary.list_to_bin()
-      end
+      def decode(binary) when byte_size(binary) >= @char_array_length do
+        data = binary_part(binary, 0, @char_array_length)
 
-      def decode(binary) when byte_size(binary) > @char_array_length do
-        binary
-        |> binary_part(0, @char_array_length)
-        |> decode()
+        case :binary.match(data, <<0>>) do
+          {0, _} -> ""
+          {pos, _} -> binary_part(data, 0, pos)
+          :nomatch -> data
+        end
       end
 
       # GridCodec.Type callbacks
@@ -156,35 +153,49 @@ defmodule GridCodec.Types.CharArray do
 
       @impl GridCodec.Type
       def encode_ast(name, _default, _endian, data_var) do
+        len = @char_array_length
+        mod = __MODULE__
+
         quote do
-          (fn ->
-             val = :maps.get(unquote(name), unquote(data_var), nil)
-             unquote(__MODULE__).encode(val)
-           end).() :: binary - size(unquote(@char_array_length))
+          case :maps.get(unquote(name), unquote(data_var), nil) do
+            nil ->
+              <<0::size(unquote(len) * 8)>>
+
+            string when is_binary(string) ->
+              unquote(mod).encode(string)
+          end :: binary - size(unquote(len))
         end
       end
 
       @impl GridCodec.Type
       def decode_pattern_ast(var, _endian) do
-        quote do
-          unquote(var) :: binary - size(unquote(@char_array_length))
-        end
+        quote do: unquote(var) :: binary - size(unquote(@char_array_length))
       end
 
       @impl GridCodec.Type
       def decode_value_ast(var) do
         quote do
-          unquote(__MODULE__).decode(unquote(var))
+          case :binary.match(unquote(var), <<0>>) do
+            {0, _} -> ""
+            {pos, _} -> binary_part(unquote(var), 0, pos)
+            :nomatch -> unquote(var)
+          end
         end
       end
 
       @impl GridCodec.Type
       def getter_ast(offset, _endian, payload_var) do
-        quote do
-          <<_::binary-size(unquote(offset)), val::binary-size(unquote(@char_array_length)),
-            _::binary>> = unquote(payload_var)
+        len = @char_array_length
 
-          unquote(__MODULE__).decode(val)
+        quote do
+          <<_::binary-size(unquote(offset)), val::binary-size(unquote(len)), _::binary>> =
+            unquote(payload_var)
+
+          case :binary.match(val, <<0>>) do
+            {0, _} -> ""
+            {pos, _} -> binary_part(val, 0, pos)
+            :nomatch -> val
+          end
         end
       end
 
