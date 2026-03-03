@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `[:grid_codec, :decode]` events with `duration` (native time), `bytes`,
   and metadata (`module`, `type_name`, `schema_id`, `template_id`). Zero
   overhead when disabled (default) — no timing code generated.
+- **`GridCodec.PromEx` plugin** — optional PromEx plugin providing Prometheus
+  histograms for encode/decode latency and byte sizes, tagged by `type_name`.
+  Only compiled when `prom_ex` is a dependency of the consuming application.
+- **Grafana dashboard** (`grafana/grid_codec.json`) — pre-built dashboard with
+  encode/decode latency percentiles (p50/p90/p99), throughput, and binary sizes.
 
 ### Changed
 - **Enum**: `to_integer/1` and `to_atom/1` now use pattern-matched function clauses
