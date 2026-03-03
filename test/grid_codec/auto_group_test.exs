@@ -1,5 +1,6 @@
 defmodule GridCodec.AutoGroupTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   # ============================================================================
   # Test Modules: Auto-generated group entry codecs
@@ -441,6 +442,175 @@ defmodule GridCodec.AutoGroupTest do
 
       assert GridCodec.Group.count(decoded.orders) == 0
       assert GridCodec.Group.to_list(decoded.orders) == []
+    end
+  end
+
+  # ============================================================================
+  # Tests: Compile-Time Validation
+  # ============================================================================
+
+  # ============================================================================
+  # Tests: Parallel to_lists
+  # ============================================================================
+
+  describe "to_lists_parallel" do
+    test "decodes multiple groups in parallel" do
+      struct = %OrderBook{
+        symbol: <<1::128>>,
+        timestamp: 100,
+        bids: for(i <- 1..50, do: %{price: i * 100, quantity: i}),
+        asks: for(i <- 1..30, do: %{price: (i + 50) * 100, quantity: i})
+      }
+
+      binary = OrderBook.encode(struct)
+      {:ok, decoded} = OrderBook.decode(binary)
+
+      [bids, asks] =
+        GridCodec.Group.to_lists_parallel(
+          [decoded.bids, decoded.asks],
+          threshold: 0
+        )
+
+      assert length(bids) == 50
+      assert length(asks) == 30
+      assert Enum.at(bids, 0) == %{price: 100, quantity: 1}
+      assert Enum.at(asks, 0) == %{price: 5100, quantity: 1}
+    end
+
+    test "falls back to sequential for small groups" do
+      struct = %OrderBook{
+        symbol: <<1::128>>,
+        timestamp: 100,
+        bids: [%{price: 100, quantity: 1}],
+        asks: [%{price: 200, quantity: 2}]
+      }
+
+      binary = OrderBook.encode(struct)
+      {:ok, decoded} = OrderBook.decode(binary)
+
+      [bids, asks] = GridCodec.Group.to_lists_parallel([decoded.bids, decoded.asks])
+      assert bids == [%{price: 100, quantity: 1}]
+      assert asks == [%{price: 200, quantity: 2}]
+    end
+
+    test "handles empty list" do
+      assert GridCodec.Group.to_lists_parallel([]) == []
+    end
+  end
+
+  # ============================================================================
+  # Property Tests: Groups with Custom Types
+  # ============================================================================
+
+  describe "property: groups with custom types roundtrip" do
+    property "enum values in groups survive roundtrip" do
+      check all(
+              n <- StreamData.integer(0..100),
+              entries <-
+                StreamData.list_of(
+                  StreamData.fixed_map(%{
+                    order_id: StreamData.map(StreamData.binary(length: 16), & &1),
+                    side:
+                      StreamData.one_of([
+                        StreamData.constant(:buy),
+                        StreamData.constant(:sell),
+                        StreamData.constant(nil)
+                      ]),
+                    price: StreamData.integer(0..1_000_000),
+                    quantity: StreamData.integer(0..100_000)
+                  }),
+                  length: n
+                )
+            ) do
+        struct = %OrdersWithEnum{account_id: <<1::128>>, orders: entries}
+        binary = OrdersWithEnum.encode(struct)
+        {:ok, decoded} = OrdersWithEnum.decode(binary)
+
+        decoded_orders = GridCodec.Group.to_list(decoded.orders)
+        assert length(decoded_orders) == n
+
+        Enum.zip(entries, decoded_orders)
+        |> Enum.each(fn {input, output} ->
+          assert output.order_id == input.order_id
+          assert output.side == input.side
+          assert output.price == input.price
+          assert output.quantity == input.quantity
+        end)
+      end
+    end
+
+    property "multiple enum fields in groups survive roundtrip" do
+      sides = StreamData.member_of([:buy, :sell, nil])
+      statuses = StreamData.member_of([:open, :filled, :cancelled, nil])
+
+      check all(
+              n <- StreamData.integer(0..50),
+              entries <-
+                StreamData.list_of(
+                  StreamData.fixed_map(%{
+                    side: sides,
+                    status: statuses,
+                    price: StreamData.constant(42)
+                  }),
+                  length: n
+                )
+            ) do
+        struct = %OrdersWithMultipleEnums{id: 1, orders: entries}
+        binary = OrdersWithMultipleEnums.encode(struct)
+        {:ok, decoded} = OrdersWithMultipleEnums.decode(binary)
+
+        decoded_orders = GridCodec.Group.to_list(decoded.orders)
+        assert length(decoded_orders) == n
+
+        Enum.zip(entries, decoded_orders)
+        |> Enum.each(fn {input, output} ->
+          assert output.side == input.side
+          assert output.status == input.status
+          assert output.price == input.price
+        end)
+      end
+    end
+
+    property "decimal and positive_decimal fields in groups survive roundtrip" do
+      check all(
+              n <- StreamData.integer(0..50),
+              entries <-
+                StreamData.list_of(
+                  StreamData.fixed_map(%{
+                    instrument_id: StreamData.map(StreamData.binary(length: 16), & &1),
+                    available: StreamData.constant(Decimal.new("1000.50")),
+                    locked:
+                      StreamData.one_of([
+                        StreamData.constant(Decimal.new("50.25")),
+                        StreamData.constant(nil)
+                      ])
+                  }),
+                  length: n
+                )
+            ) do
+        struct = %BalanceSnapshot{
+          account_id: <<1::128>>,
+          snapshot_at: 1_700_000_000_000_000,
+          balances: entries
+        }
+
+        binary = BalanceSnapshot.encode(struct)
+        {:ok, decoded} = BalanceSnapshot.decode(binary)
+
+        decoded_balances = GridCodec.Group.to_list(decoded.balances)
+        assert length(decoded_balances) == n
+
+        Enum.zip(entries, decoded_balances)
+        |> Enum.each(fn {input, output} ->
+          assert output.instrument_id == input.instrument_id
+
+          if input.available do
+            assert Decimal.equal?(output.available, input.available)
+          else
+            assert output.available == nil
+          end
+        end)
+      end
     end
   end
 

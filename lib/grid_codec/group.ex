@@ -536,6 +536,73 @@ defmodule GridCodec.Group do
   end
 
   # ============================================================================
+  # Parallel Decoding
+  # ============================================================================
+
+  @parallel_threshold_bytes 256_000
+
+  @doc """
+  Decodes multiple groups in parallel, one process per group.
+
+  Each group is decoded in a separate process with a pre-sized heap
+  (avoids GC during decode). The binary is shared via zero-copy
+  (BEAM shared binary heap for binaries >64 bytes).
+
+  Falls back to sequential `to_list/1` when total data is below
+  the parallel threshold (#{@parallel_threshold_bytes} bytes).
+
+  ## Options
+
+  - `:threshold` — minimum total bytes to trigger parallel decode
+    (default: #{@parallel_threshold_bytes}). Set to `0` to always parallelize.
+
+  ## Example
+
+      {:ok, decoded} = MyCodec.decode(binary)
+
+      [balances, orders] =
+        GridCodec.Group.to_lists_parallel([decoded.balances, decoded.open_orders])
+  """
+  @spec to_lists_parallel([t()], keyword()) :: [[map()]]
+  def to_lists_parallel(groups, opts \\ [])
+
+  def to_lists_parallel([], _opts), do: []
+
+  def to_lists_parallel(groups, opts) when is_list(groups) do
+    threshold = Keyword.get(opts, :threshold, @parallel_threshold_bytes)
+
+    total_bytes =
+      Enum.reduce(groups, 0, fn %__MODULE__{num_in_group: n, block_length: bl}, acc ->
+        acc + n * bl
+      end)
+
+    if total_bytes < threshold do
+      Enum.map(groups, &to_list/1)
+    else
+      parent = self()
+
+      refs =
+        Enum.map(groups, fn group ->
+          ref = make_ref()
+          heap_est = group.num_in_group * 100 + 1000
+
+          :erlang.spawn_opt(
+            fn -> send(parent, {ref, to_list(group)}) end,
+            [{:min_heap_size, heap_est}, {:fullsweep_after, 0}, {:priority, :high}]
+          )
+
+          ref
+        end)
+
+      Enum.map(refs, fn ref ->
+        receive do
+          {^ref, result} -> result
+        end
+      end)
+    end
+  end
+
+  # ============================================================================
   # Utilities
   # ============================================================================
 

@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.13.0] - 2026-03-04
+
+### Added
+- **`Group.to_lists_parallel/2`**: Decodes multiple groups in parallel, one
+  process per group with pre-sized heaps (avoids GC during decode). Binary
+  sharing is zero-copy. Auto-threshold at 256KB total group data; configurable
+  via `:threshold` option. Falls back to sequential for small groups.
+- **Property-based tests** for groups with custom types (enum roundtrip,
+  multiple enums, decimal fields with nil values)
+
+### Documentation
+- Updated `GridCodec.Struct` moduledoc with `telemetry`, `telemetry_min_duration`
+  options and global config example
+
 ## [0.12.0] - 2026-03-04
 
 ### Added

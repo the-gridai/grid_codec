@@ -69,8 +69,18 @@ defmodule GridCodec.Struct do
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
   - `:generate_typespec` - Auto-generate `t()`, `layout()`, and `framed_layout()` types (default: true)
+  - `:telemetry` - Emit `[:grid_codec, :encode]` / `[:grid_codec, :decode]` telemetry events
+    with duration and byte size (default: `false`). Zero overhead when disabled.
+  - `:telemetry_min_duration` - Skip emitting telemetry events when duration is below this
+    threshold in `:native` time units (default: `0`, emit all). Filters out cheap operations.
   - `:grid_file` - Path to `.grid` schema file (optional)
   - `:message` - Message name in schema file (required with `:grid_file`)
+
+  Options can also be set globally via application config:
+
+      config :grid_codec,
+        telemetry: true,
+        telemetry_min_duration: 10_000
 
   ## Usage
 
