@@ -29,6 +29,13 @@ defmodule GridCodec.Struct.Compiler do
     telemetry_enabled =
       Keyword.get(opts, :telemetry, Application.get_env(:grid_codec, :telemetry, false))
 
+    telemetry_min_duration =
+      Keyword.get(
+        opts,
+        :telemetry_min_duration,
+        Application.get_env(:grid_codec, :telemetry_min_duration, 0)
+      )
+
     # Template ID: explicit or hash of module name
     template_id =
       case Keyword.get(opts, :template_id) do
@@ -209,7 +216,16 @@ defmodule GridCodec.Struct.Compiler do
       unquote_splicing(auto_group_fns)
 
       # Encode/Decode API with optional telemetry
-      unquote(generate_encode_api(module, type_name, schema_id, template_id, telemetry_enabled))
+      unquote(
+        generate_encode_api(
+          module,
+          type_name,
+          schema_id,
+          template_id,
+          telemetry_enabled,
+          telemetry_min_duration
+        )
+      )
 
       # Internal: encode payload only (no header)
       unquote(struct_encoder_body)
@@ -221,7 +237,16 @@ defmodule GridCodec.Struct.Compiler do
       # Decode API
       # ========================================================================
 
-      unquote(generate_decode_api(module, type_name, schema_id, template_id, telemetry_enabled))
+      unquote(
+        generate_decode_api(
+          module,
+          type_name,
+          schema_id,
+          template_id,
+          telemetry_enabled,
+          telemetry_min_duration
+        )
+      )
 
       defp decode_versioned_payload(payload, header_block_length)
            when header_block_length >= @__current_block_length__ do
@@ -2480,7 +2505,7 @@ defmodule GridCodec.Struct.Compiler do
   # Encode/Decode API Generation (extracted to reduce __before_compile__ complexity)
   # ============================================================================
 
-  defp generate_encode_api(module, type_name, schema_id, template_id, telemetry?) do
+  defp generate_encode_api(module, type_name, schema_id, template_id, telemetry?, min_duration) do
     telemetry_meta = %{
       module: module,
       type_name: type_name,
@@ -2494,6 +2519,7 @@ defmodule GridCodec.Struct.Compiler do
         Encodes a struct to binary.
 
         Emits `[:grid_codec, :encode]` telemetry event with duration and byte size.
+        #{if unquote(min_duration) > 0, do: "Events with duration below #{unquote(min_duration)} native time units are skipped.", else: ""}
 
         ## Options
 
@@ -2505,12 +2531,15 @@ defmodule GridCodec.Struct.Compiler do
           start = :erlang.monotonic_time()
           payload = encode_payload(struct)
           binary = <<@__gridcodec_header__::binary, payload::binary>>
+          duration = :erlang.monotonic_time() - start
 
-          :telemetry.execute(
-            [:grid_codec, :encode],
-            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
-            unquote(Macro.escape(telemetry_meta))
-          )
+          if duration >= unquote(min_duration) do
+            :telemetry.execute(
+              [:grid_codec, :encode],
+              %{duration: duration, bytes: byte_size(binary)},
+              unquote(Macro.escape(telemetry_meta))
+            )
+          end
 
           binary
         end
@@ -2526,11 +2555,15 @@ defmodule GridCodec.Struct.Compiler do
               encode_payload(struct)
             end
 
-          :telemetry.execute(
-            [:grid_codec, :encode],
-            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
-            unquote(Macro.escape(telemetry_meta))
-          )
+          duration = :erlang.monotonic_time() - start
+
+          if duration >= unquote(min_duration) do
+            :telemetry.execute(
+              [:grid_codec, :encode],
+              %{duration: duration, bytes: byte_size(binary)},
+              unquote(Macro.escape(telemetry_meta))
+            )
+          end
 
           binary
         end
@@ -2563,7 +2596,7 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp generate_decode_api(module, type_name, schema_id, template_id, telemetry?) do
+  defp generate_decode_api(module, type_name, schema_id, template_id, telemetry?, min_duration) do
     telemetry_meta = %{
       module: module,
       type_name: type_name,
@@ -2577,6 +2610,7 @@ defmodule GridCodec.Struct.Compiler do
         Decodes binary to a struct.
 
         Emits `[:grid_codec, :decode]` telemetry event with duration and byte size.
+        #{if unquote(min_duration) > 0, do: "Events with duration below #{unquote(min_duration)} native time units are skipped.", else: ""}
 
         ## Options
 
@@ -2598,11 +2632,15 @@ defmodule GridCodec.Struct.Compiler do
                 error
             end
 
-          :telemetry.execute(
-            [:grid_codec, :decode],
-            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
-            unquote(Macro.escape(telemetry_meta))
-          )
+          duration = :erlang.monotonic_time() - start
+
+          if duration >= unquote(min_duration) do
+            :telemetry.execute(
+              [:grid_codec, :decode],
+              %{duration: duration, bytes: byte_size(binary)},
+              unquote(Macro.escape(telemetry_meta))
+            )
+          end
 
           result
         end
@@ -2625,11 +2663,15 @@ defmodule GridCodec.Struct.Compiler do
               decode_payload(binary)
             end
 
-          :telemetry.execute(
-            [:grid_codec, :decode],
-            %{duration: :erlang.monotonic_time() - start, bytes: byte_size(binary)},
-            unquote(Macro.escape(telemetry_meta))
-          )
+          duration = :erlang.monotonic_time() - start
+
+          if duration >= unquote(min_duration) do
+            :telemetry.execute(
+              [:grid_codec, :decode],
+              %{duration: duration, bytes: byte_size(binary)},
+              unquote(Macro.escape(telemetry_meta))
+            )
+          end
 
           result
         end
