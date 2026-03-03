@@ -83,8 +83,9 @@ defmodule GridCodec.MixProject do
       # Optional - JSON transcoder support
       {:jason, "~> 1.4", optional: true},
 
-      # Telemetry (optional, for instrumented encode/decode)
+      # Telemetry (for instrumented encode/decode + metric definitions)
       {:telemetry, "~> 1.0"},
+      {:telemetry_metrics, "~> 1.0"},
 
       # Dev/Test - Code quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
