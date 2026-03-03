@@ -18,10 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Generic top-level types on `GridCodec` for app-level specs:
-  - `GridCodec.layout/0`
-  - `GridCodec.framed_layout/0`
-  - `GridCodec.codec_struct/0`
-  - `GridCodec.codec_data/0`
+  - `GridCodec.layout()`
+  - `GridCodec.framed_layout()`
+  - `GridCodec.codec_struct()`
+  - `GridCodec.codec_data()`
 
 ### Docs
 - Updated docs/examples/tests to reflect direct module type usage and current

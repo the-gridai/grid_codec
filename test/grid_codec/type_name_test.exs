@@ -116,4 +116,35 @@ defmodule GridCodec.TypeNameTest do
       assert is_binary(DefaultName.__type__())
     end
   end
+
+  describe "compile-time type name uniqueness" do
+    test "raises when two modules use the same type name" do
+      suffix = System.unique_integer([:positive])
+      mod_a = Module.concat(__MODULE__, :"DuplicateTypeA#{suffix}")
+      mod_b = Module.concat(__MODULE__, :"DuplicateTypeB#{suffix}")
+      type_name = "DuplicateTypeName#{suffix}"
+
+      code = """
+      defmodule #{inspect(mod_a)} do
+        use GridCodec.Struct, template_id: 19_001, schema_id: 190, name: "#{type_name}"
+
+        defcodec do
+          field :id, :u64
+        end
+      end
+
+      defmodule #{inspect(mod_b)} do
+        use GridCodec.Struct, template_id: 19_002, schema_id: 190, name: "#{type_name}"
+
+        defcodec do
+          field :id, :u64
+        end
+      end
+      """
+
+      assert_raise CompileError, ~r/GridCodec type name collision: "#{type_name}"/, fn ->
+        Code.compile_string(code)
+      end
+    end
+  end
 end

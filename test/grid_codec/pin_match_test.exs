@@ -127,5 +127,17 @@ defmodule GridCodec.PinMatchTest do
       assert dispatch.(bin, Decimal.new("123.45")) == :found
       assert dispatch.(bin, Decimal.new("0.01")) == :not_found
     end
+
+    test "literal nil matches decimal null sentinel" do
+      require Order
+
+      null_bin = Order.encode(%Order{order_id: 1, price: nil, quantity: 100})
+
+      non_null_bin =
+        Order.encode(%Order{order_id: 1, price: Decimal.new("123.45"), quantity: 100})
+
+      assert match?(Order.match(price: nil), null_bin)
+      refute match?(Order.match(price: nil), non_null_bin)
+    end
   end
 end

@@ -83,8 +83,11 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
         %{module: ModB, schema_id: 100, template_id: 1}
       ]
 
-      assert {:error, conflicts} = Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
-      assert length(conflicts) == 1
+      assert {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}} =
+               Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+
+      assert length(id_conflicts) == 1
+      assert type_conflicts == []
     end
 
     test "validate_codecs passes with unique ids" do
@@ -94,6 +97,28 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       ]
 
       assert :ok = Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+    end
+
+    test "validate_codecs detects duplicate type names" do
+      defmodule TypeConflictA do
+        def __type__, do: "DuplicateTypeName"
+      end
+
+      defmodule TypeConflictB do
+        def __type__, do: "DuplicateTypeName"
+      end
+
+      codecs = [
+        %{module: TypeConflictA, schema_id: 9800, template_id: 9801},
+        %{module: TypeConflictB, schema_id: 9800, template_id: 9802}
+      ]
+
+      assert {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}} =
+               Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+
+      assert id_conflicts == []
+      assert [{"DuplicateTypeName", modules}] = type_conflicts
+      assert Enum.sort(modules) == Enum.sort([TypeConflictA, TypeConflictB])
     end
   end
 end

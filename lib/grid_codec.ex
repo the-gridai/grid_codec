@@ -94,10 +94,11 @@ defmodule GridCodec do
   MyCodec.match(price: p) -> p          # => 0xFFFFFFFF (sentinel!)
   ```
 
-  Attempting to match on literal `nil` will raise a **compile-time error**:
+  Literal `nil` in `match/1` is rewritten at compile time to the field's
+  null sentinel representation:
 
   ```elixir
-  # This raises CompileError!
+  # Matches null sentinel on the wire
   MyCodec.match(price: nil)
   ```
 

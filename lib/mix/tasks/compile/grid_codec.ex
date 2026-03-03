@@ -64,15 +64,22 @@ defmodule Mix.Tasks.Compile.GridCodec do
           {:ok, []}
         end
 
-      {:error, conflicts} ->
-        for {key, modules} <- conflicts do
-          {schema_id, template_id} = key
-
+      {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}} ->
+        for {{schema_id, template_id}, modules} <- id_conflicts do
           Mix.shell().error("""
           GridCodec conflict: Multiple codecs with same {schema_id, template_id}
             schema_id: #{schema_id}
             template_id: #{template_id}
             modules: #{inspect(modules)}
+          """)
+        end
+
+        for {type_name, modules} <- type_conflicts do
+          Mix.shell().error("""
+          GridCodec conflict: Multiple codecs with same type name
+            type_name: #{inspect(type_name)}
+            modules: #{inspect(modules)}
+            hint: Use the :name option to assign unique type names.
           """)
         end
 
@@ -132,16 +139,29 @@ defmodule Mix.Tasks.Compile.GridCodec do
 
   @doc false
   def validate_codecs(codecs) do
-    conflicts =
+    id_conflicts =
       codecs
       |> Enum.group_by(fn %{schema_id: s, template_id: t} -> {s, t} end)
       |> Enum.filter(fn {_key, mods} -> length(mods) > 1 end)
       |> Enum.map(fn {key, mods} -> {key, Enum.map(mods, & &1.module)} end)
 
-    if conflicts == [] do
+    type_conflicts =
+      codecs
+      |> Enum.flat_map(fn %{module: mod} ->
+        if Code.ensure_loaded?(mod) and function_exported?(mod, :__type__, 0) do
+          [{mod.__type__(), mod}]
+        else
+          []
+        end
+      end)
+      |> Enum.group_by(fn {type_name, _mod} -> type_name end, fn {_type_name, mod} -> mod end)
+      |> Enum.filter(fn {_type_name, mods} -> length(mods) > 1 end)
+      |> Enum.sort_by(fn {type_name, _mods} -> type_name end)
+
+    if id_conflicts == [] and type_conflicts == [] do
       :ok
     else
-      {:error, conflicts}
+      {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}}
     end
   end
 

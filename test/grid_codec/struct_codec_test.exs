@@ -423,31 +423,14 @@ defmodule GridCodec.StructCodecTest do
       refute is_nil(result)
     end
 
-    test "match on literal nil raises CompileError" do
-      # This should fail to compile with a helpful error message
-      code = """
-      defmodule CompileErrorTest do
-        defmodule TestCodec do
-          use GridCodec.Struct, template_id: 99, schema_id: 100
+    test "match on literal nil matches encoded null sentinel for primitive fields" do
+      require MatchTestStruct
 
-          defcodec do
-            field :value, :u32
-          end
-        end
+      null_binary = MatchTestStruct.encode(%MatchTestStruct{id: 1, price: nil, quantity: 10})
+      non_null_binary = MatchTestStruct.encode(%MatchTestStruct{id: 1, price: 123, quantity: 10})
 
-        def test_match(binary) do
-          require TestCodec
-          case binary do
-            TestCodec.match(value: nil) -> :matched_nil
-            _ -> :no_match
-          end
-        end
-      end
-      """
-
-      assert_raise CompileError, ~r/Cannot match on `nil` in match\/1,2 macro/, fn ->
-        Code.compile_string(code)
-      end
+      assert match?(MatchTestStruct.match(price: nil), null_binary)
+      refute match?(MatchTestStruct.match(price: nil), non_null_binary)
     end
   end
 end

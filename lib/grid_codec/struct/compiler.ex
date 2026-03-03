@@ -46,6 +46,8 @@ defmodule GridCodec.Struct.Compiler do
           Atom.to_string(name)
       end
 
+    ensure_unique_type_name!(type_name, env.module, env.file, env.line)
+
     # Resolve field types
     resolved_fields = resolve_types(fields)
     {fixed_fields, var_fields} = partition_fields(resolved_fields)
@@ -382,6 +384,38 @@ defmodule GridCodec.Struct.Compiler do
     {struct_fields ++ group_fields, enforce_keys}
   end
 
+  defp ensure_unique_type_name!(type_name, module, file, line) do
+    collision =
+      :code.all_loaded()
+      |> Enum.map(fn {mod, _} -> mod end)
+      |> Enum.find(fn mod ->
+        mod != module and is_gridcodec_struct?(mod) and function_exported?(mod, :__type__, 0) and
+          safe_type(mod) == type_name
+      end)
+
+    if collision do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "GridCodec type name collision: #{inspect(type_name)} is already used by " <>
+            "#{inspect(collision)}. Use the :name option to assign a unique type name."
+    end
+  end
+
+  defp is_gridcodec_struct?(module) do
+    Code.ensure_loaded?(module) and
+      function_exported?(module, :__gridcodec_struct__?, 0) and
+      function_exported?(module, :__schema_id__, 0) and
+      function_exported?(module, :__template_id__, 0)
+  end
+
+  defp safe_type(module) do
+    module.__type__()
+  rescue
+    _ -> nil
+  end
+
   defp build_struct_type_ast(resolved_fields, groups) do
     typed_fields =
       Enum.map(resolved_fields, fn {name, type_atom, module, opts} ->
@@ -410,7 +444,8 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp build_struct_typedoc(_resolved_fields, _groups), do: "Struct representation for this codec module."
+  defp build_struct_typedoc(_resolved_fields, _groups),
+    do: "Struct representation for this codec module."
 
   defp base_field_type_ast(:u8, _module), do: quote(do: non_neg_integer())
   defp base_field_type_ast(:u16, _module), do: quote(do: non_neg_integer())
@@ -1926,8 +1961,8 @@ defmodule GridCodec.Struct.Compiler do
   # IMPORTANT: The match macro returns RAW binary values, not decoded values.
   # For nullable fields, this means sentinel values are returned, NOT nil.
   #
-  # Current safety measures:
-  # - Compile-time error when matching on literal `nil`
+  # Current behavior:
+  # - Literal `nil` in patterns is rewritten to the field's null sentinel bytes
   #
   # Future improvements (requires Elixir 1.17+ gradual typing):
   # - Type annotations that would make `is_nil(value)` emit a warning
@@ -1951,7 +1986,7 @@ defmodule GridCodec.Struct.Compiler do
       By default, expects a framed binary (with header from `encode/1`).
       Use `header: false` option for payload-only binaries.
 
-      ## ⚠️  Important: Raw Values, Not Nil
+      ## ⚠️  Important: Raw Values
 
       **The `match` macro extracts raw binary values, NOT decoded values.**
 
@@ -1970,9 +2005,10 @@ defmodule GridCodec.Struct.Compiler do
             #{inspect(__MODULE__)}.match(price: p) -> p  # 0xFFFFFFFFFFFFFFFF if null!
           end
 
-      Attempting to match on literal `nil` will raise a compile-time error:
+      Literal `nil` in patterns is rewritten at compile time to the field's
+      null sentinel representation:
 
-          # This raises CompileError!
+          # Matches when price is encoded as null sentinel
           #{inspect(__MODULE__)}.match(price: nil)
 
       ## Examples
@@ -2075,22 +2111,6 @@ defmodule GridCodec.Struct.Compiler do
               "Available fixed fields: #{inspect(available_fields)}"
     end
 
-    # Compile-time check: Disallow matching on literal `nil`
-    # The match macro returns raw bytes, not nil - use get/2 for null-safe access
-    nil_fields =
-      field_bindings
-      |> Enum.filter(fn {_name, value} -> value == nil end)
-      |> Enum.map(fn {name, _} -> name end)
-
-    if nil_fields != [] do
-      raise CompileError,
-        description:
-          "Cannot match on `nil` in match/1,2 macro. " <>
-            "The match macro extracts raw bytes - null values are represented as sentinel values, not nil. " <>
-            "Use get/2 for null-safe field access. " <>
-            "Offending fields: #{inspect(nil_fields)}"
-    end
-
     # Header offset: 8 bytes for framed binaries, 0 for payload-only
     header_offset = if has_header, do: 8, else: 0
 
@@ -2150,7 +2170,7 @@ defmodule GridCodec.Struct.Compiler do
         build_binding_pattern(value, size, endian)
 
       _ ->
-        case encode_literal_for_pattern(value, type_atom, type_module) do
+        case encode_literal_for_pattern(value, type_atom, type_module, endian) do
           {:ok, encoded} ->
             build_literal_pattern(encoded, size, endian)
 
@@ -2161,8 +2181,12 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   # Try to encode a literal value at compile time for pattern embedding
-  defp encode_literal_for_pattern(value, type_atom, type_module) do
+  defp encode_literal_for_pattern(value, type_atom, type_module, endian) do
     cond do
+      # Nil literal -> encode field null sentinel bytes at compile time
+      value == nil ->
+        {:ok, null_binary_for_type(type_module, endian)}
+
       # Already an integer literal
       is_integer(value) ->
         {:ok, value}
@@ -2220,7 +2244,7 @@ defmodule GridCodec.Struct.Compiler do
   # For binary literals (UUID, etc.)
   defp build_literal_pattern(value, size, _endian) when is_binary(value) do
     if byte_size(value) == size do
-      quote do: unquote(value) :: binary - size(unquote(size))
+      quote do: unquote(value)
     else
       raise ArgumentError,
             "Binary literal size #{byte_size(value)} doesn't match field size #{size}"
