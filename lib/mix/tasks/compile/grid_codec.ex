@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Compile.GridCodec do
 
   ## Generated Registry
 
-  The compiler generates `_build/<env>/lib/<app>/consolidated/Elixir.GridCodec.Registry.beam`
+  The compiler generates `_build/<env>/lib/grid_codec/ebin/Elixir.GridCodec.Registry.beam`
   with optimized pattern-match dispatch:
 
       defmodule GridCodec.Registry do
@@ -107,8 +107,8 @@ defmodule Mix.Tasks.Compile.GridCodec do
   # Private Functions
   # ============================================================================
 
-  defp consolidation_path(config) do
-    Mix.Project.consolidation_path(config)
+  defp consolidation_path(_config) do
+    Path.join([Mix.Project.build_path(), "lib", "grid_codec", "ebin"])
   end
 
   defp manifest_path do
@@ -116,9 +116,17 @@ defmodule Mix.Tasks.Compile.GridCodec do
   end
 
   defp collect_codecs do
-    # Get all loaded modules
-    :code.all_loaded()
-    |> Enum.map(fn {mod, _} -> mod end)
+    build_path = Mix.Project.build_path()
+
+    # Scan all ebin directories for beam files, then check for GridCodec structs.
+    # This is reliable regardless of BEAM's lazy module loading —
+    # :code.all_loaded() may miss modules that haven't been referenced yet.
+    Path.wildcard(Path.join([build_path, "lib", "*", "ebin", "*.beam"]))
+    |> Enum.map(fn path ->
+      path
+      |> Path.basename(".beam")
+      |> String.to_atom()
+    end)
     |> Enum.filter(&is_gridcodec_struct?/1)
     |> Enum.map(fn mod ->
       %{

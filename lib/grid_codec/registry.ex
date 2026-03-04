@@ -35,10 +35,41 @@ defmodule GridCodec.Registry do
   """
 
   @doc """
+  Eagerly loads all GridCodec modules from beam files on the code path.
+
+  The BEAM VM loads modules lazily — codec modules may not be in
+  `:code.all_loaded()` until something references them. Call this at
+  application startup to ensure `list_codecs/0` and `lookup/2` can
+  find all codecs without the consolidated registry.
+
+  ## Example
+
+      # In your Application.start/2:
+      GridCodec.Registry.ensure_all_loaded()
+  """
+  @spec ensure_all_loaded() :: :ok
+  def ensure_all_loaded do
+    :code.get_path()
+    |> Enum.flat_map(fn dir ->
+      Path.wildcard(Path.join(List.to_string(dir), "*.beam"))
+    end)
+    |> Enum.each(fn beam ->
+      mod = beam |> Path.basename(".beam") |> String.to_atom()
+      Code.ensure_loaded(mod)
+    end)
+
+    clear_cache()
+    :ok
+  end
+
+  @doc """
   Lists all GridCodec modules currently loaded in the system.
 
   This scans all loaded modules and checks if they implement GridCodec
   by looking for the `__schema__/0` and `encode/1` functions.
+
+  Note: BEAM loads modules lazily. Call `ensure_all_loaded/0` at startup
+  or use the `:grid_codec` Mix compiler for reliable discovery.
 
   ## Example
 

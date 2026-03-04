@@ -27,6 +27,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.15.1] - 2026-03-04
+
+### Fixed
+- **CRITICAL: Consolidated Registry destroyed by protocol consolidation** — The
+  `:grid_codec` Mix compiler was writing the Registry beam to
+  `Mix.Project.consolidation_path()`, which Elixir's protocol consolidation
+  recreates on every compile, destroying the Registry. Now writes to
+  `_build/<env>/lib/grid_codec/ebin/` which is on the code path and not
+  touched by protocol consolidation.
+- **Fallback Registry finds 0 codecs due to lazy module loading** — `collect_codecs`
+  now scans beam files on disk via `Path.wildcard` instead of relying on
+  `:code.all_loaded()` which misses lazily-loaded modules.
+
+### Added
+- **`Registry.ensure_all_loaded/0`** — Eagerly loads all GridCodec modules from
+  beam files on the code path. Call at application startup to ensure the fallback
+  registry can find all codecs without the consolidated registry.
+
 ## [0.15.0] - 2026-03-04
 
 ### Added
