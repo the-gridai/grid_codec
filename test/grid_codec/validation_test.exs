@@ -168,9 +168,11 @@ defmodule GridCodec.ValidationTest do
       assert error.details.value == 5_000_000_000
     end
 
-    test "returns {:error, ...} for type mismatch" do
-      assert {:error, %GridCodec.ValidationError{code: :type_mismatch}} =
+    test "returns {:error, ...} for uncoercible value" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
                ValidatedCodec.new(active: "yes")
+
+      assert e.details.field == :active
     end
 
     test "accepts map input" do

@@ -33,7 +33,7 @@ defmodule GridCodec.ValidationError do
   defexception [:code, :message, :details]
 
   @type t :: %__MODULE__{
-          code: :type_mismatch | :out_of_range | :invalid_format,
+          code: :type_mismatch | :out_of_range | :invalid_format | :cast_error,
           message: String.t(),
           details: %{
             field: atom(),
@@ -42,6 +42,17 @@ defmodule GridCodec.ValidationError do
             module: module()
           }
         }
+
+  @doc false
+  def cast_error(module, field, type, value, reason) do
+    %__MODULE__{
+      code: :cast_error,
+      message:
+        "Field #{inspect(field)} in #{inspect(module)} — cannot cast to #{inspect(type)}. " <>
+          reason,
+      details: %{field: field, type: type, value: value, module: module}
+    }
+  end
 
   @doc false
   def out_of_range(module, field, type, value, range_desc) do

@@ -23,93 +23,98 @@ defmodule GridCodec.CastAndHashTest do
   # Cast
   # ============================================================================
 
-  describe "cast/1 with atom keys" do
+  describe "new/1 with coercion" do
     test "passes through correctly typed values" do
       assert {:ok, %TestCodec{count: 42, active: true}} =
-               TestCodec.cast(count: 42, active: true)
+               TestCodec.new(count: 42, active: true)
     end
 
     test "coerces string integers" do
       assert {:ok, %TestCodec{count: 42, score: -100}} =
-               TestCodec.cast(count: "42", score: "-100")
+               TestCodec.new(count: "42", score: "-100")
     end
 
     test "coerces string booleans" do
-      assert {:ok, %TestCodec{active: true}} = TestCodec.cast(active: "true")
-      assert {:ok, %TestCodec{active: false}} = TestCodec.cast(active: "false")
+      assert {:ok, %TestCodec{active: true}} = TestCodec.new(active: "true")
+      assert {:ok, %TestCodec{active: false}} = TestCodec.new(active: "false")
     end
 
     test "coerces integer booleans" do
-      assert {:ok, %TestCodec{active: true}} = TestCodec.cast(active: 1)
-      assert {:ok, %TestCodec{active: false}} = TestCodec.cast(active: 0)
+      assert {:ok, %TestCodec{active: true}} = TestCodec.new(active: 1)
+      assert {:ok, %TestCodec{active: false}} = TestCodec.new(active: 0)
     end
 
     test "coerces string decimals" do
-      assert {:ok, %TestCodec{price: %Decimal{}}} = TestCodec.cast(price: "100.50")
+      assert {:ok, %TestCodec{price: %Decimal{}}} = TestCodec.new(price: "100.50")
     end
 
     test "coerces ISO 8601 timestamps" do
       assert {:ok, %TestCodec{created_at: %DateTime{}}} =
-               TestCodec.cast(created_at: "2026-01-01T00:00:00Z")
+               TestCodec.new(created_at: "2026-01-01T00:00:00Z")
     end
 
     test "coerces string floats" do
-      assert {:ok, %TestCodec{ratio: 3.14}} = TestCodec.cast(ratio: "3.14")
+      assert {:ok, %TestCodec{ratio: 3.14}} = TestCodec.new(ratio: "3.14")
     end
 
     test "coerces UUID strings to binary" do
       uuid_str = "550e8400-e29b-41d4-a716-446655440000"
-      assert {:ok, %TestCodec{id: <<_::128>>}} = TestCodec.cast(id: uuid_str)
+      assert {:ok, %TestCodec{id: <<_::128>>}} = TestCodec.new(id: uuid_str)
     end
 
     test "nil values pass through" do
-      assert {:ok, %TestCodec{count: nil}} = TestCodec.cast(%{})
+      assert {:ok, %TestCodec{count: nil}} = TestCodec.new(%{})
     end
-  end
 
-  describe "cast/1 with string keys" do
     test "accepts string keys from JSON-like input" do
       assert {:ok, %TestCodec{count: 42, active: true}} =
-               TestCodec.cast(%{"count" => "42", "active" => "true"})
+               TestCodec.new(%{"count" => "42", "active" => "true"})
     end
 
     test "mixed string and atom keys" do
       assert {:ok, %TestCodec{count: 42, active: true}} =
-               TestCodec.cast(%{"count" => "42", active: true})
+               TestCodec.new(%{"count" => "42", active: true})
     end
   end
 
-  describe "cast/1 error handling" do
-    test "returns error for unparseable integer" do
-      assert {:error, :count, reason} = TestCodec.cast(count: "not_a_number")
-      assert reason =~ "cannot parse integer"
+  describe "new/1 coercion errors" do
+    test "returns ValidationError for unparseable integer" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               TestCodec.new(count: "not_a_number")
+
+      assert e.details.field == :count
+      assert e.message =~ "cannot cast"
     end
 
-    test "returns error for unparseable boolean" do
-      assert {:error, :active, reason} = TestCodec.cast(active: "maybe")
-      assert reason =~ "expected boolean"
+    test "returns ValidationError for unparseable boolean" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               TestCodec.new(active: "maybe")
+
+      assert e.details.field == :active
     end
 
-    test "returns error for unparseable decimal" do
-      assert {:error, :price, reason} = TestCodec.cast(price: "abc")
-      assert reason =~ "cannot parse decimal"
+    test "returns ValidationError for unparseable decimal" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error}} =
+               TestCodec.new(price: "abc")
     end
 
-    test "returns error for bad timestamp" do
-      assert {:error, :created_at, reason} = TestCodec.cast(created_at: "not-a-date")
-      assert reason =~ "cannot parse datetime"
+    test "returns ValidationError for bad timestamp" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               TestCodec.new(created_at: "not-a-date")
+
+      assert e.details.field == :created_at
     end
 
-    test "returns error for bad UUID" do
-      assert {:error, :id, reason} = TestCodec.cast(id: "too-short")
-      assert reason =~ "UUID"
+    test "returns ValidationError for bad UUID" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               TestCodec.new(id: "too-short")
+
+      assert e.details.field == :id
     end
 
     test "stops at first error" do
-      assert {:error, field, _reason} =
-               TestCodec.cast(count: "bad", active: "also_bad")
-
-      assert field in [:count, :active]
+      assert {:error, %GridCodec.ValidationError{code: :cast_error}} =
+               TestCodec.new(count: "bad", active: "also_bad")
     end
   end
 

@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.16.0] - 2026-03-04
+
+### Changed
+- **Unified `new/1` constructor**: `new/1` now does coercion AND validation in one
+  call. Accepts string keys, string values, atom keys, typed values — any mix.
+  Returns `{:ok, struct}` or `{:error, %ValidationError{}}` with a consistent error
+  shape. The `:cast_error` code is added for coercion failures.
+- **`cast/1` deprecated**: Use `new/1` instead — it does everything `cast/1` did
+  plus validation. `cast/1` remains as a deprecated alias.
+
 ## [0.15.1] - 2026-03-04
 
 ### Fixed

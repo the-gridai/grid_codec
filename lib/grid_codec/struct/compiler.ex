@@ -188,17 +188,20 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       @doc """
-      Creates a new #{inspect(unquote(module))} struct with validation.
+      Creates a new #{inspect(unquote(module))} struct with coercion and validation.
 
-      Returns `{:ok, struct}` if all fields pass type validation,
-      or `{:error, %GridCodec.ValidationError{}}` if any field is invalid.
+      Accepts atom keys, string keys, or a mix. Coerces string values to the
+      correct types (e.g., `"100"` → integer, `"true"` → boolean,
+      `"2026-01-01T00:00:00Z"` → DateTime). Then validates if `validate: true`.
 
-      Accepts a map or keyword list of field values.
+      Returns `{:ok, struct}` or `{:error, %GridCodec.ValidationError{}}`.
 
       ## Examples
 
           {:ok, event} = #{inspect(unquote(module))}.new(id: 42, price: 100)
-          {:error, %GridCodec.ValidationError{}} = #{inspect(unquote(module))}.new(id: "not_an_int")
+          {:ok, event} = #{inspect(unquote(module))}.new(%{"id" => "42", "price" => "100"})
+          {:error, %GridCodec.ValidationError{code: :cast_error}} =
+            #{inspect(unquote(module))}.new(price: "not_a_number")
       """
       if unquote(generate_typespec) do
         @spec new(map() | keyword()) ::
@@ -206,22 +209,27 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       def new(attrs \\ %{})
-
       def new(attrs) when is_list(attrs), do: new(Map.new(attrs))
 
       def new(attrs) when is_map(attrs) do
-        struct = struct!(unquote(module), attrs)
+        case __cast__(attrs) do
+          {:ok, coerced} ->
+            struct = struct!(unquote(module), coerced)
 
-        try do
-          __validate__(struct)
-          {:ok, struct}
-        rescue
-          e in GridCodec.ValidationError -> {:error, e}
+            try do
+              __validate__(struct)
+              {:ok, struct}
+            rescue
+              e in GridCodec.ValidationError -> {:error, e}
+            end
+
+          {:error, _} = error ->
+            error
         end
       end
 
       @doc """
-      Like `new/1` but raises on validation failure.
+      Like `new/1` but raises on failure.
       """
       if unquote(generate_typespec) do
         @spec new!(map() | keyword()) :: t()
@@ -234,8 +242,12 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      # Cast: coerce external data (string keys/values) to typed struct
-      unquote(generate_cast_fn(resolved_fields, env.module, generate_typespec))
+      @doc false
+      @deprecated "Use new/1 instead — it handles both coercion and validation"
+      def cast(attrs), do: new(attrs)
+
+      # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
+      unquote(generate_cast_fn(resolved_fields, env.module))
 
       # Content hash: deterministic SHA256 from wire format
       unquote(generate_content_hash_fn(env.module, generate_typespec))
@@ -2836,14 +2848,14 @@ defmodule GridCodec.Struct.Compiler do
   # Cast / Coercion Generation
   # ============================================================================
 
-  defp generate_cast_fn(fields, module, generate_typespec) do
+  defp generate_cast_fn(fields, module) do
     non_constant =
       Enum.reject(fields, fn {_, _, _, opts} ->
         Keyword.get(opts, :presence) == :constant
       end)
 
     field_coercions =
-      Enum.map(non_constant, fn {name, _type_atom, type_module, _opts} ->
+      Enum.map(non_constant, fn {name, type_atom, type_module, _opts} ->
         name_str = Atom.to_string(name)
 
         coerce_ast =
@@ -2854,33 +2866,11 @@ defmodule GridCodec.Struct.Compiler do
             nil
           end
 
-        {name, name_str, coerce_ast}
+        {name, name_str, type_atom, coerce_ast}
       end)
 
     quote do
-      @doc """
-      Casts external data to a typed struct with coercion.
-
-      Accepts string or atom keys. Coerces string values to the correct types
-      (e.g., `"100"` → integer for `:u32`, `"2026-01-01T00:00:00Z"` → DateTime
-      for `:timestamp_us`). Returns `{:ok, struct}` or `{:error, field, reason}`.
-
-      ## Example
-
-          {:ok, event} = #{inspect(unquote(module))}.cast(%{
-            "price" => "100",
-            "active" => "true",
-            "created_at" => "2026-01-01T00:00:00Z"
-          })
-      """
-      if unquote(generate_typespec) do
-        @spec cast(map() | keyword()) ::
-                {:ok, t()} | {:error, atom(), String.t()}
-      end
-
-      def cast(attrs) when is_list(attrs), do: cast(Map.new(attrs))
-
-      def cast(attrs) when is_map(attrs) do
+      defp __cast__(attrs) when is_map(attrs) do
         unquote(build_cast_body(field_coercions, module))
       end
     end
@@ -2888,7 +2878,7 @@ defmodule GridCodec.Struct.Compiler do
 
   defp build_cast_body(field_coercions, module) do
     field_extractions =
-      Enum.map(field_coercions, fn {name, name_str, coerce_ast} ->
+      Enum.map(field_coercions, fn {name, name_str, type_atom, coerce_ast} ->
         extract =
           quote do
             raw_value =
@@ -2906,8 +2896,19 @@ defmodule GridCodec.Struct.Compiler do
               _ = unquote(var)
 
               case unquote(coerce_ast) do
-                {:ok, coerced} -> coerced
-                {:error, reason} -> throw({:cast_error, unquote(name), reason})
+                {:ok, coerced} ->
+                  coerced
+
+                {:error, reason} ->
+                  throw(
+                    GridCodec.ValidationError.cast_error(
+                      unquote(module),
+                      unquote(name),
+                      unquote(type_atom),
+                      raw_value,
+                      reason
+                    )
+                  )
               end
             end
           else
@@ -2927,7 +2928,7 @@ defmodule GridCodec.Struct.Compiler do
         end
       end)
 
-    struct_pairs =
+    map_pairs =
       Enum.map(field_extractions, fn {name, _, _} ->
         {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
       end)
@@ -2935,9 +2936,9 @@ defmodule GridCodec.Struct.Compiler do
     quote do
       try do
         unquote_splicing(extractions)
-        {:ok, %unquote(module){unquote_splicing(struct_pairs)}}
+        {:ok, %{unquote_splicing(map_pairs)}}
       catch
-        {:cast_error, field, reason} -> {:error, field, reason}
+        %GridCodec.ValidationError{} = e -> {:error, e}
       end
     end
   end
