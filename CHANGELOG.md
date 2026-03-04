@@ -27,19 +27,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
-## [0.16.0] - 2026-03-04
+## [0.17.0] - 2026-03-04
+
+### Added
+- **`decode_as` option for group fields**: Wire-efficient types with typed decode
+  output. `field :amount, :i64, decode_as: :decimal` stores as i64 on wire but
+  decodes to `%Decimal{}`. `decode_as: {:decimal, scale: 8}` applies fixed-point
+  scaling. Eliminates the double-scaling bug in period rotation carry-forward.
+- **`new_binary/1`**: Coerce + validate + encode in one shot, zero struct allocation.
+  Accepts maps (atom/string keys), keyword lists, or structs. Returns `{:ok, binary}`.
+- **`content_hash/1`**: Deterministic SHA-256 from wire format for deduplication.
+- **`decode_only/2`**: Selective field extraction using compile-time offsets.
 
 ### Changed
-- **Unified `new/1` constructor**: `new/1` now does coercion AND validation in one
-  call. Accepts string keys, string values, atom keys, typed values — any mix.
-  Returns `{:ok, struct}` or `{:error, %ValidationError{}}` with a consistent error
-  shape. The `:cast_error` code is added for coercion failures.
+- **Unified `new/1` constructor**: Does coercion AND validation in one call.
+  Accepts string keys, string values, atom keys, typed values — any mix.
+  Returns `{:ok, struct}` or `{:error, %ValidationError{}}`.
 - **`cast/1` removed**: `new/1` replaces it entirely — one constructor, one API.
-- **Lazy error messages**: `ValidationError` no longer builds the message string
-  eagerly. Message is generated in `Exception.message/1` only when printed/logged.
+- **Lazy error messages**: `ValidationError` message generated only when printed.
   Error path: 7.7x faster, 5x less memory.
-- **Constructor optimized**: `:maps.find` short-circuit replaces eager double
-  `Map.get` lookup; `struct/2` replaces `struct!/2` (skips redundant key validation).
+- **Constructor optimized**: `:maps.find` short-circuit + `struct/2` (no key validation).
+- **Decimal coercion**: `new(price: 100)` now returns `%Decimal{}` not raw integer.
+- **Internal functions hidden** from ExDoc (`@doc false` on `__schema__`, `__type__`, etc.)
+- **Auto `@moduledoc`** for custom enum/bitset/chararray modules (fixes ExDoc warnings).
+
+### Fixed
+- **Registry consolidation path**: Writes to `grid_codec/ebin/` not protocol consolidation dir.
+- **Registry module discovery**: Scans beam files on disk, not `:code.all_loaded()`.
+- **`ensure_all_loaded/0`** on Registry for runtime eager loading.
 
 ## [0.15.1] - 2026-03-04
 

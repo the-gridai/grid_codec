@@ -246,8 +246,11 @@ Every codec has `new/1` and `new!/1` constructors that handle coercion and valid
 # String input from JSON — automatically coerced
 {:ok, event} = MyCodec.new(%{"price" => "100", "active" => "true"})
 
-# Direct to binary — no struct allocation
+# Direct to binary — no struct allocation (2.7x less memory)
 {:ok, binary} = MyCodec.new_binary(%{"price" => "100", "active" => "true"})
+
+# From existing struct — just validate + encode (128 bytes allocated)
+{:ok, binary} = MyCodec.new_binary(existing_struct)
 ```
 
 Enable `validate: true` to catch type errors before encoding:
@@ -277,6 +280,15 @@ defcodec do
     field :quantity, :u32
     field :side, MyApp.OrderSide  # custom enum types work in groups
   end
+end
+```
+
+Use `decode_as` for wire-efficient types with typed decode output:
+
+```elixir
+group :balances do
+  field :user_id, :uuid
+  field :amount, :i64, decode_as: {:decimal, scale: 8}  # i64 on wire, Decimal on decode
 end
 ```
 
