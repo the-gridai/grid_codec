@@ -27,6 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.18.0] - 2026-03-04
+
+### Added
+- **`decode_as_ast/2` callback** on `GridCodec.Type` — general mechanism for
+  decode-time type coercion. Any custom type can implement it. Source type module
+  is passed via opts for generating optimized code (e.g., no unreachable clauses
+  for integer source types).
+- **`coerce_ast/1` for enum, bitset, chararray** — custom macro-based types now
+  participate in `new/1` coercion. Enum: `"buy"` → `:buy`. Bitset: `["read"]` →
+  `MapSet`. CharArray: string passthrough.
+- **Group entry coercion** — `new/1` and `new_binary/1` now coerce group entry
+  fields (string keys, string values). Error messages include group name context.
+
+### Fixed
+- **Unreachable clause warnings** in `decode_as` for integer source types — Elixir
+  1.18 type checker no longer warns with `--warnings-as-errors`.
+
 ## [0.17.0] - 2026-03-04
 
 ### Added
