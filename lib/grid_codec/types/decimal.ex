@@ -183,29 +183,64 @@ defmodule GridCodec.Types.Decimal do
   @impl true
   def decode_as_ast(var, opts) do
     scale = Keyword.get(opts, :scale)
+    integer_source? = integer_source?(Keyword.get(opts, :source_module))
 
-    if scale do
-      quote do
-        case unquote(var) do
-          nil -> nil
-          0 -> Decimal.new(0)
-          v when is_integer(v) and v > 0 -> Decimal.new(1, v, -unquote(scale))
-          v when is_integer(v) -> Decimal.new(-1, -v, -unquote(scale))
-          %Decimal{} = d -> d
-          v -> v
+    cond do
+      scale && integer_source? ->
+        quote do
+          case unquote(var) do
+            nil -> nil
+            0 -> Decimal.new(0)
+            v when v > 0 -> Decimal.new(1, v, -unquote(scale))
+            v -> Decimal.new(-1, -v, -unquote(scale))
+          end
         end
-      end
-    else
-      quote do
-        case unquote(var) do
-          nil -> nil
-          v when is_integer(v) -> Decimal.new(v)
-          %Decimal{} = d -> d
-          v -> v
+
+      scale ->
+        quote do
+          case unquote(var) do
+            nil -> nil
+            %Decimal{} = d -> d
+            0 -> Decimal.new(0)
+            v when is_integer(v) and v > 0 -> Decimal.new(1, v, -unquote(scale))
+            v when is_integer(v) -> Decimal.new(-1, -v, -unquote(scale))
+            v -> v
+          end
         end
-      end
+
+      integer_source? ->
+        quote do
+          case unquote(var) do
+            nil -> nil
+            v -> Decimal.new(v)
+          end
+        end
+
+      true ->
+        quote do
+          case unquote(var) do
+            nil -> nil
+            v when is_integer(v) -> Decimal.new(v)
+            %Decimal{} = d -> d
+            v -> v
+          end
+        end
     end
   end
+
+  @integer_types [
+    GridCodec.Types.I8,
+    GridCodec.Types.I16,
+    GridCodec.Types.I32,
+    GridCodec.Types.I64,
+    GridCodec.Types.U8,
+    GridCodec.Types.U16,
+    GridCodec.Types.U32,
+    GridCodec.Types.U64
+  ]
+
+  defp integer_source?(nil), do: false
+  defp integer_source?(module), do: module in @integer_types
 
   @impl true
   def coerce_ast(var) do

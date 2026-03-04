@@ -1020,47 +1020,49 @@ defmodule GridCodec.Struct.Compiler do
 
   # Shared: build result pairs for group decoders, applying decode_as coercion
   defp build_decode_result_pairs(resolved_fields) do
-    Enum.map(resolved_fields, fn {name, _type, module, opts} ->
+    Enum.map(resolved_fields, fn {name, _type, source_module, opts} ->
       var = Macro.var(name, __MODULE__)
 
       value_ast =
-        if function_exported?(module, :decode_value_ast, 1) do
-          module.decode_value_ast(var)
+        if function_exported?(source_module, :decode_value_ast, 1) do
+          source_module.decode_value_ast(var)
         else
           var
         end
 
-      final_ast = apply_decode_as(value_ast, Keyword.get(opts, :decode_as))
+      final_ast =
+        apply_decode_as(value_ast, Keyword.get(opts, :decode_as), source_module)
+
       {name, final_ast}
     end)
   end
 
-  defp apply_decode_as(value_ast, nil), do: value_ast
+  defp apply_decode_as(value_ast, nil, _source_module), do: value_ast
 
-  defp apply_decode_as(value_ast, {type_ref, opts}) when is_list(opts) do
-    module = resolve_decode_as_module(type_ref)
+  defp apply_decode_as(value_ast, {type_ref, opts}, source_module) when is_list(opts) do
+    target_module = resolve_decode_as_module(type_ref)
 
-    unless function_exported?(module, :decode_as_ast, 2) do
+    unless function_exported?(target_module, :decode_as_ast, 2) do
       raise CompileError,
         description:
-          "decode_as: {#{inspect(type_ref)}, ...} — module #{inspect(module)} " <>
+          "decode_as: {#{inspect(type_ref)}, ...} — module #{inspect(target_module)} " <>
             "does not implement decode_as_ast/2 callback"
     end
 
-    module.decode_as_ast(value_ast, opts)
+    target_module.decode_as_ast(value_ast, [{:source_module, source_module} | opts])
   end
 
-  defp apply_decode_as(value_ast, type_ref) when is_atom(type_ref) do
-    module = resolve_decode_as_module(type_ref)
+  defp apply_decode_as(value_ast, type_ref, source_module) when is_atom(type_ref) do
+    target_module = resolve_decode_as_module(type_ref)
 
-    unless function_exported?(module, :decode_as_ast, 2) do
+    unless function_exported?(target_module, :decode_as_ast, 2) do
       raise CompileError,
         description:
-          "decode_as: #{inspect(type_ref)} — module #{inspect(module)} " <>
+          "decode_as: #{inspect(type_ref)} — module #{inspect(target_module)} " <>
             "does not implement decode_as_ast/2 callback"
     end
 
-    module.decode_as_ast(value_ast, [])
+    target_module.decode_as_ast(value_ast, source_module: source_module)
   end
 
   defp resolve_decode_as_module(type_ref) do
