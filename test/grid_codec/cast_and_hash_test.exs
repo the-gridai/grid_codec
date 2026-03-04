@@ -119,6 +119,54 @@ defmodule GridCodec.CastAndHashTest do
   end
 
   # ============================================================================
+  # new_binary/1
+  # ============================================================================
+
+  describe "new_binary/1" do
+    test "produces valid binary from typed map" do
+      {:ok, binary} = TestCodec.new_binary(count: 42, score: -5, active: true, ratio: 1.0)
+      assert is_binary(binary)
+      assert {:ok, decoded} = TestCodec.decode(binary)
+      assert decoded.count == 42
+      assert decoded.score == -5
+      assert decoded.active == true
+    end
+
+    test "produces valid binary from string map" do
+      {:ok, binary} =
+        TestCodec.new_binary(%{"count" => "42", "active" => "true", "ratio" => "1.0"})
+
+      assert {:ok, decoded} = TestCodec.decode(binary)
+      assert decoded.count == 42
+      assert decoded.active == true
+    end
+
+    test "produces valid binary from existing struct" do
+      struct = TestCodec.new!(count: 42, ratio: 1.0)
+      {:ok, binary} = TestCodec.new_binary(struct)
+      assert binary == TestCodec.encode(struct)
+    end
+
+    test "produces valid binary from keyword list" do
+      {:ok, binary} = TestCodec.new_binary(count: 99, ratio: 0.0)
+      assert {:ok, decoded} = TestCodec.decode(binary)
+      assert decoded.count == 99
+    end
+
+    test "returns error for cast failure" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error}} =
+               TestCodec.new_binary(count: "bad")
+    end
+
+    test "handles minimal input with defaults" do
+      {:ok, binary} = TestCodec.new_binary(%{ratio: 0.0})
+      assert is_binary(binary)
+      assert {:ok, decoded} = TestCodec.decode(binary)
+      assert decoded.ratio == 0.0
+    end
+  end
+
+  # ============================================================================
   # Content Hash
   # ============================================================================
 
