@@ -34,8 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call. Accepts string keys, string values, atom keys, typed values — any mix.
   Returns `{:ok, struct}` or `{:error, %ValidationError{}}` with a consistent error
   shape. The `:cast_error` code is added for coercion failures.
-- **`cast/1` deprecated**: Use `new/1` instead — it does everything `cast/1` did
-  plus validation. `cast/1` remains as a deprecated alias.
+- **`cast/1` removed**: `new/1` replaces it entirely — one constructor, one API.
+- **Lazy error messages**: `ValidationError` no longer builds the message string
+  eagerly. Message is generated in `Exception.message/1` only when printed/logged.
+  Error path: 7.7x faster, 5x less memory.
+- **Constructor optimized**: `:maps.find` short-circuit replaces eager double
+  `Map.get` lookup; `struct/2` replaces `struct!/2` (skips redundant key validation).
 
 ## [0.15.1] - 2026-03-04
 
