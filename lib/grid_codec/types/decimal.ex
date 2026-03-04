@@ -180,6 +180,39 @@ defmodule GridCodec.Types.Decimal do
     end
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    dec_mod = Decimal
+
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        %unquote(dec_mod){} ->
+          :ok
+
+        {m, e} when is_integer(m) and is_integer(e) ->
+          :ok
+
+        v when is_integer(v) ->
+          :ok
+
+        v when is_float(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :decimal,
+                  v,
+                  "Decimal, {mantissa, exponent} tuple, integer, float, or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do

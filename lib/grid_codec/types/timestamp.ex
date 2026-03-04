@@ -108,6 +108,33 @@ defmodule GridCodec.Types.TimestampMicros do
     end
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    dt_mod = DateTime
+
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        %unquote(dt_mod){} ->
+          :ok
+
+        v when is_integer(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :timestamp_us,
+                  v,
+                  "DateTime, integer, or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do
@@ -254,6 +281,33 @@ defmodule GridCodec.Types.TimestampNanos do
     case ns do
       0 -> nil
       _ -> ns
+    end
+  end
+
+  @impl true
+  def validate_ast(var, field, mod) do
+    dt_mod = DateTime
+
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        %unquote(dt_mod){} ->
+          :ok
+
+        v when is_integer(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :timestamp_ns,
+                  v,
+                  "DateTime, integer, or nil"
+                )
+      end
     end
   end
 

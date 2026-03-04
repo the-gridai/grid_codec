@@ -131,6 +131,28 @@ defmodule GridCodec.Types.Bool do
     end
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        v when is_boolean(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :bool,
+                  v,
+                  "true, false, or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.bool()

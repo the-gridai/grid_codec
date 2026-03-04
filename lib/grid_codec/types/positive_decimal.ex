@@ -120,6 +120,39 @@ defmodule GridCodec.Types.PositiveDecimal do
   defp coerce({m, e}) when is_integer(m), do: %Decimal{sign: 1, coef: m, exp: e}
   defp coerce(n) when is_integer(n), do: Decimal.new(n)
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    dec_mod = Decimal
+
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        %unquote(dec_mod){} ->
+          :ok
+
+        {m, e} when is_integer(m) and is_integer(e) ->
+          :ok
+
+        v when is_integer(v) ->
+          :ok
+
+        v when is_float(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :positive_decimal,
+                  v,
+                  "Decimal, {mantissa, exponent} tuple, integer, float, or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do

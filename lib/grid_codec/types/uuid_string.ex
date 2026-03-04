@@ -178,6 +178,34 @@ defmodule GridCodec.Types.UUIDString do
     |> Base.decode16!(case: :mixed)
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        <<_::binary-size(16)>> ->
+          :ok
+
+        s when is_binary(s) and byte_size(s) == 36 ->
+          :ok
+
+        s when is_binary(s) and byte_size(s) == 32 ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.invalid_format(
+                  unquote(mod),
+                  unquote(field),
+                  :uuid_string,
+                  v,
+                  "16-byte binary, 36-char UUID string, 32-char hex string, or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator do

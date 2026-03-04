@@ -141,6 +141,11 @@ defmodule GridCodec.Types.U32 do
     end
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    GridCodec.Types.Integer.gen_unsigned_validate_ast(var, field, mod, 32, :u32)
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.u32()

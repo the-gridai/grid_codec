@@ -240,7 +240,24 @@ defmodule GridCodec.Type do
   """
   @callback generator() :: term()
 
-  @optional_callbacks decode_value_ast: 1, generator: 0, compare_values: 2
+  @doc """
+  Generates AST that validates a value before encoding.
+
+  Called at compile time when `validate: true` is set on the codec.
+  Should return a quoted expression that raises `GridCodec.ValidationError`
+  if the value is invalid, or does nothing if valid.
+
+  Receives:
+  - `value_var` — the AST variable holding the value to validate
+  - `field_name` — the atom name of the field
+  - `module` — the codec module (for error messages)
+
+  Return `nil` to skip validation for this type.
+  """
+  @callback validate_ast(value_var :: Macro.t(), field_name :: atom(), module :: module()) ::
+              Macro.t() | nil
+
+  @optional_callbacks decode_value_ast: 1, generator: 0, compare_values: 2, validate_ast: 3
 
   # ============================================================================
   # Type Registry

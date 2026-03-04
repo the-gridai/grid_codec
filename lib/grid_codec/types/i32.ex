@@ -146,6 +146,11 @@ defmodule GridCodec.Types.I32 do
     if value == @null_val, do: nil, else: value
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    GridCodec.Types.Integer.gen_signed_validate_ast(var, field, mod, 32, :i32)
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.i32()

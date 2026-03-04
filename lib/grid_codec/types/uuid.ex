@@ -133,6 +133,28 @@ defmodule GridCodec.Types.UUID do
     if value == @null_uuid, do: nil, else: value
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        <<_::binary-size(16)>> ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.invalid_format(
+                  unquote(mod),
+                  unquote(field),
+                  :uuid,
+                  v,
+                  "16-byte binary or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.uuid()

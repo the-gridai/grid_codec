@@ -35,4 +35,53 @@ defmodule GridCodec.Types.Integer do
       end
     end
   end
+
+  @doc false
+  def gen_unsigned_validate_ast(value_var, field_name, codec_module, bits, type_atom) do
+    max = (1 <<< bits) - 1
+
+    quote do
+      case unquote(value_var) do
+        nil ->
+          :ok
+
+        v when is_integer(v) and v >= 0 and v <= unquote(max) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.out_of_range(
+                  unquote(codec_module),
+                  unquote(field_name),
+                  unquote(type_atom),
+                  v,
+                  "0..#{unquote(max)} or nil"
+                )
+      end
+    end
+  end
+
+  @doc false
+  def gen_signed_validate_ast(value_var, field_name, codec_module, bits, type_atom) do
+    min = -(1 <<< (bits - 1))
+    max = (1 <<< (bits - 1)) - 1
+
+    quote do
+      case unquote(value_var) do
+        nil ->
+          :ok
+
+        v when is_integer(v) and v >= unquote(min) and v <= unquote(max) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.out_of_range(
+                  unquote(codec_module),
+                  unquote(field_name),
+                  unquote(type_atom),
+                  v,
+                  "#{unquote(min)}..#{unquote(max)} or nil"
+                )
+      end
+    end
+  end
 end

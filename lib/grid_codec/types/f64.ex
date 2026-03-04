@@ -135,6 +135,28 @@ defmodule GridCodec.Types.F64 do
     end
   end
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        v when is_number(v) ->
+          :ok
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  :f64,
+                  v,
+                  "number or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(GridCodec.Generators) do
     @impl true
     def generator, do: GridCodec.Generators.f64()

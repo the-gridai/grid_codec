@@ -27,6 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.14.0] - 2026-03-04
+
+### Added
+- **Type-level validation** via `validate: true` option (per-module or global config).
+  Generated at compile time — zero overhead when disabled. Catches type mismatches,
+  integer overflow/underflow, invalid UUID formats, and wrong types for decimal/bool/
+  timestamp fields BEFORE encoding, with structured `GridCodec.ValidationError` errors.
+- **`GridCodec.ValidationError`** exception struct with `code` (`:type_mismatch`,
+  `:out_of_range`, `:invalid_format`), `message`, and `details` (field, type, value,
+  module). Pattern-matchable for programmatic error handling.
+- **`validate_ast/3` optional callback** on `GridCodec.Type` behaviour — custom types
+  can implement this to participate in pre-encode validation.
+- Implemented `validate_ast` for all built-in types: u8-u64, i8-i64, f32, f64, bool,
+  uuid, uuid_string, decimal, positive_decimal, timestamp_us, timestamp_ns.
+
 ## [0.13.0] - 2026-03-04
 
 ### Added

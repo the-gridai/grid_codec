@@ -36,6 +36,9 @@ defmodule GridCodec.Struct.Compiler do
         Application.get_env(:grid_codec, :telemetry_min_duration, 0)
       )
 
+    validate_enabled =
+      Keyword.get(opts, :validate, Application.get_env(:grid_codec, :validate, false))
+
     # Template ID: explicit or hash of module name
     template_id =
       case Keyword.get(opts, :template_id) do
@@ -214,6 +217,9 @@ defmodule GridCodec.Struct.Compiler do
 
       # Auto-generated group entry codecs
       unquote_splicing(auto_group_fns)
+
+      # Field validation (when validate: true)
+      unquote(generate_validate_fn(resolved_fields, validate_enabled, env.module))
 
       # Encode/Decode API with optional telemetry
       unquote(
@@ -2528,6 +2534,7 @@ defmodule GridCodec.Struct.Compiler do
         def encode(struct, opts \\ [])
 
         def encode(%unquote(module){} = struct, []) do
+          __validate__(struct)
           start = :erlang.monotonic_time()
           payload = encode_payload(struct)
           binary = <<@__gridcodec_header__::binary, payload::binary>>
@@ -2545,6 +2552,7 @@ defmodule GridCodec.Struct.Compiler do
         end
 
         def encode(%unquote(module){} = struct, opts) do
+          __validate__(struct)
           start = :erlang.monotonic_time()
 
           binary =
@@ -2580,11 +2588,14 @@ defmodule GridCodec.Struct.Compiler do
         def encode(struct, opts \\ [])
 
         def encode(%unquote(module){} = struct, []) do
+          __validate__(struct)
           payload = encode_payload(struct)
           <<@__gridcodec_header__::binary, payload::binary>>
         end
 
         def encode(%unquote(module){} = struct, opts) do
+          __validate__(struct)
+
           if Keyword.get(opts, :header, true) do
             payload = encode_payload(struct)
             <<@__gridcodec_header__::binary, payload::binary>>
@@ -2713,6 +2724,44 @@ defmodule GridCodec.Struct.Compiler do
           else
             decode_payload(binary)
           end
+        end
+      end
+    end
+  end
+
+  # ============================================================================
+  # Field Validation Generation
+  # ============================================================================
+
+  defp generate_validate_fn(_fields, false, _module) do
+    quote do
+      defp __validate__(_struct), do: :ok
+    end
+  end
+
+  defp generate_validate_fn(fields, true, module) do
+    checks =
+      fields
+      |> Enum.reject(fn {_, _, _, opts} -> Keyword.get(opts, :presence) == :constant end)
+      |> Enum.flat_map(fn {name, _type_atom, type_module, _opts} ->
+        if function_exported?(type_module, :validate_ast, 3) do
+          var = quote do: :maps.get(unquote(name), data, nil)
+          ast = type_module.validate_ast(var, name, module)
+          if ast, do: [ast], else: []
+        else
+          []
+        end
+      end)
+
+    if checks == [] do
+      quote do
+        defp __validate__(_struct), do: :ok
+      end
+    else
+      quote do
+        defp __validate__(data) when is_map(data) do
+          unquote_splicing(checks)
+          :ok
         end
       end
     end
