@@ -125,7 +125,8 @@ defmodule GridCodec.MixProject do
       groups_for_modules: [
         "Core DSL": [
           GridCodec,
-          GridCodec.Struct
+          GridCodec.Struct,
+          GridCodec.ValidationError
         ],
         Runtime: [
           GridCodec.Group,
@@ -133,14 +134,17 @@ defmodule GridCodec.MixProject do
           GridCodec.Header,
           GridCodec.Registry,
           GridCodec.BinaryInspector,
-          GridCodec.Json
+          GridCodec.Json,
+          GridCodec.Telemetry.Metrics
         ],
         Types: [
           GridCodec.Type,
           GridCodec.Types.Bool,
           GridCodec.Types.Decimal,
+          GridCodec.Types.PositiveDecimal,
           GridCodec.Types.String,
           GridCodec.Types.UUID,
+          GridCodec.Types.UUIDString,
           GridCodec.Types.TimestampMicros,
           GridCodec.Types.TimestampNanos,
           GridCodec.Types.Enum,

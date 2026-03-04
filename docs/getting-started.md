@@ -235,6 +235,91 @@ GridCodec types:
 def publish(data), do: ...
 ```
 
+## Constructors and Coercion
+
+Every codec has `new/1` and `new!/1` constructors that handle coercion and validation:
+
+```elixir
+# Typed input
+{:ok, event} = MyCodec.new(price: 100, active: true)
+
+# String input from JSON — automatically coerced
+{:ok, event} = MyCodec.new(%{"price" => "100", "active" => "true"})
+
+# Direct to binary — no struct allocation
+{:ok, binary} = MyCodec.new_binary(%{"price" => "100", "active" => "true"})
+```
+
+Enable `validate: true` to catch type errors before encoding:
+
+```elixir
+use GridCodec.Struct, template_id: 1, schema_id: 100, validate: true
+
+# Out of range:
+{:error, %GridCodec.ValidationError{code: :out_of_range}} =
+  MyCodec.new(count: 5_000_000_000)  # exceeds u32 max
+
+# Cast error:
+{:error, %GridCodec.ValidationError{code: :cast_error}} =
+  MyCodec.new(price: "not_a_number")
+```
+
+## Groups
+
+Groups encode variable-length collections with fixed-size entries:
+
+```elixir
+defcodec do
+  field :symbol, :uuid
+
+  group :orders do
+    field :price, :i64
+    field :quantity, :u32
+    field :side, MyApp.OrderSide  # custom enum types work in groups
+  end
+end
+```
+
+Decoded groups are lazy — entries are only materialized when accessed:
+
+```elixir
+{:ok, data} = MyCodec.decode(binary)
+GridCodec.Group.count(data.orders)           # O(1), no decode
+GridCodec.Group.get_entry(data.orders, 42)   # O(1) random access
+GridCodec.Group.to_list(data.orders)         # materialize all entries
+
+# Parallel decode for large groups (auto-thresholds at 256KB)
+[balances, orders] = GridCodec.Group.to_lists_parallel([data.balances, data.orders])
+```
+
+## Projection and Content Hash
+
+Decode only the fields you need:
+
+```elixir
+{:ok, %{price: 100, side: :buy}} = MyCodec.decode_only(binary, [:price, :side])
+```
+
+Deterministic content hash for deduplication:
+
+```elixir
+hash = MyCodec.content_hash(struct)  # SHA-256 of wire format
+```
+
+## Telemetry
+
+Enable per-module or globally for encode/decode latency metrics:
+
+```elixir
+use GridCodec.Struct, telemetry: true, telemetry_min_duration: 10_000
+
+# Or globally:
+config :grid_codec, telemetry: true
+```
+
+See `GridCodec.Telemetry.Metrics` for PromEx/Prometheus integration and
+the `grafana/grid_codec.json` dashboard.
+
 ## Next Steps
 
 - See `docs/schemas.md` for `.grid` schema files.

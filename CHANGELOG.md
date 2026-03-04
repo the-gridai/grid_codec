@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `:code.all_loaded()` which misses lazily-loaded modules.
 
 ### Added
-- **`Registry.ensure_all_loaded/0`** — Eagerly loads all GridCodec modules from
+- **`ensure_all_loaded/0` on Registry** — Eagerly loads all GridCodec modules from
   beam files on the code path. Call at application startup to ensure the fallback
   registry can find all codecs without the consolidated registry.
 
