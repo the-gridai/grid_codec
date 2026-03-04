@@ -242,10 +242,6 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      @doc false
-      @deprecated "Use new/1 instead — it handles both coercion and validation"
-      def cast(attrs), do: new(attrs)
-
       # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
       unquote(generate_cast_fn(resolved_fields, env.module))
 
