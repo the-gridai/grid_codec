@@ -408,6 +408,34 @@ defmodule GridCodec.Types.Bitset do
       end
 
       @impl GridCodec.Type
+      def coerce_ast(var) do
+        mod = __MODULE__
+
+        quote do
+          case unquote(var) do
+            nil ->
+              {:ok, nil}
+
+            %MapSet{} = v ->
+              {:ok, v}
+
+            v when is_list(v) ->
+              {:ok,
+               MapSet.new(v, fn
+                 s when is_binary(s) -> String.to_existing_atom(s)
+                 a when is_atom(a) -> a
+               end)}
+
+            v when is_integer(v) ->
+              {:ok, unquote(mod).from_integer(v)}
+
+            v ->
+              {:error, "expected MapSet, list, or integer for bitset, got: #{inspect(v)}"}
+          end
+        end
+      end
+
+      @impl GridCodec.Type
       def decode_pattern_ast(var, endian) do
         decode_spec = unquote(__MODULE__).__decode_spec__(@bitset_size, endian)
         quote do: unquote(var) :: unquote(decode_spec)

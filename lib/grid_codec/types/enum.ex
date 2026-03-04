@@ -272,6 +272,47 @@ defmodule GridCodec.Types.Enum do
       end
 
       # GridCodec.Type callbacks — fully inlined, no runtime function calls
+
+      @impl GridCodec.Type
+      def coerce_ast(var) do
+        string_clauses =
+          unquote(
+            Macro.escape(
+              for {atom_name, _int_val} <- values do
+                {:->, [], [[Atom.to_string(atom_name)], {:ok, atom_name}]}
+              end
+            )
+          )
+
+        atom_clause =
+          {:->, [],
+           [[{:when, [], [{:v, [], nil}, {:is_atom, [], [{:v, [], nil}]}]}], {:ok, {:v, [], nil}}]}
+
+        int_clause =
+          {:->, [],
+           [
+             [{:when, [], [{:v, [], nil}, {:is_integer, [], [{:v, [], nil}]}]}],
+             {:ok, {:v, [], nil}}
+           ]}
+
+        nil_clause = {:->, [], [[nil], {:ok, nil}]}
+
+        error_clause =
+          {:->, [],
+           [
+             [{:v, [], nil}],
+             {:error,
+              {{:., [], [Kernel, :<>]}, [],
+               [
+                 "expected atom, string, or integer for enum, got: ",
+                 {{:., [], [Kernel, :inspect]}, [], [{:v, [], nil}]}
+               ]}}
+           ]}
+
+        all = [nil_clause | string_clauses] ++ [atom_clause, int_clause, error_clause]
+        {:case, [], [var, [do: all]]}
+      end
+
       @impl GridCodec.Type
       def encode_ast(field_name, default, endian, data_var) do
         null_val = unquote(null_value)

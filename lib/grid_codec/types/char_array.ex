@@ -172,6 +172,17 @@ defmodule GridCodec.Types.CharArray do
       end
 
       @impl GridCodec.Type
+      def coerce_ast(var) do
+        quote do
+          case unquote(var) do
+            nil -> {:ok, nil}
+            v when is_binary(v) -> {:ok, v}
+            v -> {:error, "expected string for char array, got: #{inspect(v)}"}
+          end
+        end
+      end
+
+      @impl GridCodec.Type
       def decode_pattern_ast(var, _endian) do
         quote do: unquote(var) :: binary - size(unquote(@char_array_length))
       end
