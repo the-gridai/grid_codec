@@ -1,0 +1,2 @@
+# Override .gitignore for .cursor/ so Cursor indexes skills and scripts
+!.cursor/

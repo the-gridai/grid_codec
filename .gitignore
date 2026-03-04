@@ -32,6 +32,9 @@ perf.data.*
 callgrind.out.*
 coverage_output.txt
 
+# Cursor IDE config (skills, scripts, local agent state)
+.cursor/
+
 # Example app build artifacts
 /example_app/_build/
 /example_app/deps/
