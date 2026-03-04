@@ -1037,40 +1037,36 @@ defmodule GridCodec.Struct.Compiler do
 
   defp apply_decode_as(value_ast, nil), do: value_ast
 
-  defp apply_decode_as(value_ast, :decimal) do
-    quote do
-      case unquote(value_ast) do
-        nil -> nil
-        v when is_integer(v) -> Decimal.new(v)
-        %Decimal{} = d -> d
-        v -> v
-      end
+  defp apply_decode_as(value_ast, {type_ref, opts}) when is_list(opts) do
+    module = resolve_decode_as_module(type_ref)
+
+    unless function_exported?(module, :decode_as_ast, 2) do
+      raise CompileError,
+        description:
+          "decode_as: {#{inspect(type_ref)}, ...} — module #{inspect(module)} " <>
+            "does not implement decode_as_ast/2 callback"
     end
+
+    module.decode_as_ast(value_ast, opts)
   end
 
-  defp apply_decode_as(value_ast, {:decimal, opts}) when is_list(opts) do
-    scale = Keyword.fetch!(opts, :scale)
+  defp apply_decode_as(value_ast, type_ref) when is_atom(type_ref) do
+    module = resolve_decode_as_module(type_ref)
 
-    quote do
-      case unquote(value_ast) do
-        nil ->
-          nil
+    unless function_exported?(module, :decode_as_ast, 2) do
+      raise CompileError,
+        description:
+          "decode_as: #{inspect(type_ref)} — module #{inspect(module)} " <>
+            "does not implement decode_as_ast/2 callback"
+    end
 
-        0 ->
-          Decimal.new(0)
+    module.decode_as_ast(value_ast, [])
+  end
 
-        v when is_integer(v) and v > 0 ->
-          Decimal.new(1, v, -unquote(scale))
-
-        v when is_integer(v) ->
-          Decimal.new(-1, -v, -unquote(scale))
-
-        %Decimal{} = d ->
-          d
-
-        v ->
-          v
-      end
+  defp resolve_decode_as_module(type_ref) do
+    case GridCodec.Type.lookup(type_ref) do
+      {:ok, module} -> module
+      {:error, _} -> type_ref
     end
   end
 

@@ -676,6 +676,20 @@ defmodule GridCodec.AutoGroupTest do
       assert Decimal.negative?(balance.locked)
     end
 
+    test "decode_as works with positive_decimal type" do
+      struct = %BalanceWithDecodeAs{
+        id: 1,
+        balances: [%{user_id: 42, amount: 999, locked: 50_000_000_000}]
+      }
+
+      binary = BalanceWithDecodeAs.encode(struct)
+      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+
+      [balance] = GridCodec.Group.to_list(decoded.balances)
+      assert %Decimal{} = balance.amount
+      assert %Decimal{} = balance.locked
+    end
+
     test "decode_as roundtrips multiple entries" do
       entries =
         for i <- 1..100 do

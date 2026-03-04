@@ -121,6 +121,32 @@ defmodule GridCodec.Types.PositiveDecimal do
   defp coerce(n) when is_integer(n), do: Decimal.new(n)
 
   @impl true
+  def decode_as_ast(var, opts) do
+    scale = Keyword.get(opts, :scale)
+
+    if scale do
+      quote do
+        case unquote(var) do
+          nil -> nil
+          0 -> Decimal.new(0)
+          v when is_integer(v) -> Decimal.new(1, v, -unquote(scale))
+          %Decimal{} = d -> d
+          v -> v
+        end
+      end
+    else
+      quote do
+        case unquote(var) do
+          nil -> nil
+          v when is_integer(v) -> Decimal.new(v)
+          %Decimal{} = d -> d
+          v -> v
+        end
+      end
+    end
+  end
+
+  @impl true
   def coerce_ast(var) do
     dec_mod = Decimal
 

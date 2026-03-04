@@ -272,11 +272,40 @@ defmodule GridCodec.Type do
   """
   @callback coerce_ast(value_var :: Macro.t()) :: Macro.t() | nil
 
+  @doc """
+  Generates AST that transforms a decoded value into this type.
+
+  Used by the `decode_as` option on group fields. When a field declares
+  `decode_as: MyType` or `decode_as: {MyType, opts}`, the compiler calls
+  this callback to generate the post-decode transformation.
+
+  Receives:
+  - `value_var` — the AST variable holding the raw decoded value
+  - `opts` — keyword options from `{MyType, opts}`, or `[]` for bare `MyType`
+
+  Should return quoted AST that transforms the value.
+
+  ## Example
+
+      @impl true
+      def decode_as_ast(var, opts) do
+        scale = Keyword.get(opts, :scale, 0)
+        quote do
+          case unquote(var) do
+            nil -> nil
+            v when is_integer(v) -> Decimal.new(1, v, -unquote(scale))
+          end
+        end
+      end
+  """
+  @callback decode_as_ast(value_var :: Macro.t(), opts :: keyword()) :: Macro.t()
+
   @optional_callbacks decode_value_ast: 1,
                       generator: 0,
                       compare_values: 2,
                       validate_ast: 3,
-                      coerce_ast: 1
+                      coerce_ast: 1,
+                      decode_as_ast: 2
 
   # ============================================================================
   # Type Registry
