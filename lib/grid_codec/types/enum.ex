@@ -95,6 +95,10 @@ defmodule GridCodec.Types.Enum do
     encoding = Keyword.get(opts, :encoding, :u8)
 
     quote do
+      unless Module.has_attribute?(__MODULE__, :moduledoc) do
+        @moduledoc "GridCodec enum type (#{unquote(encoding)} encoding)."
+      end
+
       @behaviour GridCodec.Type
       @behaviour GridCodec.Types.Enum
 

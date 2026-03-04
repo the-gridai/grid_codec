@@ -260,23 +260,30 @@ defmodule GridCodec.Struct.Compiler do
         )
       )
 
-      # Schema introspection
+      # Schema introspection (hidden from ExDoc — internal API)
+      @doc false
       @spec __schema__() :: map()
       def __schema__, do: unquote(Macro.escape(schema))
+      @doc false
       @spec __template_id__() :: unquote(template_id)
       def __template_id__, do: unquote(template_id)
+      @doc false
       @spec __schema_id__() :: unquote(schema_id)
       def __schema_id__, do: unquote(schema_id)
+      @doc false
       @spec __version__() :: unquote(version)
       def __version__, do: unquote(version)
+      @doc false
       @spec __type__() :: String.t()
       def __type__, do: unquote(type_name)
+      @doc false
       @spec __fields__() :: [atom()]
       def __fields__, do: unquote(field_names)
+      @doc false
       @spec block_length() :: unquote(block_length)
       def block_length, do: unquote(block_length)
 
-      # Mark this as a struct codec for registry discovery
+      @doc false
       def __gridcodec_struct__?, do: true
 
       # Store header for encode/decode

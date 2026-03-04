@@ -120,6 +120,10 @@ defmodule GridCodec.Types.Bitset do
       end
 
     quote do
+      unless Module.has_attribute?(__MODULE__, :moduledoc) do
+        @moduledoc "GridCodec bitset type (#{unquote(size)} encoding)."
+      end
+
       @behaviour GridCodec.Type
 
       import GridCodec.Types.Bitset, only: [flag: 2]

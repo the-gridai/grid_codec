@@ -84,6 +84,10 @@ defmodule GridCodec.Types.CharArray do
     end
 
     quote do
+      unless Module.has_attribute?(__MODULE__, :moduledoc) do
+        @moduledoc "GridCodec fixed-length char array (#{unquote(length)} bytes)."
+      end
+
       @behaviour GridCodec.Type
 
       @char_array_length unquote(length)
