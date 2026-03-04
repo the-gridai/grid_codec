@@ -214,7 +214,7 @@ defmodule GridCodec.Struct.Compiler do
       def new(attrs) when is_map(attrs) do
         case __cast__(attrs) do
           {:ok, coerced} ->
-            struct = struct!(unquote(module), coerced)
+            struct = struct(unquote(module), coerced)
 
             try do
               __validate__(struct)
@@ -2875,12 +2875,14 @@ defmodule GridCodec.Struct.Compiler do
   defp build_cast_body(field_coercions, module) do
     field_extractions =
       Enum.map(field_coercions, fn {name, name_str, type_atom, coerce_ast} ->
+        # Pattern-match for atom key first, fall back to string key only on miss.
+        # Avoids eager evaluation of both Map.get calls.
         extract =
           quote do
             raw_value =
-              case Map.get(attrs, unquote(name), Map.get(attrs, unquote(name_str))) do
-                nil -> nil
-                v -> v
+              case :maps.find(unquote(name), attrs) do
+                {:ok, v} -> v
+                :error -> Map.get(attrs, unquote(name_str))
               end
           end
 
@@ -2924,15 +2926,16 @@ defmodule GridCodec.Struct.Compiler do
         end
       end)
 
-    map_pairs =
+    struct_pairs =
       Enum.map(field_extractions, fn {name, _, _} ->
         {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
       end)
 
+    # Build struct directly — avoids struct!/2 overhead (:maps.fold validation)
     quote do
       try do
         unquote_splicing(extractions)
-        {:ok, %{unquote_splicing(map_pairs)}}
+        {:ok, %{unquote_splicing(struct_pairs)}}
       catch
         %GridCodec.ValidationError{} = e -> {:error, e}
       end
