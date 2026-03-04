@@ -4,53 +4,59 @@ defmodule GridCodec.ValidationError do
 
   Provides structured, matchable error information:
 
-  - `code` — atom for pattern matching (`:type_mismatch`, `:out_of_range`, `:invalid_format`)
-  - `message` — human-readable explanation
-  - `details` — field name, expected type, actual value, and module
+  - `code` — atom for pattern matching (`:type_mismatch`, `:out_of_range`, `:invalid_format`, `:cast_error`)
+  - `details` — field name, expected type, actual value, module, and description
+  - `message` — generated lazily from details when accessed (via `Exception.message/1`)
 
   ## Pattern Matching
 
       try do
         MyCodec.encode(data)
       rescue
-        %GridCodec.ValidationError{code: :out_of_range} = e ->
+        %GridCodec.ValidationError{code: :out_of_range, details: %{field: :price}} = e ->
           Logger.error(Exception.message(e))
           {:error, e}
       end
-
-  ## Example Messages
-
-      ** (GridCodec.ValidationError) Field :price in MyCodec — out of range for :u32.
-      Expected 0..4294967295, got 5000000000.
-
-      ** (GridCodec.ValidationError) Field :side in MyCodec — type mismatch for OrderSide.
-      Expected one of [:buy, :sell] or nil, got :hold.
-
-      ** (GridCodec.ValidationError) Field :id in MyCodec — invalid format for :uuid.
-      Expected 16-byte binary or 36-char UUID string, got "not-a-uuid".
   """
 
-  defexception [:code, :message, :details]
+  defexception [:code, :details]
 
   @type t :: %__MODULE__{
           code: :type_mismatch | :out_of_range | :invalid_format | :cast_error,
-          message: String.t(),
           details: %{
             field: atom(),
             type: atom() | module(),
             value: term(),
-            module: module()
+            module: module(),
+            description: String.t()
           }
         }
+
+  @impl true
+  def message(%__MODULE__{
+        code: code,
+        details: %{field: field, type: type, value: value, module: module, description: desc}
+      }) do
+    "Field #{inspect(field)} in #{inspect(module)} — #{format_code(code)} for #{inspect(type)}. #{desc}, got #{inspect(value)}."
+  end
+
+  def message(%__MODULE__{
+        code: code,
+        details: %{field: field, module: module, description: desc}
+      }) do
+    "Field #{inspect(field)} in #{inspect(module)} — #{format_code(code)}. #{desc}."
+  end
+
+  defp format_code(:out_of_range), do: "out of range"
+  defp format_code(:type_mismatch), do: "type mismatch"
+  defp format_code(:invalid_format), do: "invalid format"
+  defp format_code(:cast_error), do: "cannot cast"
 
   @doc false
   def cast_error(module, field, type, value, reason) do
     %__MODULE__{
       code: :cast_error,
-      message:
-        "Field #{inspect(field)} in #{inspect(module)} — cannot cast to #{inspect(type)}. " <>
-          reason,
-      details: %{field: field, type: type, value: value, module: module}
+      details: %{field: field, type: type, value: value, module: module, description: reason}
     }
   end
 
@@ -58,10 +64,13 @@ defmodule GridCodec.ValidationError do
   def out_of_range(module, field, type, value, range_desc) do
     %__MODULE__{
       code: :out_of_range,
-      message:
-        "Field #{inspect(field)} in #{inspect(module)} — out of range for #{inspect(type)}. " <>
-          "Expected #{range_desc}, got #{inspect(value)}.",
-      details: %{field: field, type: type, value: value, module: module}
+      details: %{
+        field: field,
+        type: type,
+        value: value,
+        module: module,
+        description: "Expected #{range_desc}"
+      }
     }
   end
 
@@ -69,10 +78,13 @@ defmodule GridCodec.ValidationError do
   def type_mismatch(module, field, type, value, expected_desc) do
     %__MODULE__{
       code: :type_mismatch,
-      message:
-        "Field #{inspect(field)} in #{inspect(module)} — type mismatch for #{inspect(type)}. " <>
-          "Expected #{expected_desc}, got #{inspect(value)}.",
-      details: %{field: field, type: type, value: value, module: module}
+      details: %{
+        field: field,
+        type: type,
+        value: value,
+        module: module,
+        description: "Expected #{expected_desc}"
+      }
     }
   end
 
@@ -80,10 +92,13 @@ defmodule GridCodec.ValidationError do
   def invalid_format(module, field, type, value, format_desc) do
     %__MODULE__{
       code: :invalid_format,
-      message:
-        "Field #{inspect(field)} in #{inspect(module)} — invalid format for #{inspect(type)}. " <>
-          "Expected #{format_desc}, got #{inspect(value)}.",
-      details: %{field: field, type: type, value: value, module: module}
+      details: %{
+        field: field,
+        type: type,
+        value: value,
+        module: module,
+        description: "Expected #{format_desc}"
+      }
     }
   end
 end

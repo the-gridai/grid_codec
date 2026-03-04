@@ -83,7 +83,7 @@ defmodule GridCodec.CastAndHashTest do
                TestCodec.new(count: "not_a_number")
 
       assert e.details.field == :count
-      assert e.message =~ "cannot cast"
+      assert Exception.message(e) =~ "cannot cast"
     end
 
     test "returns ValidationError for unparseable boolean" do

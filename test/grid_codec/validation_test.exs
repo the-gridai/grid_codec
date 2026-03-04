@@ -64,8 +64,8 @@ defmodule GridCodec.ValidationTest do
       assert error.details.type == :u32
       assert error.details.value == 5_000_000_000
       assert error.details.module == ValidatedCodec
-      assert error.message =~ "out of range"
-      assert error.message =~ ":count"
+      assert Exception.message(error) =~ "out of range"
+      assert Exception.message(error) =~ ":count"
     end
 
     test "u32 negative raises ValidationError" do
@@ -91,7 +91,7 @@ defmodule GridCodec.ValidationTest do
       assert error.code == :out_of_range
       assert error.details.field == :score
       assert error.details.type == :i8
-      assert error.message =~ "-128..127"
+      assert Exception.message(error) =~ "-128..127"
     end
 
     test "bool wrong type raises ValidationError" do
@@ -105,7 +105,7 @@ defmodule GridCodec.ValidationTest do
       assert error.code == :type_mismatch
       assert error.details.field == :active
       assert error.details.type == :bool
-      assert error.message =~ "true, false, or nil"
+      assert Exception.message(error) =~ "true, false, or nil"
     end
 
     test "uuid wrong format raises ValidationError" do
@@ -132,7 +132,7 @@ defmodule GridCodec.ValidationTest do
       assert error.code == :type_mismatch
       assert error.details.field == :price
       assert error.details.type == :decimal
-      assert error.message =~ "Decimal"
+      assert Exception.message(error) =~ "Decimal"
     end
 
     test "timestamp wrong type raises ValidationError" do
@@ -146,7 +146,7 @@ defmodule GridCodec.ValidationTest do
       assert error.code == :type_mismatch
       assert error.details.field == :created_at
       assert error.details.type == :timestamp_us
-      assert error.message =~ "DateTime, integer, or nil"
+      assert Exception.message(error) =~ "DateTime, integer, or nil"
     end
   end
 
@@ -212,7 +212,7 @@ defmodule GridCodec.ValidationTest do
           UnvalidatedCodec.encode(struct)
         end
 
-      assert error.message =~ "u32"
+      assert Exception.message(error) =~ "u32"
       refute is_struct(error, GridCodec.ValidationError)
     end
 
