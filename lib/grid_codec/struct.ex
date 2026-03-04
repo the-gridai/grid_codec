@@ -69,6 +69,9 @@ defmodule GridCodec.Struct do
   - `:endian` - Byte order, `:little` or `:big` (default: `:little`)
   - `:align` - Enable field alignment (default: false)
   - `:generate_typespec` - Auto-generate `t()`, `layout()`, and `framed_layout()` types (default: true)
+  - `:validate` - Enable type-level validation before encoding (default: `false`).
+    Catches integer overflow, type mismatches, and invalid formats with structured
+    `GridCodec.ValidationError`. Zero overhead when disabled.
   - `:telemetry` - Emit `[:grid_codec, :encode]` / `[:grid_codec, :decode]` telemetry events
     with duration and byte size (default: `false`). Zero overhead when disabled.
   - `:telemetry_min_duration` - Skip emitting telemetry events when duration is below this
