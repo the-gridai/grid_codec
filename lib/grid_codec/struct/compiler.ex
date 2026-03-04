@@ -988,19 +988,7 @@ defmodule GridCodec.Struct.Compiler do
         module.decode_pattern_ast(var, endian)
       end)
 
-    result_pairs =
-      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
-        var = Macro.var(name, __MODULE__)
-
-        value_ast =
-          if function_exported?(module, :decode_value_ast, 1) do
-            module.decode_value_ast(var)
-          else
-            var
-          end
-
-        {name, value_ast}
-      end)
+    result_pairs = build_decode_result_pairs(resolved_fields)
 
     quote do
       defp unquote(fn_name)(<<unquote_splicing(patterns)>>) do
@@ -1009,9 +997,6 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  # Generates a recursive batch decoder that pattern-matches all fields
-  # directly from the binary. No sub-binary, no dynamic dispatch, no {:ok, ...}
-  # tuple — maximum JIT throughput.
   defp generate_auto_batch_decoder(group_name, resolved_fields, endian) do
     fn_name = :"__decode_all_#{group_name}__"
 
@@ -1021,19 +1006,7 @@ defmodule GridCodec.Struct.Compiler do
         module.decode_pattern_ast(var, endian)
       end)
 
-    result_pairs =
-      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
-        var = Macro.var(name, __MODULE__)
-
-        value_ast =
-          if function_exported?(module, :decode_value_ast, 1) do
-            module.decode_value_ast(var)
-          else
-            var
-          end
-
-        {name, value_ast}
-      end)
+    result_pairs = build_decode_result_pairs(resolved_fields)
 
     quote do
       defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
@@ -1041,6 +1014,62 @@ defmodule GridCodec.Struct.Compiler do
       defp unquote(fn_name)(<<unquote_splicing(patterns), rest::binary>>, acc) do
         entry = %{unquote_splicing(result_pairs)}
         unquote(fn_name)(rest, [entry | acc])
+      end
+    end
+  end
+
+  # Shared: build result pairs for group decoders, applying decode_as coercion
+  defp build_decode_result_pairs(resolved_fields) do
+    Enum.map(resolved_fields, fn {name, _type, module, opts} ->
+      var = Macro.var(name, __MODULE__)
+
+      value_ast =
+        if function_exported?(module, :decode_value_ast, 1) do
+          module.decode_value_ast(var)
+        else
+          var
+        end
+
+      final_ast = apply_decode_as(value_ast, Keyword.get(opts, :decode_as))
+      {name, final_ast}
+    end)
+  end
+
+  defp apply_decode_as(value_ast, nil), do: value_ast
+
+  defp apply_decode_as(value_ast, :decimal) do
+    quote do
+      case unquote(value_ast) do
+        nil -> nil
+        v when is_integer(v) -> Decimal.new(v)
+        %Decimal{} = d -> d
+        v -> v
+      end
+    end
+  end
+
+  defp apply_decode_as(value_ast, {:decimal, opts}) when is_list(opts) do
+    scale = Keyword.fetch!(opts, :scale)
+
+    quote do
+      case unquote(value_ast) do
+        nil ->
+          nil
+
+        0 ->
+          Decimal.new(0)
+
+        v when is_integer(v) and v > 0 ->
+          Decimal.new(1, v, -unquote(scale))
+
+        v when is_integer(v) ->
+          Decimal.new(-1, -v, -unquote(scale))
+
+        %Decimal{} = d ->
+          d
+
+        v ->
+          v
       end
     end
   end

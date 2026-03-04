@@ -615,6 +615,87 @@ defmodule GridCodec.AutoGroupTest do
   end
 
   # ============================================================================
+  # Tests: decode_as option
+  # ============================================================================
+
+  defmodule BalanceWithDecodeAs do
+    use GridCodec.Struct, template_id: 815, schema_id: 60, version: 1
+
+    defcodec do
+      field :id, :u64
+
+      group :balances do
+        field :user_id, :u64
+        field :amount, :i64, decode_as: :decimal
+        field :locked, :i64, decode_as: {:decimal, scale: 8}
+      end
+    end
+  end
+
+  describe "decode_as option" do
+    test "decode_as: :decimal converts i64 to Decimal" do
+      struct = %BalanceWithDecodeAs{
+        id: 1,
+        balances: [%{user_id: 42, amount: 100_000, locked: 5_000_000_000_000}]
+      }
+
+      binary = BalanceWithDecodeAs.encode(struct)
+      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+
+      [balance] = GridCodec.Group.to_list(decoded.balances)
+      assert %Decimal{} = balance.amount
+      assert Decimal.equal?(balance.amount, Decimal.new(100_000))
+    end
+
+    test "decode_as: {:decimal, scale: 8} applies fixed-point scaling" do
+      # 1_000_000_000_000 with scale 8 = 10000.00000000
+      struct = %BalanceWithDecodeAs{
+        id: 1,
+        balances: [%{user_id: 42, amount: 100, locked: 1_000_000_000_000}]
+      }
+
+      binary = BalanceWithDecodeAs.encode(struct)
+      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+
+      [balance] = GridCodec.Group.to_list(decoded.balances)
+      assert %Decimal{} = balance.locked
+      assert Decimal.equal?(balance.locked, Decimal.new("10000"))
+    end
+
+    test "decode_as handles negative values with scale" do
+      struct = %BalanceWithDecodeAs{
+        id: 1,
+        balances: [%{user_id: 42, amount: -500, locked: -10_000_000_000}]
+      }
+
+      binary = BalanceWithDecodeAs.encode(struct)
+      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+
+      [balance] = GridCodec.Group.to_list(decoded.balances)
+      assert Decimal.negative?(balance.amount)
+      assert Decimal.negative?(balance.locked)
+    end
+
+    test "decode_as roundtrips multiple entries" do
+      entries =
+        for i <- 1..100 do
+          %{user_id: i, amount: i * 1000, locked: i * 10_000_000_000}
+        end
+
+      struct = %BalanceWithDecodeAs{id: 1, balances: entries}
+      binary = BalanceWithDecodeAs.encode(struct)
+      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+
+      decoded_balances = GridCodec.Group.to_list(decoded.balances)
+      assert length(decoded_balances) == 100
+
+      first = Enum.at(decoded_balances, 0)
+      assert %Decimal{} = first.amount
+      assert Decimal.equal?(first.amount, Decimal.new(1000))
+    end
+  end
+
+  # ============================================================================
   # Tests: Compile-Time Validation
   # ============================================================================
 
