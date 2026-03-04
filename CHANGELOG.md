@@ -27,6 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated docs/examples/tests to reflect direct module type usage and current
   generated typespec behavior
 
+## [0.15.0] - 2026-03-04
+
+### Added
+- **`cast/1` coercion pipeline**: Converts external data (string keys, string values
+  from JSON) to typed structs. Coerces `"100"` → integer, `"true"` → boolean,
+  `"2026-01-01T00:00:00Z"` → DateTime, `"100.50"` → Decimal, UUID strings → binary.
+  Returns `{:ok, struct}` or `{:error, field, reason}`.
+- **`content_hash/1`**: Deterministic SHA-256 hash from the wire representation.
+  Two structs with identical values always produce the same hash regardless of
+  map key ordering. Useful for deduplication, idempotency, event fingerprinting.
+- **`decode_only/2` projection**: Decodes only the requested fields from a binary
+  using compile-time field offsets (O(1) per field). Returns a map with just
+  the selected fields — no allocation for skipped fields.
+- **`coerce_ast/1` optional callback** on `GridCodec.Type` — custom types can
+  implement this for `cast/1` support. Implemented for all built-in types.
+
 ## [0.14.0] - 2026-03-04
 
 ### Added

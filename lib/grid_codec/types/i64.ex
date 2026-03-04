@@ -144,6 +144,28 @@ defmodule GridCodec.Types.I64 do
   end
 
   @impl true
+  def coerce_ast(var) do
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        v when is_integer(v) ->
+          {:ok, v}
+
+        v when is_binary(v) ->
+          case Integer.parse(v) do
+            {int, ""} -> {:ok, int}
+            _ -> {:error, "cannot parse integer from #{inspect(v)}"}
+          end
+
+        v ->
+          {:error, "expected integer or string, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     GridCodec.Types.Integer.gen_signed_validate_ast(var, field, mod, 64, :i64)
   end

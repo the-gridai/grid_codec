@@ -136,6 +136,31 @@ defmodule GridCodec.Types.F64 do
   end
 
   @impl true
+  def coerce_ast(var) do
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        v when is_float(v) ->
+          {:ok, v}
+
+        v when is_integer(v) ->
+          {:ok, v * 1.0}
+
+        v when is_binary(v) ->
+          case Float.parse(v) do
+            {f, ""} -> {:ok, f}
+            _ -> {:error, "cannot parse float from #{inspect(v)}"}
+          end
+
+        v ->
+          {:error, "expected number or string, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     quote do
       case unquote(var) do

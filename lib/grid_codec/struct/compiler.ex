@@ -234,6 +234,24 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
+      # Cast: coerce external data (string keys/values) to typed struct
+      unquote(generate_cast_fn(resolved_fields, env.module, generate_typespec))
+
+      # Content hash: deterministic SHA256 from wire format
+      unquote(generate_content_hash_fn(env.module, generate_typespec))
+
+      # Projection: decode only selected fields
+      unquote(
+        generate_decode_only_fn(
+          fixed_fields,
+          field_offsets,
+          endian,
+          env.module,
+          generate_typespec,
+          block_length
+        )
+      )
+
       # Schema introspection
       @spec __schema__() :: map()
       def __schema__, do: unquote(Macro.escape(schema))
@@ -2810,6 +2828,206 @@ defmodule GridCodec.Struct.Compiler do
           unquote_splicing(checks)
           :ok
         end
+      end
+    end
+  end
+
+  # ============================================================================
+  # Cast / Coercion Generation
+  # ============================================================================
+
+  defp generate_cast_fn(fields, module, generate_typespec) do
+    non_constant =
+      Enum.reject(fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :presence) == :constant
+      end)
+
+    field_coercions =
+      Enum.map(non_constant, fn {name, _type_atom, type_module, _opts} ->
+        name_str = Atom.to_string(name)
+
+        coerce_ast =
+          if function_exported?(type_module, :coerce_ast, 1) do
+            var = Macro.var(:raw_value, __MODULE__)
+            type_module.coerce_ast(var)
+          else
+            nil
+          end
+
+        {name, name_str, coerce_ast}
+      end)
+
+    quote do
+      @doc """
+      Casts external data to a typed struct with coercion.
+
+      Accepts string or atom keys. Coerces string values to the correct types
+      (e.g., `"100"` → integer for `:u32`, `"2026-01-01T00:00:00Z"` → DateTime
+      for `:timestamp_us`). Returns `{:ok, struct}` or `{:error, field, reason}`.
+
+      ## Example
+
+          {:ok, event} = #{inspect(unquote(module))}.cast(%{
+            "price" => "100",
+            "active" => "true",
+            "created_at" => "2026-01-01T00:00:00Z"
+          })
+      """
+      if unquote(generate_typespec) do
+        @spec cast(map() | keyword()) ::
+                {:ok, t()} | {:error, atom(), String.t()}
+      end
+
+      def cast(attrs) when is_list(attrs), do: cast(Map.new(attrs))
+
+      def cast(attrs) when is_map(attrs) do
+        unquote(build_cast_body(field_coercions, module))
+      end
+    end
+  end
+
+  defp build_cast_body(field_coercions, module) do
+    field_extractions =
+      Enum.map(field_coercions, fn {name, name_str, coerce_ast} ->
+        extract =
+          quote do
+            raw_value =
+              case Map.get(attrs, unquote(name), Map.get(attrs, unquote(name_str))) do
+                nil -> nil
+                v -> v
+              end
+          end
+
+        coerce =
+          if coerce_ast do
+            var = Macro.var(:raw_value, __MODULE__)
+
+            quote do
+              _ = unquote(var)
+
+              case unquote(coerce_ast) do
+                {:ok, coerced} -> coerced
+                {:error, reason} -> throw({:cast_error, unquote(name), reason})
+              end
+            end
+          else
+            quote do: raw_value
+          end
+
+        {name, extract, coerce}
+      end)
+
+    extractions =
+      Enum.map(field_extractions, fn {name, extract, coerce} ->
+        field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+        quote do
+          unquote(extract)
+          unquote(field_var) = unquote(coerce)
+        end
+      end)
+
+    struct_pairs =
+      Enum.map(field_extractions, fn {name, _, _} ->
+        {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
+      end)
+
+    quote do
+      try do
+        unquote_splicing(extractions)
+        {:ok, %unquote(module){unquote_splicing(struct_pairs)}}
+      catch
+        {:cast_error, field, reason} -> {:error, field, reason}
+      end
+    end
+  end
+
+  # ============================================================================
+  # Content Hash Generation
+  # ============================================================================
+
+  defp generate_decode_only_fn(
+         fixed_fields,
+         field_offsets,
+         endian,
+         module,
+         generate_typespec,
+         _block_length
+       ) do
+    payload_var = Macro.var(:__payload__, __MODULE__)
+
+    field_clauses =
+      fixed_fields
+      |> Enum.map(fn {name, _type_atom, type_module, _opts} ->
+        offset = Map.get(field_offsets, name)
+
+        if offset && function_exported?(type_module, :getter_ast, 3) do
+          getter = type_module.getter_ast(offset, endian, payload_var)
+          {:->, [], [[name], getter]}
+        else
+          nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    fallback = {:->, [], [[Macro.var(:_, nil)], nil]}
+    all_clauses = field_clauses ++ [fallback]
+
+    quote do
+      @doc """
+      Decodes only the requested fields from a binary, skipping all others.
+
+      Uses compile-time field offsets for O(1) per-field extraction.
+      Fields not in the codec are silently ignored.
+
+      ## Example
+
+          {:ok, view} = #{inspect(unquote(module))}.decode_only(binary, [:price, :side])
+          view.price  # decoded
+      """
+      if unquote(generate_typespec) do
+        @spec decode_only(binary(), [atom()]) :: {:ok, map()} | {:error, term()}
+      end
+
+      def decode_only(binary, fields) when is_binary(binary) and is_list(fields) do
+        case GridCodec.Header.decode(binary) do
+          {:ok, _header, unquote(payload_var)} ->
+            result =
+              Map.new(fields, fn field ->
+                value = unquote({:case, [], [quote(do: field), [do: all_clauses]]})
+                {field, value}
+              end)
+
+            {:ok, result}
+
+          {:error, _} = error ->
+            error
+        end
+      end
+    end
+  end
+
+  defp generate_content_hash_fn(module, generate_typespec) do
+    quote do
+      @doc """
+      Returns a deterministic SHA-256 hash of the struct's wire representation.
+
+      Two structs with identical field values always produce the same hash,
+      regardless of map key ordering or Decimal representation. Useful for
+      deduplication, idempotency checks, and event fingerprinting.
+
+      ## Example
+
+          hash = #{inspect(unquote(module))}.content_hash(struct)
+          # => <<32 bytes>>
+      """
+      if unquote(generate_typespec) do
+        @spec content_hash(t()) :: <<_::256>>
+      end
+
+      def content_hash(%unquote(module){} = struct) do
+        payload = encode_payload(struct)
+        :crypto.hash(:sha256, payload)
       end
     end
   end

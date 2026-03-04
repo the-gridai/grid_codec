@@ -179,6 +179,28 @@ defmodule GridCodec.Types.UUIDString do
   end
 
   @impl true
+  def coerce_ast(var) do
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        <<_::binary-size(16)>> = v ->
+          {:ok, v}
+
+        v when is_binary(v) and byte_size(v) == 36 ->
+          {:ok, GridCodec.Types.UUIDString.parse_uuid_string!(v)}
+
+        v when is_binary(v) and byte_size(v) == 32 ->
+          {:ok, Base.decode16!(v, case: :mixed)}
+
+        v ->
+          {:error, "expected UUID binary or string, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     quote do
       case unquote(var) do

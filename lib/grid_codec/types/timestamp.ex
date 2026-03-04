@@ -109,6 +109,33 @@ defmodule GridCodec.Types.TimestampMicros do
   end
 
   @impl true
+  def coerce_ast(var) do
+    dt_mod = DateTime
+
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        %unquote(dt_mod){} = v ->
+          {:ok, v}
+
+        v when is_integer(v) ->
+          {:ok, v}
+
+        v when is_binary(v) ->
+          case unquote(dt_mod).from_iso8601(v) do
+            {:ok, dt, _offset} -> {:ok, dt}
+            _ -> {:error, "cannot parse datetime from #{inspect(v)}"}
+          end
+
+        v ->
+          {:error, "expected DateTime, integer, or ISO 8601 string, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     dt_mod = DateTime
 
@@ -281,6 +308,33 @@ defmodule GridCodec.Types.TimestampNanos do
     case ns do
       0 -> nil
       _ -> ns
+    end
+  end
+
+  @impl true
+  def coerce_ast(var) do
+    dt_mod = DateTime
+
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        %unquote(dt_mod){} = v ->
+          {:ok, v}
+
+        v when is_integer(v) ->
+          {:ok, v}
+
+        v when is_binary(v) ->
+          case unquote(dt_mod).from_iso8601(v) do
+            {:ok, dt, _offset} -> {:ok, dt}
+            _ -> {:error, "cannot parse datetime from #{inspect(v)}"}
+          end
+
+        v ->
+          {:error, "expected DateTime, integer, or ISO 8601 string, got #{inspect(v)}"}
+      end
     end
   end
 

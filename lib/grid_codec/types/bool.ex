@@ -132,6 +132,21 @@ defmodule GridCodec.Types.Bool do
   end
 
   @impl true
+  def coerce_ast(var) do
+    quote do
+      case unquote(var) do
+        nil -> {:ok, nil}
+        v when is_boolean(v) -> {:ok, v}
+        "true" -> {:ok, true}
+        "false" -> {:ok, false}
+        1 -> {:ok, true}
+        0 -> {:ok, false}
+        v -> {:error, "expected boolean, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     quote do
       case unquote(var) do

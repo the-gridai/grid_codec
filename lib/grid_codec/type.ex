@@ -257,7 +257,26 @@ defmodule GridCodec.Type do
   @callback validate_ast(value_var :: Macro.t(), field_name :: atom(), module :: module()) ::
               Macro.t() | nil
 
-  @optional_callbacks decode_value_ast: 1, generator: 0, compare_values: 2, validate_ast: 3
+  @doc """
+  Generates AST that coerces an external value to this type.
+
+  Called at compile time to generate the `cast/1` function. Should return
+  a quoted expression that converts the input value (possibly a string from
+  JSON) to the correct Elixir type, wrapped in `{:ok, value}` or
+  `{:error, reason}`.
+
+  Receives:
+  - `value_var` — the AST variable holding the input value
+
+  Return `nil` to skip coercion (value passes through unchanged).
+  """
+  @callback coerce_ast(value_var :: Macro.t()) :: Macro.t() | nil
+
+  @optional_callbacks decode_value_ast: 1,
+                      generator: 0,
+                      compare_values: 2,
+                      validate_ast: 3,
+                      coerce_ast: 1
 
   # ============================================================================
   # Type Registry

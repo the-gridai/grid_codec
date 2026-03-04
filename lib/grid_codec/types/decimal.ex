@@ -181,6 +181,40 @@ defmodule GridCodec.Types.Decimal do
   end
 
   @impl true
+  def coerce_ast(var) do
+    dec_mod = Decimal
+
+    quote do
+      case unquote(var) do
+        nil ->
+          {:ok, nil}
+
+        %unquote(dec_mod){} = v ->
+          {:ok, v}
+
+        {m, e} when is_integer(m) and is_integer(e) ->
+          {:ok, {m, e}}
+
+        v when is_integer(v) ->
+          {:ok, v}
+
+        v when is_float(v) ->
+          {:ok, v}
+
+        v when is_binary(v) ->
+          try do
+            {:ok, unquote(dec_mod).new(v)}
+          rescue
+            _ -> {:error, "cannot parse decimal from #{inspect(v)}"}
+          end
+
+        v ->
+          {:error, "expected Decimal, number, or string, got #{inspect(v)}"}
+      end
+    end
+  end
+
+  @impl true
   def validate_ast(var, field, mod) do
     dec_mod = Decimal
 
