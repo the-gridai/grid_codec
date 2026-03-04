@@ -615,6 +615,69 @@ defmodule GridCodec.AutoGroupTest do
   end
 
   # ============================================================================
+  # ============================================================================
+  # Tests: Custom type coercion in new/1
+  # ============================================================================
+
+  defmodule TopLevelEnumCodec do
+    use GridCodec.Struct, template_id: 816, schema_id: 60, version: 1
+
+    alias GridCodec.AutoGroupTest.TestOrderSide
+    alias GridCodec.AutoGroupTest.TestOrderStatus
+
+    defcodec do
+      field :id, :u64
+      field :side, TestOrderSide
+      field :status, TestOrderStatus
+    end
+  end
+
+  describe "custom type coercion" do
+    test "enum coerces string to atom in new/1" do
+      {:ok, struct} =
+        TopLevelEnumCodec.new(%{"id" => "42", "side" => "buy", "status" => "open"})
+
+      assert struct.id == 42
+      assert struct.side == :buy
+      assert struct.status == :open
+    end
+
+    test "enum coerces atom passthrough" do
+      {:ok, struct} = TopLevelEnumCodec.new(id: 1, side: :sell, status: :filled)
+      assert struct.side == :sell
+      assert struct.status == :filled
+    end
+
+    test "enum coercion error for invalid string" do
+      {:error, %GridCodec.ValidationError{code: :cast_error}} =
+        TopLevelEnumCodec.new(id: 1, side: "invalid_value")
+    end
+
+    test "enum coercion with nil" do
+      {:ok, struct} = TopLevelEnumCodec.new(id: 1, side: nil, status: nil)
+      assert struct.side == nil
+      assert struct.status == nil
+    end
+
+    test "enum coerces in new_binary/1" do
+      {:ok, binary} = TopLevelEnumCodec.new_binary(%{"id" => "42", "side" => "sell"})
+      assert is_binary(binary)
+      {:ok, decoded} = TopLevelEnumCodec.decode(binary)
+      assert decoded.side == :sell
+    end
+
+    test "enum roundtrips through string coercion" do
+      {:ok, struct} =
+        TopLevelEnumCodec.new(%{"id" => "99", "side" => "buy", "status" => "cancelled"})
+
+      binary = TopLevelEnumCodec.encode(struct)
+      {:ok, decoded} = TopLevelEnumCodec.decode(binary)
+      assert decoded.side == :buy
+      assert decoded.status == :cancelled
+    end
+  end
+
+  # ============================================================================
   # Tests: decode_as option
   # ============================================================================
 
