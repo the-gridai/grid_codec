@@ -243,7 +243,7 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
-      unquote(generate_cast_fn(resolved_fields, env.module))
+      unquote(generate_cast_fn(resolved_fields, processed_groups, env.module))
 
       # Content hash: deterministic SHA256 from wire format
       unquote(generate_content_hash_fn(env.module, generate_typespec))
@@ -299,7 +299,9 @@ defmodule GridCodec.Struct.Compiler do
       unquote_splicing(auto_group_fns)
 
       # Field validation (when validate: true)
-      unquote(generate_validate_fn(resolved_fields, validate_enabled, env.module))
+      unquote(
+        generate_validate_fn(resolved_fields, processed_groups, validate_enabled, env.module)
+      )
 
       # Encode/Decode API with optional telemetry
       unquote(
@@ -908,6 +910,7 @@ defmodule GridCodec.Struct.Compiler do
           |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
           |> Keyword.put(:batch_decoder, batch_decoder_capture)
           |> Keyword.put(:block_length, block_length)
+          |> Keyword.put(:__resolved_fields__, resolved)
 
         {{name, block, updated_opts},
          acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
@@ -2884,13 +2887,13 @@ defmodule GridCodec.Struct.Compiler do
   # Field Validation Generation
   # ============================================================================
 
-  defp generate_validate_fn(_fields, false, _module) do
+  defp generate_validate_fn(_fields, _groups, false, _module) do
     quote do
       defp __validate__(_struct), do: :ok
     end
   end
 
-  defp generate_validate_fn(fields, true, module) do
+  defp generate_validate_fn(fields, _groups, true, module) do
     checks =
       fields
       |> Enum.reject(fn {_, _, _, opts} -> Keyword.get(opts, :presence) == :constant end)
@@ -2922,7 +2925,7 @@ defmodule GridCodec.Struct.Compiler do
   # Cast / Coercion Generation
   # ============================================================================
 
-  defp generate_cast_fn(fields, module) do
+  defp generate_cast_fn(fields, groups, module) do
     non_constant =
       Enum.reject(fields, fn {_, _, _, opts} ->
         Keyword.get(opts, :presence) == :constant
@@ -2943,14 +2946,43 @@ defmodule GridCodec.Struct.Compiler do
         {name, name_str, type_atom, coerce_ast}
       end)
 
+    group_coercions = build_group_coercions(groups, module)
+
     quote do
       defp __cast__(attrs) when is_map(attrs) do
-        unquote(build_cast_body(field_coercions, module))
+        unquote(build_cast_body(field_coercions, group_coercions, module))
       end
     end
   end
 
-  defp build_cast_body(field_coercions, module) do
+  defp build_group_coercions(groups, module) do
+    Enum.flat_map(groups, fn {name, _block, opts} ->
+      group_fields = Keyword.get(opts, :__resolved_fields__)
+
+      if group_fields && group_fields != [] do
+        entry_coercions =
+          Enum.map(group_fields, fn {fname, ftype_atom, ftype_module, _fopts} ->
+            fname_str = Atom.to_string(fname)
+
+            coerce =
+              if function_exported?(ftype_module, :coerce_ast, 1) do
+                var = Macro.var(:__entry_val__, __MODULE__)
+                ftype_module.coerce_ast(var)
+              else
+                nil
+              end
+
+            {fname, fname_str, ftype_atom, coerce}
+          end)
+
+        [{name, Atom.to_string(name), entry_coercions}]
+      else
+        []
+      end
+    end)
+  end
+
+  defp build_cast_body(field_coercions, group_coercions, module) do
     field_extractions =
       Enum.map(field_coercions, fn {name, name_str, type_atom, coerce_ast} ->
         # Pattern-match for atom key first, fall back to string key only on miss.
@@ -3004,19 +3036,116 @@ defmodule GridCodec.Struct.Compiler do
         end
       end)
 
-    struct_pairs =
+    group_extractions =
+      Enum.map(group_coercions, fn {name, name_str, entry_coercions} ->
+        field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+        entry_cast = build_entry_cast_ast(entry_coercions, name, module)
+
+        quote do
+          unquote(field_var) =
+            case :maps.find(unquote(name), attrs) do
+              {:ok, entries} when is_list(entries) ->
+                Enum.map(entries, fn entry -> unquote(entry_cast) end)
+
+              {:ok, nil} ->
+                []
+
+              :error ->
+                case Map.get(attrs, unquote(name_str)) do
+                  entries when is_list(entries) ->
+                    Enum.map(entries, fn entry -> unquote(entry_cast) end)
+
+                  _ ->
+                    []
+                end
+            end
+        end
+      end)
+
+    field_pairs =
       Enum.map(field_extractions, fn {name, _, _} ->
         {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
       end)
 
-    # Build struct directly — avoids struct!/2 overhead (:maps.fold validation)
+    group_pairs =
+      Enum.map(group_coercions, fn {name, _, _} ->
+        {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
+      end)
+
+    struct_pairs = field_pairs ++ group_pairs
+
     quote do
       try do
         unquote_splicing(extractions)
+        unquote_splicing(group_extractions)
         {:ok, %{unquote_splicing(struct_pairs)}}
       catch
         %GridCodec.ValidationError{} = e -> {:error, e}
       end
+    end
+  end
+
+  defp build_entry_cast_ast(entry_coercions, group_name, module) do
+    field_steps =
+      Enum.map(entry_coercions, fn {fname, fname_str, ftype_atom, coerce_ast} ->
+        extract =
+          quote do
+            __entry_val__ =
+              case :maps.find(unquote(fname), entry) do
+                {:ok, v} -> v
+                :error -> Map.get(entry, unquote(fname_str))
+              end
+          end
+
+        coerced =
+          if coerce_ast do
+            quote do
+              _ = __entry_val__
+
+              case unquote(coerce_ast) do
+                {:ok, v} ->
+                  v
+
+                {:error, reason} ->
+                  throw(
+                    GridCodec.ValidationError.cast_error(
+                      unquote(module),
+                      unquote(fname),
+                      unquote(ftype_atom),
+                      __entry_val__,
+                      "in group #{unquote(group_name)}: " <> reason
+                    )
+                  )
+              end
+            end
+          else
+            quote do: __entry_val__
+          end
+
+        {fname, extract, coerced}
+      end)
+
+    steps =
+      Enum.map(field_steps, fn {fname, extract, coerced} ->
+        var = Macro.var(:"__ef_#{fname}__", __MODULE__)
+
+        quote do
+          unquote(extract)
+          unquote(var) = unquote(coerced)
+        end
+      end)
+
+    pairs =
+      Enum.map(field_steps, fn {fname, _, _} ->
+        {fname, Macro.var(:"__ef_#{fname}__", __MODULE__)}
+      end)
+
+    quote do
+      (fn ->
+         unquote_splicing(steps)
+         %{unquote_splicing(pairs)}
+       end).()
     end
   end
 

@@ -666,6 +666,34 @@ defmodule GridCodec.AutoGroupTest do
       assert decoded.side == :sell
     end
 
+    test "group entries coerce from string keys and values" do
+      {:ok, struct} =
+        OrdersWithEnum.new(%{
+          "account_id" => <<1::128>>,
+          "orders" => [
+            %{"order_id" => <<2::128>>, "side" => "buy", "price" => "100", "quantity" => "10"}
+          ]
+        })
+
+      [order] = struct.orders
+      assert order.side == :buy
+      assert order.price == 100
+      assert order.quantity == 10
+    end
+
+    test "group entry coercion error gives field and group context" do
+      {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+        OrdersWithEnum.new(%{
+          "account_id" => <<1::128>>,
+          "orders" => [
+            %{"order_id" => <<2::128>>, "side" => "invalid", "price" => "100", "quantity" => "10"}
+          ]
+        })
+
+      assert e.details.field == :side
+      assert Exception.message(e) =~ "group"
+    end
+
     test "enum roundtrips through string coercion" do
       {:ok, struct} =
         TopLevelEnumCodec.new(%{"id" => "99", "side" => "buy", "status" => "cancelled"})
