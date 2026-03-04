@@ -136,10 +136,10 @@ defmodule GridCodec.Types.PositiveDecimal do
           {:ok, {m, e}}
 
         v when is_integer(v) ->
-          {:ok, v}
+          {:ok, unquote(dec_mod).new(v)}
 
         v when is_float(v) ->
-          {:ok, v}
+          {:ok, unquote(dec_mod).from_float(v)}
 
         v when is_binary(v) ->
           try do
