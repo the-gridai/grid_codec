@@ -313,19 +313,47 @@ defmodule GridCodec.Struct.Compiler do
       unquote(encoder_clauses)
 
       @doc """
-      Encodes directly from a map — no struct creation.
+      Coerce + validate + encode in one shot — no struct allocation.
 
-      Accepts atom-keyed maps with correctly typed values.
-      Skips struct allocation, going straight from map to binary.
-      Useful for high-throughput write paths where the struct is not needed.
+      Accepts maps (atom or string keys), keyword lists, or structs.
+      Coerces string values, validates (if enabled), and returns the
+      binary directly. One allocation: the output binary.
 
-      ## Example
+      ## Examples
 
-          binary = #{inspect(unquote(module))}.encode_attrs(%{price: 100, side: :buy})
+          {:ok, binary} = #{inspect(unquote(module))}.new_binary(%{"price" => "100", "active" => "true"})
+          {:ok, binary} = #{inspect(unquote(module))}.new_binary(price: 100, active: true)
+          {:ok, binary} = #{inspect(unquote(module))}.new_binary(existing_struct)
       """
-      def encode_attrs(attrs) when is_map(attrs) do
-        payload = encode_map(attrs)
-        <<@__gridcodec_header__::binary, payload::binary>>
+      if unquote(generate_typespec) do
+        @spec new_binary(map() | keyword() | t()) ::
+                {:ok, binary()} | {:error, GridCodec.ValidationError.t()}
+      end
+
+      def new_binary(%unquote(module){} = struct) do
+        __validate__(struct)
+        payload = encode_payload(struct)
+        {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+      rescue
+        e in GridCodec.ValidationError -> {:error, e}
+      end
+
+      def new_binary(attrs) when is_list(attrs), do: new_binary(Map.new(attrs))
+
+      def new_binary(attrs) when is_map(attrs) do
+        case __cast__(attrs) do
+          {:ok, coerced} ->
+            try do
+              __validate__(coerced)
+              payload = encode_map(coerced)
+              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+            rescue
+              e in GridCodec.ValidationError -> {:error, e}
+            end
+
+          {:error, _} = error ->
+            error
+        end
       end
 
       # ========================================================================
