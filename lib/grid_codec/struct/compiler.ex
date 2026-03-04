@@ -312,6 +312,22 @@ defmodule GridCodec.Struct.Compiler do
       # Internal encoder that works with maps (for compatibility)
       unquote(encoder_clauses)
 
+      @doc """
+      Encodes directly from a map — no struct creation.
+
+      Accepts atom-keyed maps with correctly typed values.
+      Skips struct allocation, going straight from map to binary.
+      Useful for high-throughput write paths where the struct is not needed.
+
+      ## Example
+
+          binary = #{inspect(unquote(module))}.encode_attrs(%{price: 100, side: :buy})
+      """
+      def encode_attrs(attrs) when is_map(attrs) do
+        payload = encode_map(attrs)
+        <<@__gridcodec_header__::binary, payload::binary>>
+      end
+
       # ========================================================================
       # Decode API
       # ========================================================================
