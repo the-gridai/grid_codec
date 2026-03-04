@@ -228,19 +228,7 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      @doc """
-      Like `new/1` but raises on failure.
-      """
-      if unquote(generate_typespec) do
-        @spec new!(map() | keyword()) :: t()
-      end
-
-      def new!(attrs \\ %{}) do
-        case new(attrs) do
-          {:ok, struct} -> struct
-          {:error, error} -> raise error
-        end
-      end
+      unquote(generate_update_and_helpers(module, generate_typespec))
 
       # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
       unquote(generate_cast_fn(resolved_fields, processed_groups, env.module))
@@ -3235,6 +3223,80 @@ defmodule GridCodec.Struct.Compiler do
       def content_hash(%unquote(module){} = struct) do
         payload = encode_payload(struct)
         :crypto.hash(:sha256, payload)
+      end
+    end
+  end
+
+  # ============================================================================
+  # Update + Helpers (extracted for complexity)
+  # ============================================================================
+
+  defp generate_update_and_helpers(module, generate_typespec) do
+    quote do
+      @doc """
+      Like `new/1` but raises on failure.
+      """
+      if unquote(generate_typespec) do
+        @spec new!(map() | keyword()) :: t()
+      end
+
+      def new!(attrs \\ %{}) do
+        case new(attrs) do
+          {:ok, struct} -> struct
+          {:error, error} -> raise error
+        end
+      end
+
+      @doc """
+      Updates an existing struct with partial attrs, applying coercion and validation.
+
+      Only the provided fields are changed. Accepts atom keys, string keys,
+      or keyword lists. Coerces string values to the correct types.
+      Returns `{:ok, updated_struct}` or `{:error, %GridCodec.ValidationError{}}`.
+
+      ## Example
+
+          {:ok, updated} = #{inspect(unquote(module))}.update(existing, %{"price" => "200"})
+          {:ok, updated} = #{inspect(unquote(module))}.update(existing, price: 200)
+      """
+      if unquote(generate_typespec) do
+        @spec update(t(), map() | keyword()) ::
+                {:ok, t()} | {:error, GridCodec.ValidationError.t()}
+      end
+
+      def update(%unquote(module){} = existing, attrs) when is_list(attrs),
+        do: update(existing, Map.new(attrs))
+
+      def update(%unquote(module){} = existing, attrs) when is_map(attrs) do
+        base = Map.from_struct(existing)
+        merged = Map.merge(base, __normalize_keys__(attrs))
+
+        case __cast__(merged) do
+          {:ok, coerced} ->
+            updated = struct(unquote(module), coerced)
+
+            try do
+              __validate__(updated)
+              {:ok, updated}
+            rescue
+              e in GridCodec.ValidationError -> {:error, e}
+            end
+
+          {:error, _} = error ->
+            error
+        end
+      end
+
+      defp __normalize_keys__(attrs) do
+        Enum.reduce(attrs, %{}, fn
+          {k, v}, acc when is_binary(k) ->
+            case String.to_existing_atom(k) do
+              atom -> Map.put(acc, atom, v)
+            end
+
+          {k, v}, acc when is_atom(k) ->
+            Map.put(acc, k, v)
+        end)
       end
     end
   end

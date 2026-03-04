@@ -203,6 +203,43 @@ defmodule GridCodec.ValidationTest do
     end
   end
 
+  describe "update/2" do
+    test "updates a field with coercion" do
+      {:ok, struct} = ValidatedCodec.new(count: 42, score: -5)
+      {:ok, updated} = ValidatedCodec.update(struct, count: 99)
+      assert updated.count == 99
+      assert updated.score == -5
+    end
+
+    test "updates from string keys and values" do
+      {:ok, struct} = ValidatedCodec.new(count: 42)
+      {:ok, updated} = ValidatedCodec.update(struct, %{"count" => "100"})
+      assert updated.count == 100
+    end
+
+    test "validates updated fields" do
+      {:ok, struct} = ValidatedCodec.new(count: 42)
+
+      {:error, %GridCodec.ValidationError{code: :out_of_range}} =
+        ValidatedCodec.update(struct, count: 5_000_000_000)
+    end
+
+    test "coercion error on update" do
+      {:ok, struct} = ValidatedCodec.new(count: 42)
+
+      {:error, %GridCodec.ValidationError{code: :cast_error}} =
+        ValidatedCodec.update(struct, %{"count" => "bad"})
+    end
+
+    test "preserves unchanged fields" do
+      {:ok, struct} = ValidatedCodec.new(count: 42, score: -5, active: true)
+      {:ok, updated} = ValidatedCodec.update(struct, score: 10)
+      assert updated.count == 42
+      assert updated.score == 10
+      assert updated.active == true
+    end
+  end
+
   describe "validation disabled" do
     test "overflow raises ArgumentError not ValidationError" do
       struct = %UnvalidatedCodec{count: 5_000_000_000}
