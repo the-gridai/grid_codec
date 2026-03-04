@@ -187,6 +187,53 @@ defmodule GridCodec.Struct.Compiler do
                 )
       end
 
+      @doc """
+      Creates a new #{inspect(unquote(module))} struct with validation.
+
+      Returns `{:ok, struct}` if all fields pass type validation,
+      or `{:error, %GridCodec.ValidationError{}}` if any field is invalid.
+
+      Accepts a map or keyword list of field values.
+
+      ## Examples
+
+          {:ok, event} = #{inspect(unquote(module))}.new(id: 42, price: 100)
+          {:error, %GridCodec.ValidationError{}} = #{inspect(unquote(module))}.new(id: "not_an_int")
+      """
+      if unquote(generate_typespec) do
+        @spec new(map() | keyword()) ::
+                {:ok, t()} | {:error, GridCodec.ValidationError.t()}
+      end
+
+      def new(attrs \\ %{})
+
+      def new(attrs) when is_list(attrs), do: new(Map.new(attrs))
+
+      def new(attrs) when is_map(attrs) do
+        struct = struct!(unquote(module), attrs)
+
+        try do
+          __validate__(struct)
+          {:ok, struct}
+        rescue
+          e in GridCodec.ValidationError -> {:error, e}
+        end
+      end
+
+      @doc """
+      Like `new/1` but raises on validation failure.
+      """
+      if unquote(generate_typespec) do
+        @spec new!(map() | keyword()) :: t()
+      end
+
+      def new!(attrs \\ %{}) do
+        case new(attrs) do
+          {:ok, struct} -> struct
+          {:error, error} -> raise error
+        end
+      end
+
       # Schema introspection
       @spec __schema__() :: map()
       def __schema__, do: unquote(Macro.escape(schema))

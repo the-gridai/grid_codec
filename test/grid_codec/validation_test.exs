@@ -150,6 +150,57 @@ defmodule GridCodec.ValidationTest do
     end
   end
 
+  describe "new/1 constructor" do
+    test "returns {:ok, struct} for valid data" do
+      assert {:ok, %ValidatedCodec{count: 100, active: true}} =
+               ValidatedCodec.new(count: 100, active: true)
+    end
+
+    test "returns {:ok, struct} with defaults for empty attrs" do
+      assert {:ok, %ValidatedCodec{}} = ValidatedCodec.new()
+    end
+
+    test "returns {:error, %ValidationError{}} for invalid data" do
+      assert {:error, %GridCodec.ValidationError{code: :out_of_range} = error} =
+               ValidatedCodec.new(count: 5_000_000_000)
+
+      assert error.details.field == :count
+      assert error.details.value == 5_000_000_000
+    end
+
+    test "returns {:error, ...} for type mismatch" do
+      assert {:error, %GridCodec.ValidationError{code: :type_mismatch}} =
+               ValidatedCodec.new(active: "yes")
+    end
+
+    test "accepts map input" do
+      assert {:ok, %ValidatedCodec{count: 42}} = ValidatedCodec.new(%{count: 42})
+    end
+  end
+
+  describe "new!/1 constructor" do
+    test "returns struct for valid data" do
+      assert %ValidatedCodec{count: 100} = ValidatedCodec.new!(count: 100)
+    end
+
+    test "raises ValidationError for invalid data" do
+      assert_raise GridCodec.ValidationError, ~r/out of range/, fn ->
+        ValidatedCodec.new!(count: 5_000_000_000)
+      end
+    end
+  end
+
+  describe "new/1 without validation" do
+    test "still returns {:ok, struct} (no validation errors)" do
+      assert {:ok, %UnvalidatedCodec{count: 100}} = UnvalidatedCodec.new(count: 100)
+    end
+
+    test "returns {:ok, struct} even with bad data (no validation)" do
+      assert {:ok, %UnvalidatedCodec{count: 5_000_000_000}} =
+               UnvalidatedCodec.new(count: 5_000_000_000)
+    end
+  end
+
   describe "validation disabled" do
     test "overflow raises ArgumentError not ValidationError" do
       struct = %UnvalidatedCodec{count: 5_000_000_000}

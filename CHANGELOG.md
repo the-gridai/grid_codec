@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can implement this to participate in pre-encode validation.
 - Implemented `validate_ast` for all built-in types: u8-u64, i8-i64, f32, f64, bool,
   uuid, uuid_string, decimal, positive_decimal, timestamp_us, timestamp_ns.
+- **`new/1` and `new!/1` constructors** on every codec struct. `new/1` returns
+  `{:ok, struct}` or `{:error, %ValidationError{}}`. `new!/1` raises. Accepts
+  maps or keyword lists. Runs validation when `validate: true` is enabled.
 
 ## [0.13.0] - 2026-03-04
 
