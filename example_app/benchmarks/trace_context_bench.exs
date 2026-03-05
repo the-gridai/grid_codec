@@ -152,52 +152,148 @@ Benchee.run(%{
 }, warmup: 2, time: 5, memory_time: 1)
 
 # =============================================================================
-# Benchmark 4: Fan-out cost
+# Benchmark 4: Fan-out — honest comparison
 # =============================================================================
 
-IO.puts("\n=== Benchmark 4: Fan-out — encode once, send to 1000 processes ===\n")
+IO.puts("\n=== Benchmark 4: Fan-out Pipeline (honest comparison) ===\n")
 
 IO.puts("""
-BEAM semantics: binaries > 64 bytes are reference-counted (shared).
-GridCodec encodes once → the binary is shared across all recipients.
-Other formats must re-encode or copy the struct for each send.
+BEAM semantics: ALL binaries > 64 bytes are refc-shared on send/2.
+The send cost itself is ~the same regardless of what produced the binary.
+The real differences are: (1) initial encode cost, (2) receive-side access cost.
+
+For fan-out to N recipients, the receive-side cost is paid N times.
+This is where GridCodec's get/2 (no decode) matters most.
+""")
+
+{:ok, gc_preencoded} = BinaryEnvelope.encode(gc_envelope)
+etf_preencoded = :erlang.term_to_binary(gc_envelope)
+proto_preencoded = ProtoSpan.encode(proto_span)
+
+IO.puts("""
+--- 4a: Receive-side cost per recipient (the N multiplier) ---
+
+After fan-out, every recipient pays this cost to read one field.
+With 100K recipients, a 400ns difference = 40ms total CPU.
 """)
 
 Benchee.run(%{
-  "GridCodec: encode once, share 1000x" => fn ->
-    {:ok, bin} = BinaryEnvelope.encode(gc_envelope)
-    for _ <- 1..1000, do: bin
+  "GridCodec get(:flags) — no decode" => fn ->
+    BinaryEnvelope.get(gc_preencoded, :flags)
   end,
-  "ETF: encode 1000x" => fn ->
-    for _ <- 1..1000, do: :erlang.term_to_binary(gc_envelope)
+  "ETF binary_to_term → Map.get" => fn ->
+    :erlang.binary_to_term(etf_preencoded) |> Map.get(:flags)
   end,
-  "Protobuf: encode 1000x" => fn ->
-    for _ <- 1..1000, do: ProtoSpan.encode(proto_span)
+  "Protobuf decode → .flags" => fn ->
+    ProtoSpan.decode(proto_preencoded).flags
   end,
 }, warmup: 2, time: 5, memory_time: 1)
+
+# Manual full-pipeline measurement (spawn is too slow for Benchee)
+IO.puts("\n--- 4b: Full pipeline — encode + send 1000 + receive-side access ---\n")
+
+n = 1000
+parent = self()
+
+run_pipeline = fn tag, encode_fn, decode_fn ->
+  msg = encode_fn.()
+  pids = for _ <- 1..n do
+    spawn(fn ->
+      receive do
+        {:msg, data} ->
+          _val = decode_fn.(data)
+          send(parent, :done)
+      end
+    end)
+  end
+  {us, _} = :timer.tc(fn ->
+    Enum.each(pids, fn pid -> send(pid, {:msg, msg}) end)
+    for _ <- 1..n, do: receive(do: (:done -> :ok))
+  end)
+  {tag, us}
+end
+
+# Warmup
+run_pipeline.("warmup", fn -> gc_preencoded end, fn b -> BinaryEnvelope.get(b, :flags) end)
+
+results = for _ <- 1..5 do
+  [
+    run_pipeline.("GridCodec (encode + get/2)",
+      fn -> {:ok, b} = BinaryEnvelope.encode(gc_envelope); b end,
+      fn b -> BinaryEnvelope.get(b, :flags) end),
+    run_pipeline.("ETF (term_to_binary + binary_to_term)",
+      fn -> :erlang.term_to_binary(gc_envelope) end,
+      fn b -> :erlang.binary_to_term(b) |> Map.get(:flags) end),
+    run_pipeline.("Protobuf (encode + decode)",
+      fn -> ProtoSpan.encode(proto_span) end,
+      fn b -> ProtoSpan.decode(b).flags end),
+    run_pipeline.("Struct send (no encode, deep-copy)",
+      fn -> gc_envelope end,
+      fn s -> Map.get(s, :flags) end),
+  ]
+end
+
+grouped = results
+  |> List.flatten()
+  |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+  |> Enum.map(fn {tag, times} ->
+    avg = div(Enum.sum(times), length(times))
+    med = times |> Enum.sort() |> Enum.at(div(length(times), 2))
+    {tag, avg, med}
+  end)
+  |> Enum.sort_by(&elem(&1, 2))
+
+IO.puts("  Full pipeline: encode once → send to #{n} procs → each reads :flags\n")
+for {tag, avg, med} <- grouped do
+  IO.puts("  #{String.pad_trailing(tag, 45)} avg=#{String.pad_leading(to_string(avg), 6)}µs  median=#{String.pad_leading(to_string(med), 6)}µs")
+end
+
+IO.puts("\n--- 4c: Cross-node cost — ETF wire size of the message ---\n")
+
+IO.puts("""
+  When sending across nodes, BEAM uses ETF. For binaries this is ~5B overhead.
+  For structs, it serializes the full map structure.
+
+  ETF of GridCodec binary:  #{byte_size(:erlang.term_to_binary(gc_preencoded))} bytes
+  ETF of Protobuf binary:   #{byte_size(:erlang.term_to_binary(proto_preencoded))} bytes
+  ETF of ETF binary:        #{byte_size(:erlang.term_to_binary(etf_preencoded))} bytes
+  ETF of Erlang struct:     #{byte_size(:erlang.term_to_binary(gc_envelope))} bytes
+
+  Note: Manifold (Discord's library) groups sends by remote node, so
+  the message is ETF-encoded once per node, not once per recipient.
+  Smaller binary = less network bandwidth per node.
+""")
 
 IO.puts("""
 
 ==================================================
-Analysis: Where GridCodec helps with Discord's pain points
+Analysis: Where GridCodec genuinely helps
 ==================================================
 
 1. SAMPLING CHECK (75% of Discord's gRPC CPU)
    W3C: parse 55-byte hex string → decode trace_id + span_id + flags
    Discord fix: check last 2 chars of the string (still a string op)
-   GridCodec: get(:flags) reads 4 bytes at fixed offset — O(1), ~14ns
+   GridCodec: get(:flags) reads 4 bytes at fixed offset — O(1), no alloc
 
-2. FAN-OUT (message × million recipients)
-   Struct: copied per process (BEAM semantics for small terms)
-   Binary > 64B: shared via refc pointer (BEAM semantics for binaries)
-   GridCodec: encode once → binary IS the message → zero-copy fan-out
+2. SAME-NODE FAN-OUT (Manifold or Phoenix.PubSub)
+   ALL binaries > 64B get refc sharing — the send cost is the same.
+   The real cost is at the edges:
+   a) Encode (paid once): GridCodec ≈ 300ns < ETF ≈ 400ns < Proto ≈ 1100ns
+   b) Receive-side access (paid N times): get/2 ≈ 7ns vs decode ≈ 400-800ns
+   At 100K recipients: GridCodec saves ~40-80ms of receive-side CPU total
 
-3. FIELD ACCESS POST-FANOUT (each session checks trace context)
-   ETF/JSON: full decode to read one field
-   GridCodec: get/2 reads field at compile-time offset, no decode
+3. CROSS-NODE FAN-OUT (Manifold groups by node)
+   ETF of binary ≈ 5 + payload bytes → minimal wire overhead
+   ETF of struct = full map serialization → much larger
+   GridCodec binary is already the wire format, no extra wrapping needed
 
-4. SPAN EXPORT (batch processor → OTLP collector)
-   Current: ETS → protobuf encode → gRPC
-   GridCodec opportunity: spans as fixed-layout binary in ETS,
-   batch via groups, export with minimal re-encoding
+4. POST-FANOUT PARTIAL ACCESS
+   Not every recipient needs every field. GridCodec.get/2 reads one field
+   at a compile-time offset. ETF/Proto must decode the whole message.
+   For routing/filtering decisions, this is the killer feature.
+
+5. SPAN COLLECTION (OTel batch processor pattern)
+   Current: #span{} records in ETS → copy-on-read → protobuf → gRPC
+   GridCodec: binary in ETS → refc-shared on read → transcode to proto
+   Saves the copy-on-read cost for every span in every batch.
 """)

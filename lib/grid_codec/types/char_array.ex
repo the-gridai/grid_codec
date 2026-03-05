@@ -158,7 +158,17 @@ defmodule GridCodec.Types.CharArray do
       @impl GridCodec.Type
       def encode_ast(name, _default, _endian, data_var) do
         len = @char_array_length
-        mod = __MODULE__
+        overflow = @on_overflow
+
+        overflow_ast =
+          if overflow == :truncate do
+            quote do: binary_part(string, 0, unquote(len))
+          else
+            quote do
+              raise ArgumentError,
+                    "String length #{byte_size(string)} exceeds char array length #{unquote(len)}"
+            end
+          end
 
         quote do
           case :maps.get(unquote(name), unquote(data_var), nil) do
@@ -166,7 +176,16 @@ defmodule GridCodec.Types.CharArray do
               <<0::size(unquote(len) * 8)>>
 
             string when is_binary(string) ->
-              unquote(mod).encode(string)
+              case byte_size(string) do
+                unquote(len) ->
+                  string
+
+                bl when bl < unquote(len) ->
+                  <<string::binary, 0::size((unquote(len) - bl) * 8)>>
+
+                _ ->
+                  unquote(overflow_ast)
+              end
           end :: binary - size(unquote(len))
         end
       end

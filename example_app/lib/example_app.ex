@@ -1,28 +1,35 @@
 defmodule ExampleApp do
   @moduledoc """
-  Example application demonstrating GridCodec.Struct usage.
+  Example application demonstrating GridCodec features.
 
-  This app shows real-world usage patterns for high-performance
-  binary encoding/decoding with struct codecs.
-
-  ## Usage
+  ## Quick start
 
       cd example_app
       mix deps.get
       mix compile
-      mix bench.quick    # Quick development benchmark
-      mix bench          # Full benchmark suite
+      mix bench.quick
 
-  ## Example Codecs
+  ## Codecs
 
-  See `lib/example_app/events/` for example event codecs:
-  - `ExampleApp.Events.OrderCreated` - Order creation event
-  - `ExampleApp.Events.TradeExecuted` - Trade execution event
+  - `ExampleApp.Events.OrderCreated` — order creation event
+  - `ExampleApp.Events.TradeExecuted` — trade execution event
+  - `ExampleApp.Bench.BinaryTraceContext` — OpenTelemetry-style span
+  - `ExampleApp.Bench.BinaryEnvelope` — compact routing header
 
-  Both codecs use `GridCodec.Struct` for optimal performance:
-  - Direct struct pattern matching (no Map.from_struct)
-  - Inline binary construction
-  - Zero-copy field access via wrap/get
+  ## Match predicates
+
+  - `ExampleApp.SpanFilters` — filter spans by sampled bit, duration, kind
+  - `ExampleApp.OrderFilters` — filter orders by side, price, flags
+
+  ## Transcoders
+
+  - `ExampleApp.SpanToEnvelope` — span → envelope without full decode
+
+  ## Benchmarks
+
+      mix bench.quick                                    # Quick encode/decode
+      MIX_ENV=prod mix run benchmarks/ets_binary_bench.exs  # ETS patterns
+      MIX_ENV=prod mix run benchmarks/trace_context_bench.exs
   """
 
   @doc """

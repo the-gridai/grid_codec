@@ -419,16 +419,33 @@ defmodule GridCodec.Types.Bitset do
         from_integer(integer)
       end
 
-      # GridCodec.Type implementation — inlined, no IIFE wrappers
       @impl GridCodec.Type
       def encode_ast(name, _default, endian, data_var) do
-        mod = __MODULE__
         encode_spec = unquote(__MODULE__).__encode_spec__(@bitset_size, endian)
+        flags_var = Macro.var(:__bs_flags__, __MODULE__)
+        acc_var = Macro.var(:__bs_acc__, __MODULE__)
+
+        checks =
+          for {flag_name, bit_pos} <- @bitset_flags do
+            bit_value = Bitwise.bsl(1, bit_pos)
+
+            quote do
+              unquote(acc_var) =
+                if MapSet.member?(unquote(flags_var), unquote(flag_name)),
+                  do: Bitwise.bor(unquote(acc_var), unquote(bit_value)),
+                  else: unquote(acc_var)
+            end
+          end
 
         quote do
           case :maps.get(unquote(name), unquote(data_var), nil) do
-            nil -> 0
-            flags -> unquote(mod).to_integer(flags)
+            nil ->
+              0
+
+            unquote(flags_var) ->
+              unquote(acc_var) = 0
+              unquote_splicing(checks)
+              unquote(acc_var)
           end :: unquote(encode_spec)
         end
       end

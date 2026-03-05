@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-03-05
+
+### Added
+- **`GridCodec.Match` — compile-time matchspec-like binary filtering** — Define
+  predicate functions with `defmatch` that extract fields at compile-time known
+  offsets and evaluate guard expressions without full decode.  Supports native
+  Elixir guards (`==`, `<`, `band`, arithmetic), cross-field comparisons
+  (`end_time_ns - start_time_ns > threshold`), multiple ANDed `where` clauses,
+  and field selection via `select:`.  See [Binary filtering guide](docs/binary-filtering.md).
+- **`GridCodec.Transcoder` — compile-time codec-to-codec transcoding** — Generate
+  `transcode/1` functions that read fields from a source GridCodec binary at
+  known offsets and pass them directly to a target encoder, skipping the full
+  decode → struct → re-encode cycle.  Supports field rename (`to:`), value
+  transforms (`transform:`), and partial field extraction.
+- **`__match_meta__/0`** introspection function on all codec modules — exposes
+  rich field metadata (wire module, domain module, offset, payload offset, size,
+  endian) for use by `GridCodec.Match` and `GridCodec.Transcoder`.
+- **UUID v5 generation** — `GridCodec.Types.UUID.generate_v5/2` (SHA-1
+  name-based, RFC 4122 Section 4.3) with standard namespace helpers
+  (`ns_dns/0`, `ns_url/0`, `ns_oid/0`, `ns_x500/0`).
+- **Example app modules** — `ExampleApp.SpanFilters`, `ExampleApp.OrderFilters`,
+  and `ExampleApp.SpanToEnvelope` demonstrating Match and Transcoder usage.
+- **ETS binary-first benchmark** — `example_app/benchmarks/ets_binary_bench.exs`
+  comparing struct-based vs binary-based ETS patterns across insert, lookup,
+  scan+filter, batch export, and cross-field filtering.
+- **Trace context benchmark** (revised) — `example_app/benchmarks/trace_context_bench.exs`
+  with honest fan-out comparison: measures receive-side cost per recipient, full
+  pipeline with real process sends, and cross-node ETF wire sizes.
+- **Generators test suite** — `generators_test.exs` with property tests for all
+  built-in type generators.
+- **Property tests for Match and Transcoder** — randomized verification of
+  predicate correctness and transcoding field preservation.
+
+### Performance
+- **Bitset `encode_ast` inlined** — `to_integer/1` call replaced with inline
+  `MapSet.member?` + `Bitwise.bor` checks per flag, eliminating function call
+  overhead in the encode hot path.
+- **CharArray `encode_ast` inlined** — `encode/1` call replaced with inline
+  `byte_size` + padding logic, eliminating function call overhead.
+
+### Fixed
+- **`__field_specs__/1`** now uses `effective_module` (respecting `wire_format:`
+  overrides) instead of the raw domain module.  Previously, fields with
+  `wire_format:` would return the domain type module, causing incorrect offset
+  calculations in external tooling.
+- **`defmatch` generated functions** no longer inject `@doc false`, allowing
+  user-provided `@doc` annotations to flow through to ExDoc.
+- **ExDoc warnings** — fixed stale function references (`GridCodec.new/1`,
+  `GridCodec.new_binary/1`) and broken `consumer-integration.md` links.
+
+### Documentation
+- **[Binary filtering guide](docs/binary-filtering.md)** — new guide covering
+  `GridCodec.Match`, `GridCodec.Transcoder`, binary-first ETS patterns, and an
+  end-to-end telemetry span pipeline example.
+- **ExDoc sidebar** — Match and Transcoder now appear under "Core DSL" group;
+  binary-filtering guide added to extras navigation.
+
 ## [0.21.0] - 2026-03-05
 
 ### Added

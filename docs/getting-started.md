@@ -342,6 +342,6 @@ the `grafana/grid_codec.json` dashboard.
 
 - See [Schemas](schemas.md) for `.grid` schema files.
 - See [Schema evolution](schema-evolution.md) for `:since` and backward compatibility.
+- See [Binary filtering](binary-filtering.md) for matchspecs, transcoding, and ETS patterns.
 - See [Performance](performance.md) for profiling and optimization.
-- See [Consumer integration](consumer-integration.md) for checklist when integrating or upgrading in consumer apps (e.g. downstream applications).
 - See [Troubleshooting](troubleshooting.md) for common errors.

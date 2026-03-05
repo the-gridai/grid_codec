@@ -10,8 +10,9 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Sub-binary sharing** – One encode, many readers with no memory copies
 - **Compile-time code generation** – No runtime reflection overhead
 - **Struct-based API** – Natural Elixir structs with binary serialization
+- **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
+- **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
-- **Generic top-level types** – `GridCodec.layout()`, `GridCodec.framed_layout()`, and `GridCodec.codec_data()`
 
 ## Performance
 
@@ -19,7 +20,7 @@ Full pipeline (construct + validate + serialize):
 
 | Operation | Latency | Memory | Wire size |
 |-----------|---------|--------|-----------|
-| `GridCodec.new_binary/1` | **345 ns** | 0.8 KB | 63 B |
+| `MyCodec.new_binary/1` | **345 ns** | 0.8 KB | 63 B |
 | Ecto changeset + Jason | 4,142 ns | 7.1 KB | 170 B |
 
 **12x faster, 9x less memory, 2.7x smaller on the wire.**
@@ -51,8 +52,9 @@ end
 1. **First codec** — [Getting Started](docs/getting-started.md): define a codec, encode/decode, zero-copy access.
 2. **Schemas** — [Schemas](docs/schemas.md): `.grid` schema syntax and code generation.
 3. **Evolution** — [Schema evolution](docs/schema-evolution.md): versioning and safe rollout.
-4. **Performance** — [Performance](docs/performance.md): profiling and optimization.
-5. **Consumers** — [Consumer integration](docs/consumer-integration.md): checklist for apps using GridCodec (e.g. downstream applications).
+4. **Filtering & transcoding** — [Binary filtering](docs/binary-filtering.md): matchspecs, cross-field guards, codec-to-codec transcoding, and ETS patterns.
+5. **Performance** — [Performance](docs/performance.md): profiling and optimization.
+6. **Troubleshooting** — [Troubleshooting](docs/troubleshooting.md): common issues and fixes.
 
 ## Quick Start
 
@@ -167,7 +169,7 @@ Guides:
 - `docs/schema-evolution.md` - Versioning and rollout guidance
 - `docs/performance.md` - Profiling and optimization practices
 - `docs/troubleshooting.md` - Common errors and fixes
-- `docs/consumer-integration.md` - Checklist for apps using GridCodec (e.g. downstream applications)
+- `docs/binary-filtering.md` - Match predicates, transcoders, ETS patterns
 
 ## Common Tasks
 

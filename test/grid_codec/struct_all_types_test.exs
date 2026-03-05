@@ -297,5 +297,59 @@ defmodule GridCodec.StructAllTypesTest do
       # But the binary is 8 bytes
       assert byte_size(binary) >= 8
     end
+
+    # Test uuid_string type
+    defmodule UUIDStringStruct do
+      use GridCodec.Struct, template_id: 107, schema_id: 1
+
+      defcodec do
+        field :id, :uuid_string
+      end
+    end
+
+    test "uuid_string type roundtrips" do
+      uuid_str = "550e8400-e29b-41d4-a716-446655440000"
+
+      original = %UUIDStringStruct{id: uuid_str}
+      {:ok, binary} = UUIDStringStruct.encode(original)
+      {:ok, decoded} = UUIDStringStruct.decode(binary)
+
+      assert String.downcase(decoded.id) == String.downcase(uuid_str)
+    end
+
+    test "nil uuid_string roundtrips" do
+      original = %UUIDStringStruct{id: nil}
+      {:ok, binary} = UUIDStringStruct.encode(original)
+      {:ok, decoded} = UUIDStringStruct.decode(binary)
+
+      assert decoded.id == nil
+    end
+
+    # Test positive_decimal type
+    defmodule PositiveDecimalStruct do
+      use GridCodec.Struct, template_id: 108, schema_id: 1
+
+      defcodec do
+        field :balance, :positive_decimal
+      end
+    end
+
+    test "positive_decimal type roundtrips" do
+      balance = Decimal.new("999.99")
+
+      original = %PositiveDecimalStruct{balance: balance}
+      {:ok, binary} = PositiveDecimalStruct.encode(original)
+      {:ok, decoded} = PositiveDecimalStruct.decode(binary)
+
+      assert Decimal.equal?(decoded.balance, balance)
+    end
+
+    test "nil positive_decimal roundtrips" do
+      original = %PositiveDecimalStruct{balance: nil}
+      {:ok, binary} = PositiveDecimalStruct.encode(original)
+      {:ok, decoded} = PositiveDecimalStruct.decode(binary)
+
+      assert decoded.balance == nil
+    end
   end
 end

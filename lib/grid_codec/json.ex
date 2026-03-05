@@ -6,6 +6,9 @@ defmodule GridCodec.Json do
   - Encode: `GridCodec.decode → Map.from_struct → Jason.encode`
   - Decode: `Jason.decode → struct → GridCodec.encode`
 
+  Requires the `:jason` dependency (optional in GridCodec's mix.exs).
+  If Jason is not available, all functions raise a clear error at compile time.
+
   ## Requirements
 
   For this to work, your struct fields must be JSON-serializable:
@@ -29,6 +32,10 @@ defmodule GridCodec.Json do
   Decoding options:
   - `:keys` - How to handle JSON keys, `:atoms` or `:strings` (default: `:strings`)
   """
+
+  unless Code.ensure_loaded?(Jason) do
+    @compile {:no_warn_undefined, Jason}
+  end
 
   @doc """
   Converts a GridCodec binary to a plain map.

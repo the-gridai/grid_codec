@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.21.0"
+  @version "0.22.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -117,6 +117,7 @@ defmodule GridCodec.MixProject do
         "docs/getting-started.md": [title: "Getting Started"],
         "docs/schemas.md": [title: "Schemas"],
         "docs/schema-evolution.md": [title: "Schema Evolution"],
+        "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
         "docs/performance.md": [title: "Performance Guide"],
         "docs/troubleshooting.md": [title: "Troubleshooting"],
         "CHANGELOG.md": [title: "Changelog"],
@@ -126,6 +127,8 @@ defmodule GridCodec.MixProject do
         "Core DSL": [
           GridCodec,
           GridCodec.Struct,
+          GridCodec.Match,
+          GridCodec.Transcoder,
           GridCodec.ValidationError
         ],
         Runtime: [

@@ -36,7 +36,7 @@ GridCodec is compared against common serialization approaches on the same
 
 | Operation | Latency | Memory |
 |-----------|---------|--------|
-| `GridCodec.new/1` (typed) | 0.55 us | 1.5 KB |
+| `MyCodec.new/1` (typed) | 0.55 us | 1.5 KB |
 | Ecto changeset + apply_action | 2.1 us | 5.0 KB |
 | **Speedup** | **3.8x** | **3.4x less** |
 
@@ -44,7 +44,7 @@ GridCodec is compared against common serialization approaches on the same
 
 | Operation | Latency | Memory | Wire size |
 |-----------|---------|--------|-----------|
-| `GridCodec.new_binary/1` | 345 ns | 0.8 KB | 63 B |
+| `MyCodec.new_binary/1` | 345 ns | 0.8 KB | 63 B |
 | Ecto changeset + Jason.encode | 4,142 ns | 7.1 KB | 170 B |
 | **Speedup** | **12x** | **9.2x less** | **2.7x smaller** |
 

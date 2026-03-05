@@ -2729,13 +2729,33 @@ defmodule GridCodec.Struct.Compiler do
     header_size = 8
 
     # Build field specs map: %{field_name => {type_module, offset, endian} | {:variable, name}}
+    # Uses effective_module to respect wire_format: overrides.
     # Offsets include header_size since encode/1 includes header by default
     fixed_specs =
-      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+      Enum.map(fixed_fields, fn {name, _type_atom, _module, _opts} = field ->
         payload_offset = Map.get(field_offsets, name)
         framed_offset = payload_offset + header_size
-        {name, {module, framed_offset, endian}}
+        {name, {effective_module(field), framed_offset, endian}}
       end)
+
+    # Match metadata: includes wire module, domain module, size for GridCodec.Match
+    match_meta =
+      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} = field ->
+        wire_mod = effective_module(field)
+        payload_offset = Map.get(field_offsets, name)
+        framed_offset = payload_offset + header_size
+
+        {name,
+         %{
+           wire_module: wire_mod,
+           domain_module: module,
+           offset: framed_offset,
+           payload_offset: payload_offset,
+           size: wire_mod.size(),
+           endian: endian
+         }}
+      end)
+      |> Map.new()
 
     var_specs =
       Enum.map(var_fields, fn {name, _type, _module, _opts} ->
@@ -2749,6 +2769,13 @@ defmodule GridCodec.Struct.Compiler do
 
     all_specs = Map.new(fixed_specs ++ var_specs ++ group_specs)
 
+    payload_fixed_specs =
+      Enum.map(fixed_fields, fn {name, _type_atom, _module, _opts} = field ->
+        payload_offset = Map.get(field_offsets, name)
+        {name, {effective_module(field), payload_offset, endian}}
+      end)
+      |> Map.new()
+
     quote do
       @doc false
       def __field_specs__(opts \\ []) do
@@ -2756,20 +2783,17 @@ defmodule GridCodec.Struct.Compiler do
           if Keyword.get(opts, :header, true) do
             unquote(Macro.escape(Map.new(fixed_specs)))
           else
-            unquote(
-              Macro.escape(
-                Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
-                  payload_offset = Map.get(field_offsets, name)
-                  {name, {module, payload_offset, endian}}
-                end)
-                |> Map.new()
-              )
-            )
+            unquote(Macro.escape(payload_fixed_specs))
           end
 
         var = unquote(Macro.escape(Map.new(var_specs)))
         grp = unquote(Macro.escape(Map.new(group_specs)))
         Map.merge(fixed, Map.merge(var, grp))
+      end
+
+      @doc false
+      def __match_meta__ do
+        unquote(Macro.escape(match_meta))
       end
 
       @doc """
