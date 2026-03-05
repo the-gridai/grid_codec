@@ -63,11 +63,14 @@ defmodule GridCodec.Types.UUID do
 
   ## Generating UUIDs
 
-      # Random (v4) UUID
-      :crypto.strong_rand_bytes(16)
+      # Random (v4) — unique per call
+      GridCodec.Types.UUID.generate_v4()
 
-      # Using the `uuid` package for proper v4
-      UUID.uuid4(:raw)
+      # Deterministic (v5) — same inputs always produce the same UUID
+      GridCodec.Types.UUID.generate_v5(:dns, "example.com")
+
+      # Time-sortable (v7) — lexicographically ordered by creation time
+      GridCodec.Types.UUID.generate_v7()
   """
 
   @behaviour GridCodec.Type
@@ -133,6 +136,32 @@ defmodule GridCodec.Types.UUID do
     if value == @null_uuid, do: nil, else: value
   end
 
+  # Standard namespace UUIDs (RFC 4122 Appendix C)
+  @ns_dns <<0x6BA7B810::32, 0x9DAD::16, 0x11D1::16, 0x80::8, 0xB4::8, 0x00C04FD430C8::48>>
+  @ns_url <<0x6BA7B811::32, 0x9DAD::16, 0x11D1::16, 0x80::8, 0xB4::8, 0x00C04FD430C8::48>>
+  @ns_oid <<0x6BA7B812::32, 0x9DAD::16, 0x11D1::16, 0x80::8, 0xB4::8, 0x00C04FD430C8::48>>
+  @ns_x500 <<0x6BA7B814::32, 0x9DAD::16, 0x11D1::16, 0x80::8, 0xB4::8, 0x00C04FD430C8::48>>
+
+  @doc """
+  Returns the standard DNS namespace UUID (RFC 4122 Appendix C).
+  """
+  def ns_dns, do: @ns_dns
+
+  @doc """
+  Returns the standard URL namespace UUID (RFC 4122 Appendix C).
+  """
+  def ns_url, do: @ns_url
+
+  @doc """
+  Returns the standard OID namespace UUID (RFC 4122 Appendix C).
+  """
+  def ns_oid, do: @ns_oid
+
+  @doc """
+  Returns the standard X.500 DN namespace UUID (RFC 4122 Appendix C).
+  """
+  def ns_x500, do: @ns_x500
+
   @doc """
   Generates a random UUID v4 (128-bit, RFC 4122 compliant).
 
@@ -147,6 +176,44 @@ defmodule GridCodec.Types.UUID do
     <<a::48, _v::4, b::12, _r::2, c::62>> = :crypto.strong_rand_bytes(16)
     <<a::48, 4::4, b::12, 2::2, c::62>>
   end
+
+  @doc """
+  Generates a deterministic UUID v5 (SHA-1 name-based, RFC 4122 Section 4.3).
+
+  Given a namespace UUID and a name, always produces the same UUID. Useful for
+  deriving stable IDs from known inputs (e.g. user email, DNS name, URL).
+
+  ## Parameters
+
+    * `namespace` — a 16-byte binary UUID, or one of the atoms `:dns`, `:url`,
+      `:oid`, `:x500` for the standard RFC 4122 namespaces.
+    * `name` — arbitrary binary (string, etc.) to hash within the namespace.
+
+  ## Examples
+
+      iex> ns = GridCodec.Types.UUID.ns_dns()
+      iex> a = GridCodec.Types.UUID.generate_v5(ns, "example.com")
+      iex> b = GridCodec.Types.UUID.generate_v5(ns, "example.com")
+      iex> a == b
+      true
+      iex> byte_size(a)
+      16
+
+      iex> GridCodec.Types.UUID.generate_v5(:dns, "example.com") == GridCodec.Types.UUID.generate_v5(GridCodec.Types.UUID.ns_dns(), "example.com")
+      true
+  """
+  @spec generate_v5(<<_::128>> | :dns | :url | :oid | :x500, binary()) :: <<_::128>>
+  def generate_v5(namespace, name) when is_binary(name) do
+    ns = resolve_namespace(namespace)
+    <<a::48, _v::4, b::12, _r::2, c::62, _rest::binary>> = :crypto.hash(:sha, ns <> name)
+    <<a::48, 5::4, b::12, 2::2, c::62>>
+  end
+
+  defp resolve_namespace(:dns), do: @ns_dns
+  defp resolve_namespace(:url), do: @ns_url
+  defp resolve_namespace(:oid), do: @ns_oid
+  defp resolve_namespace(:x500), do: @ns_x500
+  defp resolve_namespace(<<_::binary-size(16)>> = ns), do: ns
 
   @doc """
   Generates a UUID v7 (time-sortable, RFC 9562 compliant).
