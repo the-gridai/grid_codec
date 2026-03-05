@@ -62,7 +62,7 @@ defmodule GridCodec.OptionalityTest do
   describe "optional fields (default)" do
     test "encode/decode with value" do
       data = %OptionalCodec{id: 123, name: 456, score: 789}
-      binary = OptionalCodec.encode(data)
+      {:ok, binary} = OptionalCodec.encode(data)
 
       {:ok, decoded} = OptionalCodec.decode(binary)
 
@@ -73,7 +73,7 @@ defmodule GridCodec.OptionalityTest do
 
     test "encode/decode with nil" do
       data = %OptionalCodec{id: 123, name: nil, score: 100}
-      binary = OptionalCodec.encode(data)
+      {:ok, binary} = OptionalCodec.encode(data)
 
       {:ok, decoded} = OptionalCodec.decode(binary)
 
@@ -90,7 +90,7 @@ defmodule GridCodec.OptionalityTest do
   describe "required fields" do
     test "encode/decode with values" do
       data = %RequiredCodec{id: 100, count: 50}
-      binary = RequiredCodec.encode(data)
+      {:ok, binary} = RequiredCodec.encode(data)
 
       {:ok, decoded} = RequiredCodec.decode(binary)
 
@@ -98,33 +98,30 @@ defmodule GridCodec.OptionalityTest do
       assert decoded.count == 50
     end
 
-    test "encode raises on nil value" do
-      assert_raise ArgumentError, ~r/required field :id cannot be nil/, fn ->
-        RequiredCodec.encode(%RequiredCodec{id: nil, count: 10})
-      end
+    test "encode returns error on nil value" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               RequiredCodec.encode(%RequiredCodec{id: nil, count: 10})
     end
 
-    test "encode raises for second required field" do
-      assert_raise ArgumentError, ~r/required field :count cannot be nil/, fn ->
-        RequiredCodec.encode(%RequiredCodec{id: 1, count: nil})
-      end
+    test "encode returns error for second required field" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               RequiredCodec.encode(%RequiredCodec{id: 1, count: nil})
     end
   end
 
   describe "required variable-length fields" do
     test "encode/decode with required string value" do
       data = %RequiredVarCodec{id: 123, name: "alice"}
-      binary = RequiredVarCodec.encode(data)
+      {:ok, binary} = RequiredVarCodec.encode(data)
       {:ok, decoded} = RequiredVarCodec.decode(binary)
 
       assert decoded.id == 123
       assert decoded.name == "alice"
     end
 
-    test "encode raises when required string is nil" do
-      assert_raise ArgumentError, ~r/required field :name cannot be nil/, fn ->
-        RequiredVarCodec.encode(%RequiredVarCodec{id: 123, name: nil})
-      end
+    test "encode returns error when required string is nil" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               RequiredVarCodec.encode(%RequiredVarCodec{id: 123, name: nil})
     end
   end
 
@@ -136,7 +133,7 @@ defmodule GridCodec.OptionalityTest do
     test "encode uses constant value regardless of input" do
       # Even if we pass different values, constants should be encoded as specified
       data = %ConstantCodec{version: 99, id: 12345, type: 999}
-      binary = ConstantCodec.encode(data)
+      {:ok, binary} = ConstantCodec.encode(data)
 
       {:ok, decoded} = ConstantCodec.decode(binary)
 
@@ -148,7 +145,7 @@ defmodule GridCodec.OptionalityTest do
 
     test "encode works without constant field in input" do
       data = %ConstantCodec{id: 54321}
-      binary = ConstantCodec.encode(data)
+      {:ok, binary} = ConstantCodec.encode(data)
 
       {:ok, decoded} = ConstantCodec.decode(binary)
 
@@ -159,7 +156,7 @@ defmodule GridCodec.OptionalityTest do
 
     test "constant fields have correct wire size" do
       data = %ConstantCodec{id: 1}
-      binary = ConstantCodec.encode(data)
+      {:ok, binary} = ConstantCodec.encode(data)
 
       # header (8) + version (u8) + id (u64) + type (u16) = 8 + 1 + 8 + 2 = 19 bytes
       assert byte_size(binary) == 19
@@ -173,7 +170,7 @@ defmodule GridCodec.OptionalityTest do
   describe "mixed presence modes" do
     test "encode/decode with all fields provided" do
       data = %MixedCodec{version: 99, id: 123, count: 456, flags: 7}
-      binary = MixedCodec.encode(data)
+      {:ok, binary} = MixedCodec.encode(data)
 
       {:ok, decoded} = MixedCodec.decode(binary)
 
@@ -186,7 +183,7 @@ defmodule GridCodec.OptionalityTest do
 
     test "encode/decode with optional fields nil" do
       data = %MixedCodec{id: 100, count: nil, flags: nil}
-      binary = MixedCodec.encode(data)
+      {:ok, binary} = MixedCodec.encode(data)
 
       {:ok, decoded} = MixedCodec.decode(binary)
 
@@ -197,10 +194,9 @@ defmodule GridCodec.OptionalityTest do
       assert decoded.flags == nil
     end
 
-    test "required field still raises" do
-      assert_raise ArgumentError, ~r/required field :id cannot be nil/, fn ->
-        MixedCodec.encode(%MixedCodec{id: nil, count: 10})
-      end
+    test "required field still returns error" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               MixedCodec.encode(%MixedCodec{id: nil, count: 10})
     end
   end
 
@@ -213,7 +209,7 @@ defmodule GridCodec.OptionalityTest do
       require ConstantCodec
 
       data = %ConstantCodec{id: 999}
-      binary = ConstantCodec.encode(data)
+      {:ok, binary} = ConstantCodec.encode(data)
 
       assert ConstantCodec.get(binary, :version) == 1
       assert ConstantCodec.get(binary, :id) == 999
@@ -224,7 +220,7 @@ defmodule GridCodec.OptionalityTest do
       require OptionalCodec
 
       data = %OptionalCodec{id: 123, name: nil, score: 100}
-      binary = OptionalCodec.encode(data)
+      {:ok, binary} = OptionalCodec.encode(data)
 
       assert OptionalCodec.get(binary, :id) == 123
       assert OptionalCodec.get(binary, :name) == nil

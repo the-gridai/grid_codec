@@ -17,32 +17,66 @@ defmodule ConstructorProfile do
   end
 
   def run do
-    typed = %{id: 42, count: 100, price: 50_000, active: true, score: -5,
-              created_at: 1_700_000_000_000_000}
-    string = %{"id" => "42", "count" => "100", "price" => "50000",
-               "active" => "true", "score" => "-5",
-               "created_at" => "2026-01-01T00:00:00Z"}
+    typed = %{
+      id: 42,
+      count: 100,
+      price: 50_000,
+      active: true,
+      score: -5,
+      created_at: 1_700_000_000_000_000
+    }
+
+    string = %{
+      "id" => "42",
+      "count" => "100",
+      "price" => "50000",
+      "active" => "true",
+      "score" => "-5",
+      "created_at" => "2026-01-01T00:00:00Z"
+    }
+
     bad = %{count: 5_000_000_000}
     n = 100_000
 
     for _ <- 1..1000, do: C.new(typed)
 
     IO.puts("=== new/1 typed (validate: true) — #{n} iterations ===")
+
     Mix.Tasks.Profile.Tprof.profile(
-      fn -> for _ <- 1..n, do: C.new(typed); :ok end,
-      type: :time, sort: :time, report: :total, set_on_spawn: false
+      fn ->
+        for _ <- 1..n, do: C.new(typed)
+        :ok
+      end,
+      type: :time,
+      sort: :time,
+      report: :total,
+      set_on_spawn: false
     )
 
     IO.puts("\n=== new/1 string (coerce + validate) — #{n} iterations ===")
+
     Mix.Tasks.Profile.Tprof.profile(
-      fn -> for _ <- 1..n, do: C.new(string); :ok end,
-      type: :time, sort: :time, report: :total, set_on_spawn: false
+      fn ->
+        for _ <- 1..n, do: C.new(string)
+        :ok
+      end,
+      type: :time,
+      sort: :time,
+      report: :total,
+      set_on_spawn: false
     )
 
     IO.puts("\n=== new/1 error path (validation fail) — #{n} iterations ===")
+
     Mix.Tasks.Profile.Tprof.profile(
-      fn -> for _ <- 1..n, do: C.new(bad); :ok end,
-      type: :time, sort: :time, report: :total, set_on_spawn: false
+      fn ->
+        for _ <- 1..n, do: C.new(bad)
+        :ok
+      end,
+      type: :time,
+      sort: :time,
+      report: :total,
+      set_on_spawn: false
     )
   end
 end

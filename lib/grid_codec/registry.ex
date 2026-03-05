@@ -13,7 +13,7 @@ defmodule GridCodec.Registry do
   The top-level `GridCodec` module delegates to this registry:
 
       # Encode a struct
-      binary = GridCodec.encode(my_struct)
+      {:ok, binary} = GridCodec.encode(my_struct)
 
       # Decode using header dispatch
       {:ok, decoded_struct} = GridCodec.decode(binary)
@@ -299,18 +299,25 @@ defmodule GridCodec.Registry do
   ## Example
 
       order = %MyApp.Order{id: <<1::128>>, price: 100}
-      binary = GridCodec.Registry.encode(order)
-      payload = GridCodec.Registry.encode(order, header: false)
+      {:ok, binary} = GridCodec.Registry.encode(order)
+      {:ok, payload} = GridCodec.Registry.encode(order, header: false)
   """
-  @spec encode(struct(), keyword()) :: binary()
+  @spec encode(struct(), keyword()) ::
+          {:ok, binary()} | {:error, GridCodec.ValidationError.t()}
   def encode(struct, opts \\ [])
 
   def encode(%{__struct__: module} = struct, opts) do
     if is_gridcodec_struct?(module) do
       module.encode(struct, opts)
     else
-      raise ArgumentError,
-            "Cannot encode #{inspect(module)} - not a registered GridCodec struct"
+      {:error,
+       GridCodec.ValidationError.cast_error(
+         module,
+         :unknown,
+         :encode,
+         struct,
+         "not a registered GridCodec struct"
+       )}
     end
   end
 

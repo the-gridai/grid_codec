@@ -75,6 +75,7 @@ Benchee.run(
         timestamp::little-signed-64,
         flags::8
       >>
+
       var_data = <<symbol_len::little-16, symbol::binary>>
       <<fixed::binary, var_data::binary>>
     end,
@@ -90,6 +91,7 @@ Benchee.run(
         timestamp::little-signed-64,
         flags::8
       >>
+
       [fixed, <<symbol_len::little-16>>, symbol]
     end
   },
@@ -123,7 +125,6 @@ Benchee.run(
         description::binary
       >>
     end,
-
     "iodata_to_binary_multivar" => fn ->
       fixed = <<
         order_id::binary-16,
@@ -134,14 +135,17 @@ Benchee.run(
         timestamp::little-signed-64,
         flags::8
       >>
+
       IO.iodata_to_binary([
         fixed,
-        <<byte_size(symbol)::little-16>>, symbol,
-        <<byte_size(symbol2)::little-16>>, symbol2,
-        <<byte_size(description)::little-16>>, description
+        <<byte_size(symbol)::little-16>>,
+        symbol,
+        <<byte_size(symbol2)::little-16>>,
+        symbol2,
+        <<byte_size(description)::little-16>>,
+        description
       ])
     end,
-
     "iodata_only_multivar" => fn ->
       fixed = <<
         order_id::binary-16,
@@ -152,11 +156,15 @@ Benchee.run(
         timestamp::little-signed-64,
         flags::8
       >>
+
       [
         fixed,
-        <<byte_size(symbol)::little-16>>, symbol,
-        <<byte_size(symbol2)::little-16>>, symbol2,
-        <<byte_size(description)::little-16>>, description
+        <<byte_size(symbol)::little-16>>,
+        symbol,
+        <<byte_size(symbol2)::little-16>>,
+        symbol2,
+        <<byte_size(description)::little-16>>,
+        description
       ]
     end
   },

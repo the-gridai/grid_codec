@@ -81,7 +81,7 @@ defmodule GridCodec.Types.CompositeTest do
       qty = Elixir.Decimal.new("100")
 
       data = %PriceCodec{price: price, quantity: qty}
-      binary = PriceCodec.encode(data)
+      {:ok, binary} = PriceCodec.encode(data)
 
       # header (8) + 9 + 9 = 26
       assert byte_size(binary) == 26
@@ -94,7 +94,7 @@ defmodule GridCodec.Types.CompositeTest do
 
     test "encode/decode with tuple format" do
       data = %PriceCodec{price: {9999, -2}, quantity: {100, 0}}
-      binary = PriceCodec.encode(data)
+      {:ok, binary} = PriceCodec.encode(data)
 
       {:ok, decoded} = PriceCodec.decode(binary)
 
@@ -104,7 +104,7 @@ defmodule GridCodec.Types.CompositeTest do
 
     test "encode/decode with nil" do
       data = %PriceCodec{price: {100, 0}, quantity: nil}
-      binary = PriceCodec.encode(data)
+      {:ok, binary} = PriceCodec.encode(data)
 
       {:ok, decoded} = PriceCodec.decode(binary)
 
@@ -115,7 +115,7 @@ defmodule GridCodec.Types.CompositeTest do
       require PriceCodec
 
       data = %PriceCodec{price: {12345, -2}, quantity: {500, 0}}
-      binary = PriceCodec.encode(data)
+      {:ok, binary} = PriceCodec.encode(data)
 
       price = PriceCodec.get(binary, :price)
       assert Elixir.Decimal.eq?(price, Elixir.Decimal.new("123.45"))
@@ -173,7 +173,7 @@ defmodule GridCodec.Types.CompositeTest do
       now = DateTime.utc_now()
       data = %EventCodecUS{id: 123, created_at: now}
 
-      binary = EventCodecUS.encode(data)
+      {:ok, binary} = EventCodecUS.encode(data)
       {:ok, decoded} = EventCodecUS.decode(binary)
 
       assert decoded.id == 123
@@ -186,7 +186,7 @@ defmodule GridCodec.Types.CompositeTest do
       us = System.system_time(:microsecond)
       data = %EventCodecUS{id: 456, created_at: us}
 
-      binary = EventCodecUS.encode(data)
+      {:ok, binary} = EventCodecUS.encode(data)
       {:ok, decoded} = EventCodecUS.decode(binary)
 
       assert decoded.created_at == us
@@ -195,7 +195,7 @@ defmodule GridCodec.Types.CompositeTest do
     test "encode/decode nil" do
       data = %EventCodecUS{id: 789, created_at: nil}
 
-      binary = EventCodecUS.encode(data)
+      {:ok, binary} = EventCodecUS.encode(data)
       {:ok, decoded} = EventCodecUS.decode(binary)
 
       assert decoded.created_at == nil
@@ -207,7 +207,7 @@ defmodule GridCodec.Types.CompositeTest do
       us = 1_704_067_200_000_000
       data = %EventCodecUS{id: 100, created_at: us}
 
-      binary = EventCodecUS.encode(data)
+      {:ok, binary} = EventCodecUS.encode(data)
 
       assert EventCodecUS.get(binary, :created_at) == us
     end
@@ -255,7 +255,7 @@ defmodule GridCodec.Types.CompositeTest do
       ns = System.system_time(:nanosecond)
       data = %EventCodecNS{event_time: ns, sequence: 1}
 
-      binary = EventCodecNS.encode(data)
+      {:ok, binary} = EventCodecNS.encode(data)
       {:ok, decoded} = EventCodecNS.decode(binary)
 
       assert decoded.event_time == ns
@@ -266,7 +266,7 @@ defmodule GridCodec.Types.CompositeTest do
       dt = DateTime.utc_now()
       data = %EventCodecNS{event_time: dt, sequence: 2}
 
-      binary = EventCodecNS.encode(data)
+      {:ok, binary} = EventCodecNS.encode(data)
       {:ok, decoded} = EventCodecNS.decode(binary)
 
       # Will be in nanoseconds
@@ -311,7 +311,7 @@ defmodule GridCodec.Types.CompositeTest do
             ) do
         original = {mantissa, exp}
 
-        binary = DecimalPropCodec.encode(%DecimalPropCodec{val: original})
+        {:ok, binary} = DecimalPropCodec.encode(%DecimalPropCodec{val: original})
         {:ok, decoded} = DecimalPropCodec.decode(binary)
 
         result = Decimal.from_decimal(decoded.val)
@@ -326,7 +326,7 @@ defmodule GridCodec.Types.CompositeTest do
               us <- StreamData.integer(1..2_000_000_000_000_000),
               max_runs: 50
             ) do
-        binary = TSMicrosPropCodec.encode(%TSMicrosPropCodec{ts: us})
+        {:ok, binary} = TSMicrosPropCodec.encode(%TSMicrosPropCodec{ts: us})
         {:ok, decoded} = TSMicrosPropCodec.decode(binary)
 
         assert decoded.ts == us
@@ -338,7 +338,7 @@ defmodule GridCodec.Types.CompositeTest do
               ns <- StreamData.integer(1..2_000_000_000_000_000_000),
               max_runs: 50
             ) do
-        binary = TSNanosPropCodec.encode(%TSNanosPropCodec{ts: ns})
+        {:ok, binary} = TSNanosPropCodec.encode(%TSNanosPropCodec{ts: ns})
         {:ok, decoded} = TSNanosPropCodec.decode(binary)
 
         assert decoded.ts == ns

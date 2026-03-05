@@ -98,7 +98,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: [%{price: 101, quantity: 15}]
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       assert {:ok, decoded} = OrderBook.decode(binary)
 
       assert decoded.symbol == uuid
@@ -131,7 +131,7 @@ defmodule GridCodec.AutoGroupTest do
         ]
       }
 
-      binary = BalanceSnapshot.encode(struct)
+      {:ok, binary} = BalanceSnapshot.encode(struct)
       assert {:ok, decoded} = BalanceSnapshot.decode(binary)
 
       assert decoded.account_id == uuid
@@ -159,7 +159,7 @@ defmodule GridCodec.AutoGroupTest do
         ]
       }
 
-      binary = WithMixedTypes.encode(struct)
+      {:ok, binary} = WithMixedTypes.encode(struct)
       assert {:ok, decoded} = WithMixedTypes.decode(binary)
 
       entries = GridCodec.Group.to_list(decoded.entries)
@@ -192,7 +192,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: []
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       assert {:ok, decoded} = OrderBook.decode(binary)
 
       assert GridCodec.Group.count(decoded.bids) == 0
@@ -219,7 +219,7 @@ defmodule GridCodec.AutoGroupTest do
         name: "test market"
       }
 
-      binary = MultiGroupWithString.encode(struct)
+      {:ok, binary} = MultiGroupWithString.encode(struct)
       assert {:ok, decoded} = MultiGroupWithString.decode(binary)
 
       assert decoded.id == 99
@@ -244,7 +244,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: []
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       assert {:ok, decoded} = OrderBook.decode(binary)
 
       bids = GridCodec.Group.to_list(decoded.bids)
@@ -272,7 +272,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: []
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       {:ok, decoded} = OrderBook.decode(binary)
 
       assert {:ok, %{price: 2500, quantity: 25}} = GridCodec.Group.get_entry(decoded.bids, 24)
@@ -291,7 +291,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: []
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       {:ok, decoded} = OrderBook.decode(binary)
 
       big_bids =
@@ -374,7 +374,7 @@ defmodule GridCodec.AutoGroupTest do
         ]
       }
 
-      binary = OrdersWithEnum.encode(struct)
+      {:ok, binary} = OrdersWithEnum.encode(struct)
       assert {:ok, decoded} = OrdersWithEnum.decode(binary)
 
       assert decoded.account_id == uuid
@@ -403,7 +403,7 @@ defmodule GridCodec.AutoGroupTest do
         ]
       }
 
-      binary = OrdersWithEnum.encode(struct)
+      {:ok, binary} = OrdersWithEnum.encode(struct)
       assert {:ok, decoded} = OrdersWithEnum.decode(binary)
 
       [order] = GridCodec.Group.to_list(decoded.orders)
@@ -420,7 +420,7 @@ defmodule GridCodec.AutoGroupTest do
         ]
       }
 
-      binary = OrdersWithMultipleEnums.encode(struct)
+      {:ok, binary} = OrdersWithMultipleEnums.encode(struct)
       assert {:ok, decoded} = OrdersWithMultipleEnums.decode(binary)
 
       orders = GridCodec.Group.to_list(decoded.orders)
@@ -437,7 +437,7 @@ defmodule GridCodec.AutoGroupTest do
         orders: []
       }
 
-      binary = OrdersWithEnum.encode(struct)
+      {:ok, binary} = OrdersWithEnum.encode(struct)
       assert {:ok, decoded} = OrdersWithEnum.decode(binary)
 
       assert GridCodec.Group.count(decoded.orders) == 0
@@ -462,7 +462,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: for(i <- 1..30, do: %{price: (i + 50) * 100, quantity: i})
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       {:ok, decoded} = OrderBook.decode(binary)
 
       [bids, asks] =
@@ -485,7 +485,7 @@ defmodule GridCodec.AutoGroupTest do
         asks: [%{price: 200, quantity: 2}]
       }
 
-      binary = OrderBook.encode(struct)
+      {:ok, binary} = OrderBook.encode(struct)
       {:ok, decoded} = OrderBook.decode(binary)
 
       [bids, asks] = GridCodec.Group.to_lists_parallel([decoded.bids, decoded.asks])
@@ -523,7 +523,7 @@ defmodule GridCodec.AutoGroupTest do
                 )
             ) do
         struct = %OrdersWithEnum{account_id: <<1::128>>, orders: entries}
-        binary = OrdersWithEnum.encode(struct)
+        {:ok, binary} = OrdersWithEnum.encode(struct)
         {:ok, decoded} = OrdersWithEnum.decode(binary)
 
         decoded_orders = GridCodec.Group.to_list(decoded.orders)
@@ -556,7 +556,7 @@ defmodule GridCodec.AutoGroupTest do
                 )
             ) do
         struct = %OrdersWithMultipleEnums{id: 1, orders: entries}
-        binary = OrdersWithMultipleEnums.encode(struct)
+        {:ok, binary} = OrdersWithMultipleEnums.encode(struct)
         {:ok, decoded} = OrdersWithMultipleEnums.decode(binary)
 
         decoded_orders = GridCodec.Group.to_list(decoded.orders)
@@ -594,7 +594,7 @@ defmodule GridCodec.AutoGroupTest do
           balances: entries
         }
 
-        binary = BalanceSnapshot.encode(struct)
+        {:ok, binary} = BalanceSnapshot.encode(struct)
         {:ok, decoded} = BalanceSnapshot.decode(binary)
 
         decoded_balances = GridCodec.Group.to_list(decoded.balances)
@@ -698,7 +698,7 @@ defmodule GridCodec.AutoGroupTest do
       {:ok, struct} =
         TopLevelEnumCodec.new(%{"id" => "99", "side" => "buy", "status" => "cancelled"})
 
-      binary = TopLevelEnumCodec.encode(struct)
+      {:ok, binary} = TopLevelEnumCodec.encode(struct)
       {:ok, decoded} = TopLevelEnumCodec.decode(binary)
       assert decoded.side == :buy
       assert decoded.status == :cancelled
@@ -706,97 +706,313 @@ defmodule GridCodec.AutoGroupTest do
   end
 
   # ============================================================================
-  # Tests: decode_as option
+  # wire_format: option (parameterized types)
   # ============================================================================
 
-  defmodule BalanceWithDecodeAs do
-    use GridCodec.Struct, template_id: 815, schema_id: 60, version: 1
+  defmodule BalanceWithWireFormat do
+    use GridCodec.Struct, template_id: 820, schema_id: 60, version: 1
 
     defcodec do
       field :id, :u64
 
       group :balances do
         field :user_id, :u64
-        field :amount, :i64, decode_as: :decimal
-        field :locked, :i64, decode_as: {:decimal, scale: 8}
+        field :amount, {:decimal, scale: 8}, wire_format: :i64
       end
     end
   end
 
-  describe "decode_as option" do
-    test "decode_as: :decimal converts i64 to Decimal" do
-      struct = %BalanceWithDecodeAs{
-        id: 1,
-        balances: [%{user_id: 42, amount: 100_000, locked: 5_000_000_000_000}]
-      }
+  defmodule TopLevelWireFormat do
+    use GridCodec.Struct, template_id: 821, schema_id: 60, version: 1
 
-      binary = BalanceWithDecodeAs.encode(struct)
-      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+    defcodec do
+      field :id, :u64
+      field :price, {:decimal, scale: 8}, wire_format: :i64
+      field :quantity, :u32
+    end
+  end
 
-      [balance] = GridCodec.Group.to_list(decoded.balances)
-      assert %Decimal{} = balance.amount
-      assert Decimal.equal?(balance.amount, Decimal.new(100_000))
+  defmodule PositiveDecWireFormat do
+    use GridCodec.Struct, template_id: 822, schema_id: 60, version: 1
+
+    defcodec do
+      field :id, :u64
+
+      group :items do
+        field :amount, {:positive_decimal, scale: 4}, wire_format: :u64
+      end
+    end
+  end
+
+  defmodule ParamDecimalNoWire do
+    use GridCodec.Struct, template_id: 823, schema_id: 60, version: 1
+
+    defcodec do
+      field :id, :u64
+      field :price, {:decimal, scale: 8}
+      field :quantity, :u32
+    end
+  end
+
+  describe "wire_format: option" do
+    test "group field: encodes Decimal as i64, decodes i64 as Decimal" do
+      entries = [
+        %{user_id: 1, amount: Decimal.new("123.45000000")},
+        %{user_id: 2, amount: Decimal.new("0.00000001")}
+      ]
+
+      struct = %BalanceWithWireFormat{id: 42, balances: entries}
+      {:ok, binary} = BalanceWithWireFormat.encode(struct)
+      {:ok, decoded} = BalanceWithWireFormat.decode(binary)
+
+      balances = GridCodec.Group.to_list(decoded.balances)
+      assert length(balances) == 2
+
+      [b1, b2] = balances
+      assert %Decimal{} = b1.amount
+      assert Decimal.equal?(b1.amount, Decimal.new("123.45000000"))
+      assert Decimal.equal?(b2.amount, Decimal.new("0.00000001"))
     end
 
-    test "decode_as: {:decimal, scale: 8} applies fixed-point scaling" do
-      # 1_000_000_000_000 with scale 8 = 10000.00000000
-      struct = %BalanceWithDecodeAs{
+    test "group field: accepts raw integer (pre-scaled)" do
+      struct = %BalanceWithWireFormat{
         id: 1,
-        balances: [%{user_id: 42, amount: 100, locked: 1_000_000_000_000}]
+        balances: [%{user_id: 1, amount: 12_345_000_000}]
       }
 
-      binary = BalanceWithDecodeAs.encode(struct)
-      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+      {:ok, binary} = BalanceWithWireFormat.encode(struct)
+      {:ok, decoded} = BalanceWithWireFormat.decode(binary)
 
-      [balance] = GridCodec.Group.to_list(decoded.balances)
-      assert %Decimal{} = balance.locked
-      assert Decimal.equal?(balance.locked, Decimal.new("10000"))
+      [b] = GridCodec.Group.to_list(decoded.balances)
+      assert %Decimal{} = b.amount
+      assert Decimal.equal?(b.amount, Decimal.new("123.45000000"))
     end
 
-    test "decode_as handles negative values with scale" do
-      struct = %BalanceWithDecodeAs{
+    test "group field: handles nil as null sentinel" do
+      struct = %BalanceWithWireFormat{
         id: 1,
-        balances: [%{user_id: 42, amount: -500, locked: -10_000_000_000}]
+        balances: [%{user_id: 1, amount: nil}]
       }
 
-      binary = BalanceWithDecodeAs.encode(struct)
-      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+      {:ok, binary} = BalanceWithWireFormat.encode(struct)
+      {:ok, decoded} = BalanceWithWireFormat.decode(binary)
 
-      [balance] = GridCodec.Group.to_list(decoded.balances)
-      assert Decimal.negative?(balance.amount)
-      assert Decimal.negative?(balance.locked)
+      [b] = GridCodec.Group.to_list(decoded.balances)
+      assert b.amount == nil
     end
 
-    test "decode_as works with positive_decimal type" do
-      struct = %BalanceWithDecodeAs{
+    test "top-level field: encodes Decimal as i64, decodes as Decimal" do
+      struct = %TopLevelWireFormat{
         id: 1,
-        balances: [%{user_id: 42, amount: 999, locked: 50_000_000_000}]
+        price: Decimal.new("99.99000000"),
+        quantity: 100
       }
 
-      binary = BalanceWithDecodeAs.encode(struct)
-      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+      {:ok, binary} = TopLevelWireFormat.encode(struct)
+      {:ok, decoded} = TopLevelWireFormat.decode(binary)
 
-      [balance] = GridCodec.Group.to_list(decoded.balances)
-      assert %Decimal{} = balance.amount
-      assert %Decimal{} = balance.locked
+      assert %Decimal{} = decoded.price
+      assert Decimal.equal?(decoded.price, Decimal.new("99.99000000"))
+      assert decoded.quantity == 100
+      assert decoded.id == 1
     end
 
-    test "decode_as roundtrips multiple entries" do
-      entries =
-        for i <- 1..100 do
-          %{user_id: i, amount: i * 1000, locked: i * 10_000_000_000}
+    test "top-level field: roundtrip with various Decimal values" do
+      values = [
+        Decimal.new("0"),
+        Decimal.new("1.00000000"),
+        Decimal.new("-1.00000000"),
+        Decimal.new("999999999.99999999")
+      ]
+
+      for val <- values do
+        struct = %TopLevelWireFormat{id: 1, price: val, quantity: 1}
+        {:ok, binary} = TopLevelWireFormat.encode(struct)
+        {:ok, decoded} = TopLevelWireFormat.decode(binary)
+        assert Decimal.equal?(decoded.price, val), "Failed for #{inspect(val)}"
+      end
+    end
+
+    test "top-level field: wire format uses i64 size (8 bytes)" do
+      assert TopLevelWireFormat.block_length() == 8 + 8 + 4
+    end
+
+    test "group field: empty group with wire_format fields" do
+      struct = %BalanceWithWireFormat{id: 99, balances: []}
+      {:ok, binary} = BalanceWithWireFormat.encode(struct)
+      {:ok, decoded} = BalanceWithWireFormat.decode(binary)
+      assert decoded.id == 99
+      assert GridCodec.Group.to_list(decoded.balances) == []
+    end
+
+    test "group field: tuple {mantissa, exponent} input" do
+      struct = %BalanceWithWireFormat{
+        id: 1,
+        balances: [%{user_id: 1, amount: {12345, -2}}]
+      }
+
+      {:ok, binary} = BalanceWithWireFormat.encode(struct)
+      {:ok, decoded} = BalanceWithWireFormat.decode(binary)
+      [b] = GridCodec.Group.to_list(decoded.balances)
+      assert %Decimal{} = b.amount
+      assert Decimal.equal?(b.amount, Decimal.new("123.45000000"))
+    end
+
+    test "compile error: invalid wire_format type" do
+      assert_raise CompileError, ~r/Unknown wire_format/, fn ->
+        defmodule BadWireFormat do
+          use GridCodec.Struct, template_id: 850, schema_id: 60
+
+          defcodec do
+            field :x, {:decimal, scale: 2}, wire_format: :nonexistent
+          end
         end
+      end
+    end
 
-      struct = %BalanceWithDecodeAs{id: 1, balances: entries}
-      binary = BalanceWithDecodeAs.encode(struct)
-      {:ok, decoded} = BalanceWithDecodeAs.decode(binary)
+    test "compile error: type missing encode_to_wire_ast" do
+      assert_raise CompileError, ~r/encode_to_wire_ast/, fn ->
+        defmodule BadWireFormatType do
+          use GridCodec.Struct, template_id: 851, schema_id: 60
 
-      decoded_balances = GridCodec.Group.to_list(decoded.balances)
-      assert length(decoded_balances) == 100
+          defcodec do
+            field :x, :u64, wire_format: :i32
+          end
+        end
+      end
+    end
+  end
 
-      first = Enum.at(decoded_balances, 0)
-      assert %Decimal{} = first.amount
-      assert Decimal.equal?(first.amount, Decimal.new(1000))
+  # ============================================================================
+  # PositiveDecimal with wire_format
+  # ============================================================================
+
+  describe "PositiveDecimal with wire_format" do
+    test "roundtrip: encodes as u64, decodes as Decimal" do
+      struct = %PositiveDecWireFormat{
+        id: 1,
+        items: [
+          %{amount: Decimal.new("99.9999")},
+          %{amount: Decimal.new("0.0001")}
+        ]
+      }
+
+      {:ok, binary} = PositiveDecWireFormat.encode(struct)
+      {:ok, decoded} = PositiveDecWireFormat.decode(binary)
+
+      items = GridCodec.Group.to_list(decoded.items)
+      assert length(items) == 2
+      [i1, i2] = items
+      assert %Decimal{} = i1.amount
+      assert Decimal.equal?(i1.amount, Decimal.new("99.9999"))
+      assert Decimal.equal?(i2.amount, Decimal.new("0.0001"))
+    end
+
+    test "nil handled as null sentinel" do
+      struct = %PositiveDecWireFormat{id: 1, items: [%{amount: nil}]}
+      {:ok, binary} = PositiveDecWireFormat.encode(struct)
+      {:ok, decoded} = PositiveDecWireFormat.decode(binary)
+      [item] = GridCodec.Group.to_list(decoded.items)
+      assert item.amount == nil
+    end
+
+    test "raw integer passthrough" do
+      struct = %PositiveDecWireFormat{id: 1, items: [%{amount: 999_999}]}
+      {:ok, binary} = PositiveDecWireFormat.encode(struct)
+      {:ok, decoded} = PositiveDecWireFormat.decode(binary)
+      [item] = GridCodec.Group.to_list(decoded.items)
+      assert %Decimal{} = item.amount
+      assert Decimal.equal?(item.amount, Decimal.new("99.9999"))
+    end
+  end
+
+  # ============================================================================
+  # Parameterized type WITHOUT wire_format (uses default encoding)
+  # ============================================================================
+
+  describe "parameterized type auto-infers wire_format" do
+    test "{:decimal, scale: N} auto-selects wire_format: :i64" do
+      assert ParamDecimalNoWire.block_length() == 8 + 8 + 4
+    end
+
+    test "roundtrip: Decimal survives auto-inferred i64 wire format" do
+      struct = %ParamDecimalNoWire{
+        id: 1,
+        price: Decimal.new("123.45600000"),
+        quantity: 50
+      }
+
+      {:ok, binary} = ParamDecimalNoWire.encode(struct)
+      {:ok, decoded} = ParamDecimalNoWire.decode(binary)
+
+      assert decoded.id == 1
+      assert %Decimal{} = decoded.price
+      assert Decimal.equal?(decoded.price, Decimal.new("123.45600000"))
+      assert decoded.quantity == 50
+    end
+
+    test "nil price roundtrip with auto-inferred wire format" do
+      struct = %ParamDecimalNoWire{id: 1, price: nil, quantity: 10}
+      {:ok, binary} = ParamDecimalNoWire.encode(struct)
+      {:ok, decoded} = ParamDecimalNoWire.decode(binary)
+      assert decoded.price == nil
+    end
+  end
+
+  # ============================================================================
+  # Property tests for wire_format roundtrips
+  # ============================================================================
+
+  describe "property: wire_format roundtrips" do
+    property "Decimal values survive wire_format: :i64 roundtrip" do
+      check all(
+              coef <- StreamData.integer(0..999_999_999_999),
+              sign <- StreamData.member_of([1, -1])
+            ) do
+        dec = %Decimal{sign: sign, coef: coef, exp: -8}
+        struct = %TopLevelWireFormat{id: 1, price: dec, quantity: 1}
+        {:ok, binary} = TopLevelWireFormat.encode(struct)
+        {:ok, decoded} = TopLevelWireFormat.decode(binary)
+        assert Decimal.equal?(decoded.price, dec)
+      end
+    end
+
+    property "nil and non-nil Decimal values roundtrip in groups" do
+      check all(
+              n <- StreamData.integer(0..20),
+              entries <-
+                StreamData.list_of(
+                  StreamData.fixed_map(%{
+                    user_id: StreamData.integer(1..1_000_000),
+                    amount:
+                      StreamData.one_of([
+                        StreamData.constant(nil),
+                        StreamData.map(
+                          StreamData.integer(0..99_999_999_999),
+                          &Decimal.new(1, &1, -8)
+                        )
+                      ])
+                  }),
+                  length: n
+                )
+            ) do
+        struct = %BalanceWithWireFormat{id: 1, balances: entries}
+        {:ok, binary} = BalanceWithWireFormat.encode(struct)
+        {:ok, decoded} = BalanceWithWireFormat.decode(binary)
+        decoded_list = GridCodec.Group.to_list(decoded.balances)
+        assert length(decoded_list) == n
+
+        Enum.zip(entries, decoded_list)
+        |> Enum.each(fn {input, output} ->
+          assert output.user_id == input.user_id
+
+          if input.amount do
+            assert Decimal.equal?(output.amount, input.amount)
+          else
+            assert output.amount == nil
+          end
+        end)
+      end
     end
   end
 

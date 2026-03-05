@@ -25,7 +25,7 @@ defmodule GridCodec.JsonTest do
         active: true
       }
 
-      binary = TestOrder.encode(order)
+      {:ok, binary} = TestOrder.encode(order)
       assert {:ok, json} = Json.encode(binary, TestOrder)
 
       decoded = Jason.decode!(json)
@@ -45,7 +45,7 @@ defmodule GridCodec.JsonTest do
         active: true
       }
 
-      binary = TestOrder.encode(order)
+      {:ok, binary} = TestOrder.encode(order)
       {:ok, json} = Json.encode(binary, TestOrder, pretty: true)
 
       assert String.contains?(json, "\n")
@@ -66,7 +66,7 @@ defmodule GridCodec.JsonTest do
         active: false
       }
 
-      binary = TestOrder.encode(order)
+      {:ok, binary} = TestOrder.encode(order)
       json = Json.encode!(binary, TestOrder)
 
       assert is_binary(json)
@@ -136,7 +136,7 @@ defmodule GridCodec.JsonTest do
         active: true
       }
 
-      binary1 = TestOrder.encode(order)
+      {:ok, binary1} = TestOrder.encode(order)
       {:ok, json} = Json.encode(binary1, TestOrder)
       {:ok, binary2} = Json.decode(json, TestOrder)
       {:ok, order2} = TestOrder.decode(binary2)
@@ -159,7 +159,7 @@ defmodule GridCodec.JsonTest do
         active: true
       }
 
-      binary = TestOrder.encode(order)
+      {:ok, binary} = TestOrder.encode(order)
       assert {:ok, map} = Json.to_map(binary, schema: TestOrder)
       assert map.id == order.id
       assert map.user_id == order.user_id
@@ -177,7 +177,7 @@ defmodule GridCodec.JsonTest do
         active: true
       }
 
-      binary = TestOrder.encode(order)
+      {:ok, binary} = TestOrder.encode(order)
       assert {:ok, json} = Json.to_json(binary)
       decoded = Jason.decode!(json)
 

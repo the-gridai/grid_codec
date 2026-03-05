@@ -89,7 +89,7 @@ order = %ExampleApp.Events.OrderCreated{
   flags: 0
 }
 
-binary = ExampleApp.Events.OrderCreated.encode(order)
+{:ok, binary} = ExampleApp.Events.OrderCreated.encode(order)
 
 # Decode
 {:ok, decoded} = ExampleApp.Events.OrderCreated.decode(binary)
@@ -99,7 +99,7 @@ require ExampleApp.Events.OrderCreated
 price = ExampleApp.Events.OrderCreated.get(binary, :price)
 
 # Dispatch (with consolidated registry)
-framed = GridCodec.encode(order)
+{:ok, framed} = GridCodec.encode(order)
 {:ok, decoded} = GridCodec.decode(framed)
 ```
 

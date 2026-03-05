@@ -59,8 +59,9 @@ defmodule GridCodec.Json do
   """
   @spec from_map(map(), module(), keyword()) :: {:ok, binary()} | {:error, term()}
   def from_map(map, schema, opts \\ []) when is_map(map) and is_atom(schema) do
-    with {:ok, struct} <- build_struct(map, schema) do
-      {:ok, schema.encode(struct, header: Keyword.get(opts, :header, true))}
+    with {:ok, struct} <- build_struct(map, schema),
+         {:ok, binary} <- schema.encode(struct, header: Keyword.get(opts, :header, true)) do
+      {:ok, binary}
     end
   end
 

@@ -76,8 +76,8 @@ defmodule GridCodec.Schema.EquivalenceTest do
       dsl_struct = struct(OrderDSL, data)
       grid_struct = struct(OrderGrid, data)
 
-      dsl_binary = OrderDSL.encode(dsl_struct)
-      grid_binary = OrderGrid.encode(grid_struct)
+      {:ok, dsl_binary} = OrderDSL.encode(dsl_struct)
+      {:ok, grid_binary} = OrderGrid.encode(grid_struct)
 
       assert dsl_binary == grid_binary
     end
@@ -92,7 +92,7 @@ defmodule GridCodec.Schema.EquivalenceTest do
       }
 
       dsl_struct = struct(OrderDSL, data)
-      binary = OrderDSL.encode(dsl_struct)
+      {:ok, binary} = OrderDSL.encode(dsl_struct)
 
       # Decode with DSL module
       {:ok, dsl_decoded} = OrderDSL.decode(binary)
@@ -118,7 +118,7 @@ defmodule GridCodec.Schema.EquivalenceTest do
         active: false
       }
 
-      binary = OrderDSL.encode(dsl_struct)
+      {:ok, binary} = OrderDSL.encode(dsl_struct)
       {:ok, grid_decoded} = OrderGrid.decode(binary)
 
       assert grid_decoded.id == dsl_struct.id
@@ -138,7 +138,7 @@ defmodule GridCodec.Schema.EquivalenceTest do
         active: true
       }
 
-      binary = OrderGrid.encode(grid_struct)
+      {:ok, binary} = OrderGrid.encode(grid_struct)
       {:ok, dsl_decoded} = OrderDSL.decode(binary)
 
       assert dsl_decoded.id == grid_struct.id
@@ -165,8 +165,8 @@ defmodule GridCodec.Schema.EquivalenceTest do
         active: false
       }
 
-      dsl_binary = OrderDSL.encode(dsl_struct)
-      grid_binary = OrderGrid.encode(grid_struct)
+      {:ok, dsl_binary} = OrderDSL.encode(dsl_struct)
+      {:ok, grid_binary} = OrderGrid.encode(grid_struct)
 
       # DSL can decode Grid's binary and vice versa
       {:ok, decoded1} = OrderDSL.decode(grid_binary)
@@ -186,7 +186,7 @@ defmodule GridCodec.Schema.EquivalenceTest do
       }
 
       dsl_struct = struct(OrderDSL, data)
-      binary = OrderDSL.encode(dsl_struct)
+      {:ok, binary} = OrderDSL.encode(dsl_struct)
 
       require OrderDSL
       require OrderGrid

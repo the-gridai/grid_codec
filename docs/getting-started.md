@@ -47,7 +47,7 @@ event = %MyApp.Events.UserCreated{
 }
 
 # Includes an 8-byte GridCodec header by default
-binary = MyApp.Events.UserCreated.encode(event)
+{:ok, binary} = MyApp.Events.UserCreated.encode(event)
 
 {:ok, decoded} = MyApp.Events.UserCreated.decode(binary)
 ```
@@ -65,7 +65,7 @@ score = MyApp.Events.UserCreated.get(binary, :score)
 ## 5) Use Top-Level Dispatch
 
 ```elixir
-framed = GridCodec.encode(event)
+{:ok, framed} = GridCodec.encode(event)
 {:ok, decoded} = GridCodec.decode(framed)
 ```
 
@@ -237,7 +237,7 @@ def publish(data), do: ...
 
 ## Constructors and Coercion
 
-Every codec has `new/1` and `new!/1` constructors that handle coercion and validation:
+Every codec has a `new/1` constructor that handles coercion and validation:
 
 ```elixir
 # Typed input
@@ -283,12 +283,18 @@ defcodec do
 end
 ```
 
-Use `decode_as` for wire-efficient types with typed decode output:
+Use `wire_format:` to control the binary encoding while keeping the domain type:
 
 ```elixir
+# Parameterized type with wire format override:
+# Domain type: Decimal with 8 decimal places
+# Wire format: i64 (8 bytes, faster than full decimal encoding)
+field :price, {:decimal, scale: 8}, wire_format: :i64
+
+# Works in groups too:
 group :balances do
   field :user_id, :uuid
-  field :amount, :i64, decode_as: {:decimal, scale: 8}  # i64 on wire, Decimal on decode
+  field :amount, {:decimal, scale: 8}, wire_format: :i64
 end
 ```
 
@@ -334,7 +340,8 @@ the `grafana/grid_codec.json` dashboard.
 
 ## Next Steps
 
-- See `docs/schemas.md` for `.grid` schema files.
-- See `docs/schema-evolution.md` for `:since` and backward compatibility.
-- See `docs/performance.md` for profiling and optimization.
-- See `docs/troubleshooting.md` for common errors.
+- See [Schemas](schemas.md) for `.grid` schema files.
+- See [Schema evolution](schema-evolution.md) for `:since` and backward compatibility.
+- See [Performance](performance.md) for profiling and optimization.
+- See [Consumer integration](consumer-integration.md) for checklist when integrating or upgrading in consumer apps (e.g. downstream applications).
+- See [Troubleshooting](troubleshooting.md) for common errors.

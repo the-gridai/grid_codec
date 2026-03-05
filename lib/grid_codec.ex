@@ -38,7 +38,7 @@ defmodule GridCodec do
       }
 
       # Encode (includes 8-byte header by default)
-      binary = MyApp.Events.OrderFilled.encode(order)
+      {:ok, binary} = MyApp.Events.OrderFilled.encode(order)
 
       # Decode (expects header by default)
       {:ok, decoded} = MyApp.Events.OrderFilled.decode(binary)
@@ -58,7 +58,7 @@ defmodule GridCodec do
       {:ok, decoded} = GridCodec.decode(binary)
 
       # Payload only (no header) - use when you don't need dispatch
-      payload = MyApp.Events.OrderFilled.encode(order, header: false)
+      {:ok, payload} = MyApp.Events.OrderFilled.encode(order, header: false)
       {:ok, decoded} = MyApp.Events.OrderFilled.decode(payload, header: false)
 
   ## Field Access Methods
@@ -241,11 +241,30 @@ defmodule GridCodec do
   @doc """
   Defines a field in the codec.
 
+  ## Type Representations
+
+  Each field has three representations:
+
+  | Layer  | Description                           | Controlled by         |
+  |--------|---------------------------------------|-----------------------|
+  | Input  | What `new/1` and `encode/1` accept    | Type's `coerce_ast`   |
+  | Wire   | Bytes in the binary                   | Type (or `wire_format:`) |
+  | Output | What `decode/1` returns               | Type (or `wire_format:`) |
+
+  By default all three are determined by the type. Use `wire_format:` to
+  override the binary encoding while keeping the domain type for input/output.
+
   ## Arguments
 
   - `name` - Atom field name
-  - `type` - Field type (see module docs for supported types)
+  - `type` - Field type. Can be:
+    - An atom: `:u64`, `:uuid`, `:decimal`, `:string`, etc.
+    - A module: `MyApp.OrderSide` (custom type implementing `GridCodec.Type`)
+    - A parameterized type: `{:decimal, scale: 8}` — type with options
   - `opts` - Optional keyword list:
+    - `:wire_format` - Override binary encoding format. The domain type handles
+      input coercion and decode output; the wire type handles binary layout.
+      Example: `wire_format: :i64` encodes as 8-byte signed integer.
     - `:default` - Default value for encoding when field is nil
     - `:presence` - Field presence mode (default: `:optional`)
       - `:optional` - Field can be nil (uses null sentinel)
@@ -256,10 +275,19 @@ defmodule GridCodec do
 
   ## Examples
 
+      # Simple types — wire format matches domain type:
       field :user_id, :uuid
       field :count, :u32, default: 0
       field :price, :u64, presence: :required
       field :description, :string
+      field :side, MyApp.OrderSide
+
+      # Parameterized type with wire_format override:
+      # Domain: Decimal.t() with 8 decimal places
+      # Wire: i64 (8 bytes, ~2x faster than full decimal encoding)
+      field :amount, {:decimal, scale: 8}, wire_format: :i64
+
+      # Constant field:
       field :version, :u8, presence: :constant, value: 1
   """
   defmacro field(name, type, opts \\ []) do
@@ -352,10 +380,10 @@ defmodule GridCodec do
       order = %MyApp.Order{id: <<1::128>>, price: 100, quantity: 5}
 
       # With header (default)
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
 
       # Without header - payload only
-      payload = GridCodec.encode(order, header: false)
+      {:ok, payload} = GridCodec.encode(order, header: false)
   """
   defdelegate encode(struct), to: GridCodec.Registry
   defdelegate encode(struct, opts), to: GridCodec.Registry

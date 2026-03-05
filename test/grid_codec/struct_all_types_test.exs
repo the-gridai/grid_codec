@@ -40,7 +40,7 @@ defmodule GridCodec.StructAllTypesTest do
         bool_val: true
       }
 
-      binary = FixedTypesStruct.encode(original)
+      {:ok, binary} = FixedTypesStruct.encode(original)
       {:ok, decoded} = FixedTypesStruct.decode(binary)
 
       assert decoded.u8_val == 42
@@ -76,7 +76,7 @@ defmodule GridCodec.StructAllTypesTest do
         bool_val: false
       }
 
-      binary = FixedTypesStruct.encode(original)
+      {:ok, binary} = FixedTypesStruct.encode(original)
       {:ok, decoded} = FixedTypesStruct.decode(binary)
 
       assert_in_delta decoded.f32_val, 123.456, 0.001
@@ -104,7 +104,7 @@ defmodule GridCodec.StructAllTypesTest do
         timestamp_ns: fixed_time
       }
 
-      binary = TimestampStruct.encode(original)
+      {:ok, binary} = TimestampStruct.encode(original)
       {:ok, decoded} = TimestampStruct.decode(binary)
 
       # Timestamps decode as integers (microseconds/nanoseconds)
@@ -118,7 +118,7 @@ defmodule GridCodec.StructAllTypesTest do
         timestamp_ns: nil
       }
 
-      binary = TimestampStruct.encode(original)
+      {:ok, binary} = TimestampStruct.encode(original)
       {:ok, decoded} = TimestampStruct.decode(binary)
 
       assert decoded.timestamp_us == nil
@@ -138,7 +138,7 @@ defmodule GridCodec.StructAllTypesTest do
       price = Decimal.new("123.45")
 
       original = %DecimalStruct{price: price}
-      binary = DecimalStruct.encode(original)
+      {:ok, binary} = DecimalStruct.encode(original)
       {:ok, decoded} = DecimalStruct.decode(binary)
 
       assert Decimal.equal?(decoded.price, price)
@@ -146,7 +146,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "nil decimal roundtrips" do
       original = %DecimalStruct{price: nil}
-      binary = DecimalStruct.encode(original)
+      {:ok, binary} = DecimalStruct.encode(original)
       {:ok, decoded} = DecimalStruct.decode(binary)
 
       assert decoded.price == nil
@@ -172,7 +172,7 @@ defmodule GridCodec.StructAllTypesTest do
             String.duplicate("x", 200)
       }
 
-      binary = StringStruct.encode(original)
+      {:ok, binary} = StringStruct.encode(original)
       {:ok, decoded} = StringStruct.decode(binary)
 
       assert decoded.name == "Hello World"
@@ -187,7 +187,7 @@ defmodule GridCodec.StructAllTypesTest do
         long_name: nil
       }
 
-      binary = StringStruct.encode(original)
+      {:ok, binary} = StringStruct.encode(original)
       {:ok, decoded} = StringStruct.decode(binary)
 
       assert decoded.name == nil
@@ -216,7 +216,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "enum type roundtrips" do
       original = %EnumStruct{status: :pending}
-      binary = EnumStruct.encode(original)
+      {:ok, binary} = EnumStruct.encode(original)
       {:ok, decoded} = EnumStruct.decode(binary)
 
       assert decoded.status == :pending
@@ -224,7 +224,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "nil enum roundtrips" do
       original = %EnumStruct{status: nil}
-      binary = EnumStruct.encode(original)
+      {:ok, binary} = EnumStruct.encode(original)
       {:ok, decoded} = EnumStruct.decode(binary)
 
       assert decoded.status == nil
@@ -251,7 +251,7 @@ defmodule GridCodec.StructAllTypesTest do
       flags = MapSet.new([:active, :verified])
 
       original = %BitsetStruct{flags: flags}
-      binary = BitsetStruct.encode(original)
+      {:ok, binary} = BitsetStruct.encode(original)
       {:ok, decoded} = BitsetStruct.decode(binary)
 
       assert MapSet.equal?(decoded.flags, flags)
@@ -259,7 +259,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "nil bitset roundtrips" do
       original = %BitsetStruct{flags: nil}
-      binary = BitsetStruct.encode(original)
+      {:ok, binary} = BitsetStruct.encode(original)
       {:ok, decoded} = BitsetStruct.decode(binary)
 
       # Bitset decodes nil as empty MapSet
@@ -281,7 +281,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "char_array type roundtrips" do
       original = %CharArrayStruct{symbol: "BTCUSD"}
-      binary = CharArrayStruct.encode(original)
+      {:ok, binary} = CharArrayStruct.encode(original)
       {:ok, decoded} = CharArrayStruct.decode(binary)
 
       assert decoded.symbol == "BTCUSD"
@@ -289,7 +289,7 @@ defmodule GridCodec.StructAllTypesTest do
 
     test "char_array with padding" do
       original = %CharArrayStruct{symbol: "BTC"}
-      binary = CharArrayStruct.encode(original)
+      {:ok, binary} = CharArrayStruct.encode(original)
       {:ok, decoded} = CharArrayStruct.decode(binary)
 
       # Char arrays strip trailing nulls on decode, so "BTC" stays "BTC"

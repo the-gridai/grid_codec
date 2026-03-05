@@ -7,6 +7,7 @@
 defmodule ParallelDecodeBench do
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -15,6 +16,7 @@ defmodule ParallelDecodeBench do
 
   defmodule OrderType do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:limit)
       value(:market)
@@ -81,8 +83,16 @@ defmodule ParallelDecodeBench do
       [{:min_heap_size, ord_heap}, {:fullsweep_after, 0}, {:priority, :high}]
     )
 
-    balances = receive do {^ref1, result} -> result end
-    orders = receive do {^ref2, result} -> result end
+    balances =
+      receive do
+        {^ref1, result} -> result
+      end
+
+    orders =
+      receive do
+        {^ref2, result} -> result
+      end
+
     {balances, orders}
   end
 
@@ -119,7 +129,11 @@ defmodule ParallelDecodeBench do
         end
 
       refs
-      |> Enum.map(fn ref -> receive do {^ref, result} -> result end end)
+      |> Enum.map(fn ref ->
+        receive do
+          {^ref, result} -> result
+        end
+      end)
       |> :lists.append()
     end
   end
@@ -152,7 +166,7 @@ defmodule ParallelDecodeBench do
   defp make_orders(n) do
     for i <- 1..n do
       %{
-        order_id: <<(i + 1_000_000)::128>>,
+        order_id: <<i + 1_000_000::128>>,
         trader_id: <<rem(i, 500)::128>>,
         side: if(rem(i, 2) == 0, do: :buy, else: :sell),
         order_type: if(rem(i, 5) == 0, do: :market, else: :limit),
@@ -173,13 +187,17 @@ defmodule ParallelDecodeBench do
     # Measure raw spawn/send/receive overhead
     # -----------------------------------------------------------------------
     IO.puts("--- Raw overhead: spawn + send + receive ---")
+
     Benchee.run(
       %{
         "spawn+send+receive (no work)" => fn ->
           parent = self()
           ref = make_ref()
           :erlang.spawn_opt(fn -> send(parent, {ref, :ok}) end, [{:min_heap_size, 100}])
-          receive do {^ref, :ok} -> :ok end
+
+          receive do
+            {^ref, :ok} -> :ok
+          end
         end,
         "spawn+send+receive x2 parallel" => fn ->
           parent = self()
@@ -187,11 +205,18 @@ defmodule ParallelDecodeBench do
           r2 = make_ref()
           :erlang.spawn_opt(fn -> send(parent, {r1, :ok}) end, [{:min_heap_size, 100}])
           :erlang.spawn_opt(fn -> send(parent, {r2, :ok}) end, [{:min_heap_size, 100}])
-          receive do {^r1, :ok} -> :ok end
-          receive do {^r2, :ok} -> :ok end
+
+          receive do
+            {^r1, :ok} -> :ok
+          end
+
+          receive do
+            {^r2, :ok} -> :ok
+          end
         end
       },
-      warmup: 2, time: 3
+      warmup: 2,
+      time: 3
     )
 
     # -----------------------------------------------------------------------
@@ -200,12 +225,14 @@ defmodule ParallelDecodeBench do
     IO.puts("\n--- Medium market: 500 balances + 2k orders ---")
 
     med_event = %TPS{
-      market_id: <<1::128>>, period_id: <<2::128>>,
+      market_id: <<1::128>>,
+      period_id: <<2::128>>,
       settled_at: System.system_time(:microsecond),
       balances: make_balances(500),
       open_orders: make_orders(2_000)
     }
-    med_bin = TPS.encode(med_event)
+
+    {:ok, med_bin} = TPS.encode(med_event)
     {:ok, med_dec} = TPS.decode(med_bin)
 
     Benchee.run(
@@ -213,7 +240,9 @@ defmodule ParallelDecodeBench do
         "sequential" => fn -> decode_groups_sequential(med_dec) end,
         "parallel (2 groups)" => fn -> decode_groups_parallel(med_dec) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -222,12 +251,14 @@ defmodule ParallelDecodeBench do
     IO.puts("\n--- Large market: 2k balances + 10k orders ---")
 
     large_event = %TPS{
-      market_id: <<1::128>>, period_id: <<2::128>>,
+      market_id: <<1::128>>,
+      period_id: <<2::128>>,
       settled_at: System.system_time(:microsecond),
       balances: make_balances(2_000),
       open_orders: make_orders(10_000)
     }
-    large_bin = TPS.encode(large_event)
+
+    {:ok, large_bin} = TPS.encode(large_event)
     {:ok, large_dec} = TPS.decode(large_bin)
 
     Benchee.run(
@@ -253,12 +284,22 @@ defmodule ParallelDecodeBench do
             [{:min_heap_size, 1000}, {:fullsweep_after, 0}, {:priority, :high}]
           )
 
-          balances = receive do {^ref_b, r} -> r end
-          orders = receive do {^ref_o, r} -> r end
+          balances =
+            receive do
+              {^ref_b, r} -> r
+            end
+
+          orders =
+            receive do
+              {^ref_o, r} -> r
+            end
+
           {balances, orders}
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -267,12 +308,14 @@ defmodule ParallelDecodeBench do
     IO.puts("\n--- Huge market: 5k balances + 50k orders ---")
 
     huge_event = %TPS{
-      market_id: <<1::128>>, period_id: <<2::128>>,
+      market_id: <<1::128>>,
+      period_id: <<2::128>>,
       settled_at: System.system_time(:microsecond),
       balances: make_balances(5_000),
       open_orders: make_orders(50_000)
     }
-    huge_bin = TPS.encode(huge_event)
+
+    {:ok, huge_bin} = TPS.encode(huge_event)
     {:ok, huge_dec} = TPS.decode(huge_bin)
 
     Benchee.run(
@@ -298,8 +341,16 @@ defmodule ParallelDecodeBench do
             [{:min_heap_size, 1000}, {:fullsweep_after, 0}, {:priority, :high}]
           )
 
-          balances = receive do {^ref_b, r} -> r end
-          orders = receive do {^ref_o, r} -> r end
+          balances =
+            receive do
+              {^ref_b, r} -> r
+            end
+
+          orders =
+            receive do
+              {^ref_o, r} -> r
+            end
+
           {balances, orders}
         end,
         "parallel (2g + 8-way chunk orders)" => fn ->
@@ -321,12 +372,22 @@ defmodule ParallelDecodeBench do
             [{:min_heap_size, 1000}, {:fullsweep_after, 0}, {:priority, :high}]
           )
 
-          balances = receive do {^ref_b, r} -> r end
-          orders = receive do {^ref_o, r} -> r end
+          balances =
+            receive do
+              {^ref_b, r} -> r
+            end
+
+          orders =
+            receive do
+              {^ref_o, r} -> r
+            end
+
           {balances, orders}
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -341,7 +402,9 @@ defmodule ParallelDecodeBench do
         "4-way chunk" => fn -> to_list_chunked(huge_dec.open_orders, 4) end,
         "8-way chunk" => fn -> to_list_chunked(huge_dec.open_orders, 8) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
   end
 end

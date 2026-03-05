@@ -131,7 +131,7 @@ defmodule GridCodec.Schema.SigilTest do
         quantity: 100
       }
 
-      binary = OrderFromSigil.encode(order)
+      {:ok, binary} = OrderFromSigil.encode(order)
       {:ok, decoded} = OrderFromSigil.decode(binary)
 
       assert decoded.id == order.id
@@ -183,8 +183,8 @@ defmodule GridCodec.Schema.SigilTest do
         amount: 99999
       }
 
-      dsl_binary = OrderDSL.encode(struct(OrderDSL, data))
-      sigil_binary = OrderSigil.encode(struct(OrderSigil, data))
+      {:ok, dsl_binary} = OrderDSL.encode(struct(OrderDSL, data))
+      {:ok, sigil_binary} = OrderSigil.encode(struct(OrderSigil, data))
 
       assert dsl_binary == sigil_binary
     end

@@ -7,6 +7,7 @@
 defmodule ParallelThreshold do
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -53,7 +54,7 @@ defmodule ParallelThreshold do
     for i <- 1..n do
       %{
         a_id: <<i::128>>,
-        b_id: <<(i + 1)::128>>,
+        b_id: <<i + 1::128>>,
         side: if(rem(i, 2) == 0, do: :buy, else: :sell),
         price: Decimal.new("#{50_000 + rem(i, 2000)}.#{rem(i, 100)}"),
         qty: Decimal.new("#{1 + rem(i, 100)}.#{rem(i, 10)}"),
@@ -80,7 +81,9 @@ defmodule ParallelThreshold do
       [{:min_heap_size, heap}, {:fullsweep_after, 0}, {:priority, :high}]
     )
 
-    receive do {^ref, result} -> result end
+    receive do
+      {^ref, result} -> result
+    end
   end
 
   def run do
@@ -89,12 +92,13 @@ defmodule ParallelThreshold do
 
     sizes = [50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000]
 
-    heavy_bl = 2*16 + 1 + 3*9 + 8  # 2 uuids + enum u8 + 3 decimals + timestamp = 68B
+    # 2 uuids + enum u8 + 3 decimals + timestamp = 68B
+    heavy_bl = 2 * 16 + 1 + 3 * 9 + 8
     IO.puts("=== HEAVY entries (uuid+enum+3×decimal+timestamp, #{heavy_bl}B/entry) ===\n")
 
     for n <- sizes do
       event = %Heavy{id: <<1::128>>, entries: make_heavy_entries(n)}
-      bin = Heavy.encode(event)
+      {:ok, bin} = Heavy.encode(event)
       {:ok, dec} = Heavy.decode(bin)
 
       # Warmup
@@ -105,7 +109,9 @@ defmodule ParallelThreshold do
 
       runs = max(div(50_000, n), 50)
 
-      {seq_us, _} = :timer.tc(fn -> for _ <- 1..runs, do: GridCodec.Group.to_list(dec.entries) end)
+      {seq_us, _} =
+        :timer.tc(fn -> for _ <- 1..runs, do: GridCodec.Group.to_list(dec.entries) end)
+
       {par_us, _} = :timer.tc(fn -> for _ <- 1..runs, do: decode_parallel(dec) end)
 
       seq_per = Float.round(seq_us / runs, 1)
@@ -121,12 +127,13 @@ defmodule ParallelThreshold do
       )
     end
 
-    light_bl = 2*8 + 2*4  # 2 u64 + 2 u32 = 24B
+    # 2 u64 + 2 u32 = 24B
+    light_bl = 2 * 8 + 2 * 4
     IO.puts("\n=== LIGHT entries (4×integer, #{light_bl}B/entry) ===\n")
 
     for n <- sizes do
       event = %Light{id: 1, entries: make_light_entries(n)}
-      bin = Light.encode(event)
+      {:ok, bin} = Light.encode(event)
       {:ok, dec} = Light.decode(bin)
 
       for _ <- 1..100 do
@@ -136,7 +143,9 @@ defmodule ParallelThreshold do
 
       runs = max(div(50_000, n), 50)
 
-      {seq_us, _} = :timer.tc(fn -> for _ <- 1..runs, do: GridCodec.Group.to_list(dec.entries) end)
+      {seq_us, _} =
+        :timer.tc(fn -> for _ <- 1..runs, do: GridCodec.Group.to_list(dec.entries) end)
+
       {par_us, _} = :timer.tc(fn -> for _ <- 1..runs, do: decode_parallel(dec) end)
 
       seq_per = Float.round(seq_us / runs, 1)

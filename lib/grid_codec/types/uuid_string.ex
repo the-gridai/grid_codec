@@ -149,19 +149,19 @@ defmodule GridCodec.Types.UUIDString do
   """
   @spec format_uuid(binary()) :: String.t()
   def format_uuid(
-        <<a::binary-size(4), b::binary-size(2), c::binary-size(2), d::binary-size(2),
-          e::binary-size(6)>>
+        <<a1::4, a2::4, a3::4, a4::4, a5::4, a6::4, a7::4, a8::4, b1::4, b2::4, b3::4, b4::4,
+          c1::4, c2::4, c3::4, c4::4, d1::4, d2::4, d3::4, d4::4, e1::4, e2::4, e3::4, e4::4,
+          e5::4, e6::4, e7::4, e8::4, e9::4, e10::4, e11::4, e12::4>>
       ) do
-    Base.encode16(a, case: :lower) <>
-      "-" <>
-      Base.encode16(b, case: :lower) <>
-      "-" <>
-      Base.encode16(c, case: :lower) <>
-      "-" <>
-      Base.encode16(d, case: :lower) <>
-      "-" <>
-      Base.encode16(e, case: :lower)
+    <<hex(a1), hex(a2), hex(a3), hex(a4), hex(a5), hex(a6), hex(a7), hex(a8), ?-, hex(b1),
+      hex(b2), hex(b3), hex(b4), ?-, hex(c1), hex(c2), hex(c3), hex(c4), ?-, hex(d1), hex(d2),
+      hex(d3), hex(d4), ?-, hex(e1), hex(e2), hex(e3), hex(e4), hex(e5), hex(e6), hex(e7),
+      hex(e8), hex(e9), hex(e10), hex(e11), hex(e12)>>
   end
+
+  @compile {:inline, hex: 1}
+  defp hex(n) when n < 10, do: n + ?0
+  defp hex(n), do: n + ?a - 10
 
   @doc """
   Parses a UUID string into a 16-byte binary.
@@ -172,11 +172,56 @@ defmodule GridCodec.Types.UUIDString do
       <<85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0>>
   """
   @spec parse_uuid_string!(String.t()) :: binary()
-  def parse_uuid_string!(uuid_string) when byte_size(uuid_string) == 36 do
-    uuid_string
-    |> String.replace("-", "")
-    |> Base.decode16!(case: :mixed)
+  def parse_uuid_string!(<<
+        a1,
+        a2,
+        a3,
+        a4,
+        a5,
+        a6,
+        a7,
+        a8,
+        ?-,
+        b1,
+        b2,
+        b3,
+        b4,
+        ?-,
+        c1,
+        c2,
+        c3,
+        c4,
+        ?-,
+        d1,
+        d2,
+        d3,
+        d4,
+        ?-,
+        e1,
+        e2,
+        e3,
+        e4,
+        e5,
+        e6,
+        e7,
+        e8,
+        e9,
+        e10,
+        e11,
+        e12
+      >>) do
+    <<unhex(a1)::4, unhex(a2)::4, unhex(a3)::4, unhex(a4)::4, unhex(a5)::4, unhex(a6)::4,
+      unhex(a7)::4, unhex(a8)::4, unhex(b1)::4, unhex(b2)::4, unhex(b3)::4, unhex(b4)::4,
+      unhex(c1)::4, unhex(c2)::4, unhex(c3)::4, unhex(c4)::4, unhex(d1)::4, unhex(d2)::4,
+      unhex(d3)::4, unhex(d4)::4, unhex(e1)::4, unhex(e2)::4, unhex(e3)::4, unhex(e4)::4,
+      unhex(e5)::4, unhex(e6)::4, unhex(e7)::4, unhex(e8)::4, unhex(e9)::4, unhex(e10)::4,
+      unhex(e11)::4, unhex(e12)::4>>
   end
+
+  @compile {:inline, unhex: 1}
+  defp unhex(c) when c >= ?0 and c <= ?9, do: c - ?0
+  defp unhex(c) when c >= ?a and c <= ?f, do: c - ?a + 10
+  defp unhex(c) when c >= ?A and c <= ?F, do: c - ?A + 10
 
   @impl true
   def coerce_ast(var) do

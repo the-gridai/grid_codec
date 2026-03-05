@@ -33,7 +33,8 @@ defmodule Bench.Config do
         encode: true,
         decode: true,
         dispatch: true,
-        zero_copy: true,  # Uses get/2 macro directly on binary
+        # Uses get/2 macro directly on binary
+        zero_copy: true,
         comparison: true,
         comprehensive: true
       },

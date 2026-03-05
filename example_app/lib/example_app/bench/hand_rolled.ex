@@ -54,9 +54,7 @@ defmodule ExampleApp.Bench.HandRolled do
      }}
   end
 
-  def get_price(
-        <<_::binary-size(16), _::64, _::8, price::unsigned-little-64, _::binary>>
-      ) do
+  def get_price(<<_::binary-size(16), _::64, _::8, price::unsigned-little-64, _::binary>>) do
     if price == @null_u64, do: nil, else: price
   end
 

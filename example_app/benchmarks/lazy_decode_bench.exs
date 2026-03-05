@@ -8,6 +8,7 @@
 defmodule LazyDecodeBench do
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -22,13 +23,20 @@ defmodule LazyDecodeBench do
       field :id, :uuid
 
       group :orders do
-        field :order_id, :uuid          # offset 0, 16 bytes
-        field :trader_id, :uuid         # offset 16, 16 bytes
-        field :side, OrderSide          # offset 32, 1 byte
-        field :price, :i64              # offset 33, 8 bytes (fixed-point integer)
-        field :quantity, :i64           # offset 41, 8 bytes
-        field :submitted_at, :timestamp_us  # offset 49, 8 bytes
+        # offset 0, 16 bytes
+        field :order_id, :uuid
+        # offset 16, 16 bytes
+        field :trader_id, :uuid
+        # offset 32, 1 byte
+        field :side, OrderSide
+        # offset 33, 8 bytes (fixed-point integer)
+        field :price, :i64
+        # offset 41, 8 bytes
+        field :quantity, :i64
+        # offset 49, 8 bytes
+        field :submitted_at, :timestamp_us
       end
+
       # block_length = 16+16+1+8+8+8 = 57 bytes per entry
     end
   end
@@ -62,8 +70,8 @@ defmodule LazyDecodeBench do
   defp do_scan_prices(<<>>, _bl, acc), do: :lists.reverse(acc)
 
   defp do_scan_prices(data, bl, acc) do
-    <<_::binary-size(@price_offset), price::little-signed-64, _::binary-size(bl - @price_offset - 8),
-      rest::binary>> = data
+    <<_::binary-size(@price_offset), price::little-signed-64,
+      _::binary-size(bl - @price_offset - 8), rest::binary>> = data
 
     do_scan_prices(rest, bl, [price | acc])
   end
@@ -89,9 +97,9 @@ defmodule LazyDecodeBench do
   defp do_scan_side_price(<<>>, _bl, _side, _idx, acc), do: :lists.reverse(acc)
 
   defp do_scan_side_price(data, bl, target_side, idx, acc) do
-    <<_::binary-size(@side_offset), side::unsigned-8,
-      price::little-signed-64, quantity::little-signed-64,
-      _::binary-size(bl - @side_offset - 1 - 8 - 8), rest::binary>> = data
+    <<_::binary-size(@side_offset), side::unsigned-8, price::little-signed-64,
+      quantity::little-signed-64, _::binary-size(bl - @side_offset - 1 - 8 - 8), rest::binary>> =
+      data
 
     acc =
       if side == target_side,
@@ -108,7 +116,7 @@ defmodule LazyDecodeBench do
     n = 10_000
     orders = make_orders(n)
     event = %OrderBook{id: <<1::128>>, orders: orders}
-    binary = OrderBook.encode(event)
+    {:ok, binary} = OrderBook.encode(event)
     {:ok, decoded} = OrderBook.decode(binary)
 
     group = decoded.orders
@@ -137,7 +145,9 @@ defmodule LazyDecodeBench do
           binary_scan_prices(entries_data, bl)
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -169,7 +179,9 @@ defmodule LazyDecodeBench do
           end)
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -190,7 +202,9 @@ defmodule LazyDecodeBench do
           binary_scan_side_and_price(entries_data, bl, sell_int)
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------------
@@ -205,15 +219,19 @@ defmodule LazyDecodeBench do
         end,
         "binary_part price only" => fn ->
           entry_start = 5000 * bl
+
           <<_::binary-size(@price_offset), price::little-signed-64, _::binary>> =
             binary_part(entries_data, entry_start, bl)
+
           price
         end,
         "pre-decoded list access" => fn ->
           Enum.at(decoded_list, 5000)
         end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
   end
 end

@@ -7,25 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Removed legacy `:types` option on `use GridCodec.Struct`; custom type modules are now
-  referenced directly in `field/2` (for example `field :side, MyApp.Types.Side`)
-- Improved generated codec typespecs and typedocs:
-  - `t()` now emits more specific field types instead of broad `term()`
-  - Required fields are typed as non-`nil` in generated struct types
-  - `layout()` / `framed_layout()` docs now include compact binary pattern sketches
-  - Added literal return specs for generated constant metadata functions
+## [0.21.0] - 2026-03-05
 
 ### Added
-- Generic top-level types on `GridCodec` for app-level specs:
-  - `GridCodec.layout()`
-  - `GridCodec.framed_layout()`
-  - `GridCodec.codec_struct()`
-  - `GridCodec.codec_data()`
+- **UUID v4 and v7 generation** — `GridCodec.Types.UUID.generate_v4/0` (RFC 4122)
+  and `generate_v7/0` (RFC 9562, time-sortable). Also `v7_timestamp/1` to extract
+  the millisecond timestamp from a v7 UUID.
+- **Auto-inferred `wire_format:`** — `{:decimal, scale: N}` and
+  `{:positive_decimal, scale: N}` now automatically select `:i64` / `:u64`
+  wire format. Explicit `wire_format:` is no longer required for the common case.
+- **Per-type micro benchmark** — `example_app/benchmarks/type_micro_bench.exs`
+  measures encode, decode, and zero-copy get for every built-in type in isolation.
+- **Ecto comparison benchmark** — `example_app/benchmarks/ecto_comparison.exs`
+  compares GridCodec vs Ecto changeset + JSON across all pipeline stages.
+
+### Performance
+- **UUID parse/format**: `parse_uuid_string!/1` and `format_uuid/1` rewritten
+  with direct nibble-level operations — no `String.replace`, no `Base.encode16`
+  allocation chain.
+- **Bitset inlined**: `to_integer/1` and `from_integer/1` now use compile-time
+  generated `Bitwise.bor`/`Bitwise.band` checks instead of `Enum.reduce`.
+- **Zero-overhead validation**: `__validate__/1` call eliminated entirely when
+  `validate: false` — no function definition, no call site.
+- **Static var decoder dispatch**: Replaced `apply/3` with direct module calls
+  for string decode functions.
+
+### Removed
+- **`decode_as:` field option** — removed entirely (was deprecated in 0.20.0).
+  Use `wire_format:` or parameterized types instead.
+
+### Fixed
+- **`compute_null_fixed_block`** now uses wire module for `wire_format:` fields.
+- **Getter macro** uses wire module for offset calculation on `wire_format:` fields.
+
+## [0.20.0] - 2026-03-04
+
+### Added
+- **Parameterized types** — field types can now accept options via tuple syntax:
+  `field :amount, {:decimal, scale: 8}`. The type module receives these options
+  to customize encoding behavior.
+- **`wire_format:` field option** — explicitly control the binary encoding format
+  while keeping the domain type for input/output. Works in both top-level fields
+  and groups:
+  ```elixir
+  field :price, {:decimal, scale: 8}, wire_format: :i64
+  ```
+  This encodes as i64 on the wire (8 bytes) but accepts `Decimal.t()` as input
+  and returns `Decimal.t()` on decode. Supported wire types: `:i8`, `:i16`, `:i32`,
+  `:i64`, `:u8`, `:u16`, `:u32`, `:u64`, `:f32`, `:f64`.
+- **`encode_to_wire_ast/2` callback** on `GridCodec.Type` — domain types implement
+  this to convert their values to the wire type for encoding.
+- **`int_pow10/1` helper** on `GridCodec.Types.Decimal` for efficient scaled integer
+  arithmetic (lookup table for powers 0–8, recursive fallback).
+
+### Changed
+- **`field/3` macro** now accepts parameterized type tuples as the type argument.
+- **Field documentation** now describes the Input/Wire/Output model clearly.
+
+### Removed
+- **`decode_as:` field option** — removed entirely. Use `wire_format:` instead.
+  The `decode_as_ast/2` callback on `GridCodec.Type` is retained for internal use
+  by the `wire_format:` mechanism.
+
+## [0.19.0] - 2026-03-04
+
+### Changed (BREAKING)
+- **`encode/1,2` now returns `{:ok, binary()} | {:error, ValidationError.t()}`** instead
+  of bare `binary()`. This applies to all generated codec modules and `GridCodec.encode/1,2`.
+  Encode errors (validation failures, argument errors) are returned as `{:error, ...}`
+  instead of raising.
+- **Removed `new!/1`** — use `new/1` which returns `{:ok, struct} | {:error, ...}`.
+  Libraries should not raise; callers can pattern-match on the result.
+- **`GridCodec.Registry.encode/2`** no longer raises on unknown structs — returns
+  `{:error, ValidationError.t()}` instead.
+
+### Added
+- `@spec encode(t(), keyword())` typespec on all generated encode functions
+  (conditional on `generate_typespec: true`).
 
 ### Docs
-- Updated docs/examples/tests to reflect direct module type usage and current
-  generated typespec behavior
+- Updated docs/examples/tests to reflect new `{:ok, binary}` return type and
+  removal of bang functions.
 
 ## [0.18.0] - 2026-03-04
 

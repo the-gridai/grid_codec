@@ -142,9 +142,10 @@ defmodule GridCodec.CastAndHashTest do
     end
 
     test "produces valid binary from existing struct" do
-      struct = TestCodec.new!(count: 42, ratio: 1.0)
+      {:ok, struct} = TestCodec.new(count: 42, ratio: 1.0)
       {:ok, binary} = TestCodec.new_binary(struct)
-      assert binary == TestCodec.encode(struct)
+      {:ok, encoded} = TestCodec.encode(struct)
+      assert binary == encoded
     end
 
     test "produces valid binary from keyword list" do
@@ -192,7 +193,7 @@ defmodule GridCodec.CastAndHashTest do
       struct = %TestCodec{count: 42, score: -5, active: true, ratio: 3.14}
       hash1 = TestCodec.content_hash(struct)
 
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
       {:ok, decoded} = TestCodec.decode(binary)
       hash2 = TestCodec.content_hash(decoded)
 
@@ -213,7 +214,7 @@ defmodule GridCodec.CastAndHashTest do
   describe "decode_only/2" do
     test "decodes only requested fields" do
       struct = %TestCodec{count: 42, score: -5, active: true, ratio: 3.14}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, view} = TestCodec.decode_only(binary, [:count, :active])
       assert view.count == 42
@@ -223,21 +224,21 @@ defmodule GridCodec.CastAndHashTest do
 
     test "single field projection" do
       struct = %TestCodec{count: 99, ratio: 0.0}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, %{count: 99}} = TestCodec.decode_only(binary, [:count])
     end
 
     test "nil field in projection" do
       struct = %TestCodec{count: nil, ratio: 0.0}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, %{count: nil}} = TestCodec.decode_only(binary, [:count])
     end
 
     test "unknown field returns nil" do
       struct = %TestCodec{count: 42, ratio: 0.0}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, view} = TestCodec.decode_only(binary, [:count, :nonexistent])
       assert view.count == 42
@@ -246,7 +247,7 @@ defmodule GridCodec.CastAndHashTest do
 
     test "empty field list returns empty map" do
       struct = %TestCodec{ratio: 0.0}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, view} = TestCodec.decode_only(binary, [])
       assert view == %{}
@@ -254,7 +255,7 @@ defmodule GridCodec.CastAndHashTest do
 
     test "decimal field projection" do
       struct = %TestCodec{price: Decimal.new("100.50"), ratio: 0.0}
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, %{price: price}} = TestCodec.decode_only(binary, [:price])
       assert Decimal.equal?(price, Decimal.new("100.50"))
@@ -272,10 +273,18 @@ defmodule GridCodec.CastAndHashTest do
         name: "test"
       }
 
-      binary = TestCodec.encode(struct)
+      {:ok, binary} = TestCodec.encode(struct)
 
       assert {:ok, view} = TestCodec.decode_only(binary, [:active, :score])
       assert view == %{active: true, score: -100}
+    end
+
+    test "returns error for truncated binary" do
+      assert {:error, _} = TestCodec.decode_only(<<1, 2, 3>>, [:count])
+    end
+
+    test "returns error for empty binary" do
+      assert {:error, _} = TestCodec.decode_only(<<>>, [:count])
     end
   end
 end

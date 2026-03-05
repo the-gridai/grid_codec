@@ -69,7 +69,7 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
         timestamp: System.system_time(:microsecond)
       }
 
-      binary = GridCodec.TestRegistry3.encode(event)
+      {:ok, binary} = GridCodec.TestRegistry3.encode(event)
       assert {:ok, decoded} = GridCodec.TestRegistry3.decode(binary)
       assert decoded.side == :buy
       assert decoded.price == 100

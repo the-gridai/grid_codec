@@ -46,7 +46,7 @@ defmodule GridCodec.Types.Bitset do
 
       # Encoding - user has read AND write permissions
       data = %{perms: MapSet.new([:read, :write])}
-      binary = MyCodec.encode(data)
+      {:ok, binary} = MyCodec.encode(data)
 
       # Decoding
       {:ok, decoded} = MyCodec.decode(binary)
@@ -299,6 +299,38 @@ defmodule GridCodec.Types.Bitset do
         end
       end)
 
+    # Compile-time inlined to_integer: MapSet.member? + Bitwise.bor per flag
+    ti_acc = Macro.var(:acc, __MODULE__)
+    ti_flags = Macro.var(:flags_input, __MODULE__)
+
+    to_integer_checks =
+      Enum.map(flags, fn {name, bit_pos} ->
+        bit_value = Bitwise.bsl(1, bit_pos)
+
+        quote do
+          unquote(ti_acc) =
+            if MapSet.member?(unquote(ti_flags), unquote(name)),
+              do: Bitwise.bor(unquote(ti_acc), unquote(bit_value)),
+              else: unquote(ti_acc)
+        end
+      end)
+
+    # Compile-time inlined from_integer: Bitwise.band per flag, build list then MapSet
+    fi_int = Macro.var(:v, __MODULE__)
+    fi_list = Macro.var(:list, __MODULE__)
+
+    from_integer_checks =
+      Enum.map(flags, fn {name, bit_pos} ->
+        bit_value = Bitwise.bsl(1, bit_pos)
+
+        quote do
+          unquote(fi_list) =
+            if Bitwise.band(unquote(fi_int), unquote(bit_value)) != 0,
+              do: [unquote(name) | unquote(fi_list)],
+              else: unquote(fi_list)
+        end
+      end)
+
     quote do
       @flag_map unquote(Macro.escape(flag_map))
       @all_flags unquote(all_flags)
@@ -324,13 +356,10 @@ defmodule GridCodec.Types.Bitset do
           #=> 5
       """
       @spec to_integer(MapSet.t(atom())) :: non_neg_integer()
-      def to_integer(flags) when is_struct(flags, MapSet) do
-        Enum.reduce(flags, 0, fn flag, acc ->
-          case Map.get(@flag_map, flag) do
-            nil -> raise ArgumentError, "Unknown flag: #{inspect(flag)}"
-            bit_pos -> Bitwise.bor(acc, Bitwise.bsl(1, bit_pos))
-          end
-        end)
+      def to_integer(unquote(ti_flags)) when is_struct(unquote(ti_flags), MapSet) do
+        unquote(ti_acc) = 0
+        unquote_splicing(to_integer_checks)
+        unquote(ti_acc)
       end
 
       @doc """
@@ -342,13 +371,10 @@ defmodule GridCodec.Types.Bitset do
           #=> MapSet<[:active, :premium]>
       """
       @spec from_integer(non_neg_integer()) :: MapSet.t(atom())
-      def from_integer(integer) when is_integer(integer) do
-        @flag_map
-        |> Enum.filter(fn {_name, bit_pos} ->
-          Bitwise.band(integer, Bitwise.bsl(1, bit_pos)) != 0
-        end)
-        |> Enum.map(fn {name, _} -> name end)
-        |> MapSet.new()
+      def from_integer(unquote(fi_int)) when is_integer(unquote(fi_int)) do
+        unquote(fi_list) = []
+        unquote_splicing(from_integer_checks)
+        MapSet.new(unquote(fi_list))
       end
 
       @doc """

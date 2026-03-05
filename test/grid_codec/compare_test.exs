@@ -26,7 +26,7 @@ defmodule GridCodec.CompareTest do
   describe "GridCodec.compare/5 with value rhs" do
     test "compares integer fields without full decode" do
       require CompareCodec
-      binary = CompareCodec.encode(%CompareCodec{id: 1, price: 100, delta: -5})
+      {:ok, binary} = CompareCodec.encode(%CompareCodec{id: 1, price: 100, delta: -5})
 
       assert GridCodec.compare(binary, CompareCodec.field(:price), :>, 90)
       refute GridCodec.compare(binary, CompareCodec.field(:price), :<, 90)
@@ -37,7 +37,7 @@ defmodule GridCodec.CompareTest do
     test "compares decimal fields using decimal semantics" do
       require CompareCodec
 
-      binary =
+      {:ok, binary} =
         CompareCodec.encode(%CompareCodec{id: 1, amount: Decimal.new("12.34"), side: :buy})
 
       assert GridCodec.compare(binary, CompareCodec.field(:amount), :==, Decimal.new("12.340"))
@@ -47,7 +47,7 @@ defmodule GridCodec.CompareTest do
 
     test "compares enum values by encoded integer ordering" do
       require CompareCodec
-      binary = CompareCodec.encode(%CompareCodec{id: 1, side: :buy})
+      {:ok, binary} = CompareCodec.encode(%CompareCodec{id: 1, side: :buy})
 
       assert GridCodec.compare(binary, CompareCodec.field(:side), :<, :sell)
       assert GridCodec.compare(binary, CompareCodec.field(:side), :==, :buy)
@@ -58,8 +58,8 @@ defmodule GridCodec.CompareTest do
   describe "binary-to-binary comparison" do
     test "compare with rhs: :binary extracts same field from rhs binary" do
       require CompareCodec
-      low = CompareCodec.encode(%CompareCodec{id: 1, price: 100})
-      high = CompareCodec.encode(%CompareCodec{id: 2, price: 150})
+      {:ok, low} = CompareCodec.encode(%CompareCodec{id: 1, price: 100})
+      {:ok, high} = CompareCodec.encode(%CompareCodec{id: 2, price: 150})
       spec = CompareCodec.field(:price)
 
       assert GridCodec.compare(high, spec, :>, low, rhs: :binary)
@@ -72,8 +72,8 @@ defmodule GridCodec.CompareTest do
     test "inlines fixed-field compare operations" do
       require CompareCodec
 
-      low = CompareCodec.encode(%CompareCodec{id: 1, price: 100}, header: false)
-      high = CompareCodec.encode(%CompareCodec{id: 2, price: 200}, header: false)
+      {:ok, low} = CompareCodec.encode(%CompareCodec{id: 1, price: 100}, header: false)
+      {:ok, high} = CompareCodec.encode(%CompareCodec{id: 2, price: 200}, header: false)
 
       assert CompareCodec.compare(high, :price, :>, 150, header: false)
       assert CompareCodec.compare(high, :price, :>, low, header: false, rhs: :binary)
@@ -84,7 +84,7 @@ defmodule GridCodec.CompareTest do
   describe "unsupported field classes" do
     test "variable-length fields require full decode for compare" do
       require CompareCodec
-      binary = CompareCodec.encode(%CompareCodec{id: 1, note: "hello"})
+      {:ok, binary} = CompareCodec.encode(%CompareCodec{id: 1, note: "hello"})
 
       assert_raise ArgumentError, ~r/Variable-length field :note requires full decode/, fn ->
         GridCodec.compare(binary, CompareCodec.field(:note), :==, "hello")
@@ -93,7 +93,7 @@ defmodule GridCodec.CompareTest do
 
     test "raises on unsupported operators" do
       require CompareCodec
-      binary = CompareCodec.encode(%CompareCodec{id: 1, price: 100})
+      {:ok, binary} = CompareCodec.encode(%CompareCodec{id: 1, price: 100})
 
       assert_raise ArgumentError, ~r/unsupported compare operator/, fn ->
         GridCodec.compare(binary, CompareCodec.field(:price), :in, 100)

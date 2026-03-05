@@ -15,7 +15,7 @@ defmodule GridCodec.StructCodecTest do
       original = %SimpleStruct{id: 12345, value: 999}
 
       # Encode with header (default)
-      binary = SimpleStruct.encode(original)
+      {:ok, binary} = SimpleStruct.encode(original)
       assert is_binary(binary)
       # header (8) + payload (12) = 20
       assert byte_size(binary) == 20
@@ -31,7 +31,7 @@ defmodule GridCodec.StructCodecTest do
       original = %SimpleStruct{id: 12345, value: 999}
 
       # Encode without header
-      payload = SimpleStruct.encode(original, header: false)
+      {:ok, payload} = SimpleStruct.encode(original, header: false)
       assert is_binary(payload)
       # payload only: 8 + 4 = 12
       assert byte_size(payload) == 12
@@ -47,7 +47,7 @@ defmodule GridCodec.StructCodecTest do
       original = %SimpleStruct{id: 12345, value: 999}
 
       # Encode with header (default)
-      framed = SimpleStruct.encode(original)
+      {:ok, framed} = SimpleStruct.encode(original)
       assert is_binary(framed)
       # header + payload
       assert byte_size(framed) == 8 + 12
@@ -61,7 +61,7 @@ defmodule GridCodec.StructCodecTest do
     test "nil fields roundtrip as nil" do
       original = %SimpleStruct{id: nil, value: nil}
 
-      binary = SimpleStruct.encode(original)
+      {:ok, binary} = SimpleStruct.encode(original)
       {:ok, decoded} = SimpleStruct.decode(binary)
 
       # Nil values are preserved through encode/decode (null sentinel in binary)
@@ -113,7 +113,7 @@ defmodule GridCodec.StructCodecTest do
         f_bool: true
       }
 
-      binary = AllTypesStruct.encode(original)
+      {:ok, binary} = AllTypesStruct.encode(original)
       {:ok, decoded} = AllTypesStruct.decode(binary)
 
       assert decoded.f_u8 == 254
@@ -142,7 +142,7 @@ defmodule GridCodec.StructCodecTest do
         f_bool: false
       }
 
-      binary = AllTypesStruct.encode(original)
+      {:ok, binary} = AllTypesStruct.encode(original)
       {:ok, decoded} = AllTypesStruct.decode(binary)
 
       assert decoded.f_bool == false
@@ -163,7 +163,7 @@ defmodule GridCodec.StructCodecTest do
     test "default values are used when field is nil" do
       original = %DefaultStruct{id: 123, count: nil, status: nil}
 
-      binary = DefaultStruct.encode(original)
+      {:ok, binary} = DefaultStruct.encode(original)
       {:ok, decoded} = DefaultStruct.decode(binary)
 
       assert decoded.id == 123
@@ -176,7 +176,7 @@ defmodule GridCodec.StructCodecTest do
     test "explicit values override defaults" do
       original = %DefaultStruct{id: 123, count: 500, status: 2}
 
-      binary = DefaultStruct.encode(original)
+      {:ok, binary} = DefaultStruct.encode(original)
       {:ok, decoded} = DefaultStruct.decode(binary)
 
       assert decoded.count == 500
@@ -198,7 +198,7 @@ defmodule GridCodec.StructCodecTest do
       # Even if struct has different value, encoding uses constant
       original = %ConstantStruct{id: 123, msg_type: 99}
 
-      binary = ConstantStruct.encode(original)
+      {:ok, binary} = ConstantStruct.encode(original)
       {:ok, decoded} = ConstantStruct.decode(binary)
 
       assert decoded.id == 123
@@ -220,16 +220,14 @@ defmodule GridCodec.StructCodecTest do
     test "required fields cannot be nil during encoding" do
       original = %RequiredStruct{id: nil, value: 100}
 
-      assert_raise ArgumentError, ~r/required field :id cannot be nil/, fn ->
-        RequiredStruct.encode(original)
-      end
+      assert {:error, %GridCodec.ValidationError{}} = RequiredStruct.encode(original)
     end
 
     test "required fields encode/decode correctly when provided" do
       uuid = <<1::128>>
       original = %RequiredStruct{id: uuid, value: 100}
 
-      binary = RequiredStruct.encode(original)
+      {:ok, binary} = RequiredStruct.encode(original)
       {:ok, decoded} = RequiredStruct.decode(binary)
 
       assert decoded.id == uuid
@@ -252,7 +250,7 @@ defmodule GridCodec.StructCodecTest do
       require WrapStruct
 
       original = %WrapStruct{id: 12345, price: 999, quantity: 50}
-      binary = WrapStruct.encode(original)
+      {:ok, binary} = WrapStruct.encode(original)
 
       assert WrapStruct.get(binary, :id) == 12345
       assert WrapStruct.get(binary, :price) == 999
@@ -263,7 +261,7 @@ defmodule GridCodec.StructCodecTest do
       require WrapStruct
 
       original = %WrapStruct{id: 12345, price: 999, quantity: 50}
-      payload = WrapStruct.encode(original, header: false)
+      {:ok, payload} = WrapStruct.encode(original, header: false)
 
       assert WrapStruct.get(payload, :id, header: false) == 12345
       assert WrapStruct.get(payload, :price, header: false) == 999
@@ -362,7 +360,7 @@ defmodule GridCodec.StructCodecTest do
       require MatchTestStruct
 
       original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
-      binary = MatchTestStruct.encode(original)
+      {:ok, binary} = MatchTestStruct.encode(original)
 
       result =
         case binary do
@@ -377,7 +375,7 @@ defmodule GridCodec.StructCodecTest do
       require MatchTestStruct
 
       original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
-      payload = MatchTestStruct.encode(original, header: false)
+      {:ok, payload} = MatchTestStruct.encode(original, header: false)
 
       result =
         case payload do
@@ -392,7 +390,7 @@ defmodule GridCodec.StructCodecTest do
       require MatchTestStruct
 
       original = %MatchTestStruct{id: 12345, price: 999, quantity: 42}
-      binary = MatchTestStruct.encode(original)
+      {:ok, binary} = MatchTestStruct.encode(original)
 
       result =
         case binary do
@@ -409,7 +407,7 @@ defmodule GridCodec.StructCodecTest do
 
       # Create struct with nil price
       original = %MatchTestStruct{id: 12345, price: nil, quantity: 42}
-      binary = MatchTestStruct.encode(original)
+      {:ok, binary} = MatchTestStruct.encode(original)
 
       # Match extracts raw sentinel value, NOT nil
       result =
@@ -426,8 +424,11 @@ defmodule GridCodec.StructCodecTest do
     test "match on literal nil matches encoded null sentinel for primitive fields" do
       require MatchTestStruct
 
-      null_binary = MatchTestStruct.encode(%MatchTestStruct{id: 1, price: nil, quantity: 10})
-      non_null_binary = MatchTestStruct.encode(%MatchTestStruct{id: 1, price: 123, quantity: 10})
+      {:ok, null_binary} =
+        MatchTestStruct.encode(%MatchTestStruct{id: 1, price: nil, quantity: 10})
+
+      {:ok, non_null_binary} =
+        MatchTestStruct.encode(%MatchTestStruct{id: 1, price: 123, quantity: 10})
 
       assert match?(MatchTestStruct.match(price: nil), null_binary)
       refute match?(MatchTestStruct.match(price: nil), non_null_binary)

@@ -86,7 +86,7 @@ hand_rolled_map = %{
 # Pre-encode for decode benchmarks
 # ---------------------------------------------------------------------------
 
-gridcodec_bin = OrderCreated.encode(gridcodec_struct)
+{:ok, gridcodec_bin} = OrderCreated.encode(gridcodec_struct)
 json_bin = Jason.encode!(json_map)
 etf_bin = :erlang.term_to_binary(etf_map)
 proto_bin = OrderCreatedProto.encode(proto_struct)
@@ -117,7 +117,7 @@ IO.puts("=== Encode Benchmark ===\n")
 Benchee.run(
   %{
     "Hand-rolled <<>>" => fn -> HandRolled.encode(hand_rolled_map) end,
-    "GridCodec" => fn -> OrderCreated.encode(gridcodec_struct) end,
+    "GridCodec" => fn -> {:ok, _} = OrderCreated.encode(gridcodec_struct) end,
     "ETF (term_to_binary)" => fn -> :erlang.term_to_binary(etf_map) end,
     "Protobuf" => fn -> OrderCreatedProto.encode(proto_struct) end,
     "MessagePack (msgpax)" => fn -> Msgpax.pack!(msgpack_map, iodata: false) end,

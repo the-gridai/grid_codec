@@ -273,17 +273,18 @@ defmodule GridCodec.Type do
   @callback coerce_ast(value_var :: Macro.t()) :: Macro.t() | nil
 
   @doc """
-  Generates AST that transforms a decoded value into this type.
+  Generates AST that transforms a decoded wire value into this domain type.
 
-  Used by the `decode_as` option on group fields. When a field declares
-  `decode_as: MyType` or `decode_as: {MyType, opts}`, the compiler calls
-  this callback to generate the post-decode transformation.
+  Used internally by the `wire_format:` field option. When a field declares
+  `wire_format:`, the compiler calls this callback on the domain type module
+  to generate the post-decode transformation from wire type to domain type.
 
   Receives:
-  - `value_var` — the AST variable holding the raw decoded value
-  - `opts` — keyword options from `{MyType, opts}`, or `[]` for bare `MyType`
+  - `value_var` — the AST variable holding the raw decoded wire value
+  - `opts` — keyword options including `:source_module` (the wire type module),
+    `:scale`, etc.
 
-  Should return quoted AST that transforms the value.
+  Should return quoted AST that transforms the wire value into the domain type.
 
   ## Example
 
@@ -300,12 +301,45 @@ defmodule GridCodec.Type do
   """
   @callback decode_as_ast(value_var :: Macro.t(), opts :: keyword()) :: Macro.t()
 
+  @doc """
+  Generates AST that converts a non-nil domain value to the wire type value.
+
+  Used when a field declares `wire_format:` to override the default binary
+  encoding. The returned AST takes a domain-type value (e.g. `Decimal.t()`)
+  and produces a wire-type value (e.g. `integer()`) suitable for encoding
+  with the wire type's binary format.
+
+  Receives:
+  - `value_var` — the AST variable holding the non-nil domain value
+  - `opts` — keyword options including `:scale`, `:wire_format`, etc.
+
+  Should return quoted AST that produces the wire-compatible value.
+  The compiler handles nil → null sentinel separately.
+
+  ## Example
+
+      @impl true
+      def encode_to_wire_ast(var, opts) do
+        scale = Keyword.get(opts, :scale, 0)
+        quote do
+          case unquote(var) do
+            %Decimal{} = d ->
+              r = Decimal.rescale(d, unquote(-scale))
+              if r.sign == 1, do: r.coef, else: -r.coef
+            n when is_integer(n) -> n
+          end
+        end
+      end
+  """
+  @callback encode_to_wire_ast(value_var :: Macro.t(), opts :: keyword()) :: Macro.t()
+
   @optional_callbacks decode_value_ast: 1,
                       generator: 0,
                       compare_values: 2,
                       validate_ast: 3,
                       coerce_ast: 1,
-                      decode_as_ast: 2
+                      decode_as_ast: 2,
+                      encode_to_wire_ast: 2
 
   # ============================================================================
   # Type Registry

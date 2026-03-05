@@ -18,7 +18,7 @@ defmodule GridCodec.Types.UUID do
 
       # With raw UUID bytes
       id = :crypto.strong_rand_bytes(16)
-      binary = MyCodec.encode(%MyCodec{id: id, parent_id: <<0::128>>})
+      {:ok, binary} = MyCodec.encode(%MyCodec{id: id, parent_id: <<0::128>>})
 
       # Zero-copy access returns a sub-binary reference
       require MyCodec
@@ -132,6 +132,52 @@ defmodule GridCodec.Types.UUID do
     <<_::binary-size(offset), value::binary-size(16), _::binary>> = binary
     if value == @null_uuid, do: nil, else: value
   end
+
+  @doc """
+  Generates a random UUID v4 (128-bit, RFC 4122 compliant).
+
+  Returns raw 16-byte binary with version 4 and variant 1 bits set.
+
+      iex> uuid = GridCodec.Types.UUID.generate_v4()
+      iex> byte_size(uuid)
+      16
+  """
+  @spec generate_v4() :: <<_::128>>
+  def generate_v4 do
+    <<a::48, _v::4, b::12, _r::2, c::62>> = :crypto.strong_rand_bytes(16)
+    <<a::48, 4::4, b::12, 2::2, c::62>>
+  end
+
+  @doc """
+  Generates a UUID v7 (time-sortable, RFC 9562 compliant).
+
+  Uses millisecond Unix timestamp for the first 48 bits, ensuring
+  lexicographic ordering by creation time. Ideal for database primary
+  keys and distributed systems.
+
+      iex> uuid = GridCodec.Types.UUID.generate_v7()
+      iex> byte_size(uuid)
+      16
+  """
+  @spec generate_v7() :: <<_::128>>
+  def generate_v7 do
+    ms = System.system_time(:millisecond)
+    <<rand_a::12, _::6, rand_b::62>> = :crypto.strong_rand_bytes(10)
+    <<ms::48, 7::4, rand_a::12, 2::2, rand_b::62>>
+  end
+
+  @doc """
+  Extracts the millisecond timestamp from a UUID v7.
+
+  Returns `nil` if the UUID is not v7 (version bits != 0b0111).
+
+      iex> uuid = GridCodec.Types.UUID.generate_v7()
+      iex> is_integer(GridCodec.Types.UUID.v7_timestamp(uuid))
+      true
+  """
+  @spec v7_timestamp(<<_::128>>) :: integer() | nil
+  def v7_timestamp(<<ms::48, 7::4, _::76>>), do: ms
+  def v7_timestamp(_), do: nil
 
   @impl true
   def coerce_ast(var) do

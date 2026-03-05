@@ -44,7 +44,7 @@ defmodule GridCodecTest do
   describe "encode/decode roundtrip" do
     test "simple codec with integers and bool" do
       data = %SimpleCodec{id: 12345, count: 100, flag: true}
-      binary = SimpleCodec.encode(data)
+      {:ok, binary} = SimpleCodec.encode(data)
 
       assert {:ok, decoded} = SimpleCodec.decode(binary)
       assert decoded.id == 12345
@@ -56,7 +56,7 @@ defmodule GridCodecTest do
     test "uuid codec" do
       uuid = :crypto.strong_rand_bytes(16)
       data = %UUIDCodec{order_id: uuid, price: 15000, quantity: 50}
-      binary = UUIDCodec.encode(data)
+      {:ok, binary} = UUIDCodec.encode(data)
 
       assert {:ok, decoded} = UUIDCodec.decode(binary)
       assert decoded.order_id == uuid
@@ -66,7 +66,7 @@ defmodule GridCodecTest do
 
     test "signed integers" do
       data = %SignedCodec{temp: -42, offset: -9_999_999}
-      binary = SignedCodec.encode(data)
+      {:ok, binary} = SignedCodec.encode(data)
 
       assert {:ok, decoded} = SignedCodec.decode(binary)
       assert decoded.temp == -42
@@ -75,7 +75,7 @@ defmodule GridCodecTest do
 
     test "float codec" do
       data = %FloatCodec{latitude: 37.7749, longitude: -122.4194, altitude: 10.5}
-      binary = FloatCodec.encode(data)
+      {:ok, binary} = FloatCodec.encode(data)
 
       assert {:ok, decoded} = FloatCodec.decode(binary)
       assert_in_delta decoded.latitude, 37.7749, 0.0001
@@ -89,7 +89,7 @@ defmodule GridCodecTest do
       require SimpleCodec
 
       data = %SimpleCodec{id: 99999, count: 42, flag: false}
-      binary = SimpleCodec.encode(data)
+      {:ok, binary} = SimpleCodec.encode(data)
 
       assert SimpleCodec.get(binary, :id) == 99999
       assert SimpleCodec.get(binary, :count) == 42
@@ -101,7 +101,7 @@ defmodule GridCodecTest do
 
       uuid = :crypto.strong_rand_bytes(16)
       data = %UUIDCodec{order_id: uuid, price: 15000, quantity: 50}
-      binary = UUIDCodec.encode(data)
+      {:ok, binary} = UUIDCodec.encode(data)
 
       # Should return the same bytes
       assert UUIDCodec.get(binary, :order_id) == uuid
@@ -112,7 +112,7 @@ defmodule GridCodecTest do
   describe "binary size" do
     test "simple codec produces expected size with header" do
       data = %SimpleCodec{id: 1, count: 1, flag: true}
-      binary = SimpleCodec.encode(data)
+      {:ok, binary} = SimpleCodec.encode(data)
 
       # header (8) + u64 (8) + u32 (4) + bool (1) = 21 bytes
       assert byte_size(binary) == 21
@@ -120,7 +120,7 @@ defmodule GridCodecTest do
 
     test "simple codec payload size without header" do
       data = %SimpleCodec{id: 1, count: 1, flag: true}
-      payload = SimpleCodec.encode(data, header: false)
+      {:ok, payload} = SimpleCodec.encode(data, header: false)
 
       # u64 (8) + u32 (4) + bool (1) = 13 bytes
       assert byte_size(payload) == 13
@@ -128,7 +128,7 @@ defmodule GridCodecTest do
 
     test "uuid codec produces expected size with header" do
       data = %UUIDCodec{order_id: <<0::128>>, price: 0, quantity: 0}
-      binary = UUIDCodec.encode(data)
+      {:ok, binary} = UUIDCodec.encode(data)
 
       # header (8) + uuid (16) + u64 (8) + u32 (4) = 36 bytes
       assert byte_size(binary) == 36

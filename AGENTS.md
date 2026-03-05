@@ -440,8 +440,10 @@ end
 ```
 
 This generates:
-- `MyEvent.encode/1` - Convert struct → binary
-- `MyEvent.decode/1` - Convert binary → struct
+- `MyEvent.encode/1` - Convert struct → `{:ok, binary} | {:error, ValidationError.t()}`
+- `MyEvent.decode/1` - Convert binary → `{:ok, struct} | {:error, term()}`
+- `MyEvent.new/1` - Coerce + validate → `{:ok, struct} | {:error, ValidationError.t()}`
+- `MyEvent.new_binary/1` - Coerce + validate + encode → `{:ok, binary} | {:error, ...}`
 
 ### Key Modules
 
@@ -452,7 +454,23 @@ This generates:
 ### Type System
 
 Each type implements callbacks:
-- `encode_ast/2` - Generate encoding AST
+- `encode_ast/4` - Generate encoding AST
 - `decode_pattern_ast/2` - Generate decode pattern
 - `size/0` - Fixed size (if known)
+- `encode_to_wire_ast/2` - (optional) Convert domain value to wire type value
+- `decode_as_ast/2` - (optional) Decode-time wire→domain type transformation (used by `wire_format:`)
+
+### Parameterized Types and `wire_format:`
+
+Fields support parameterized types and explicit wire format override:
+
+```elixir
+# Domain type: Decimal with 8 decimal places
+# Wire format: i64 (8 bytes, faster than full 9-byte decimal)
+field :price, {:decimal, scale: 8}, wire_format: :i64
+```
+
+The type argument is the **domain type** (what the field IS). The `wire_format:`
+option overrides the binary encoding. The compiler uses the wire type for
+size/alignment/binary patterns and the domain type for value conversion.
 

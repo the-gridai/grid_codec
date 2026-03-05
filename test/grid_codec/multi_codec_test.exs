@@ -59,7 +59,7 @@ defmodule GridCodec.MultiCodecTest do
       uuid = <<1::128>>
       order = %Events.OrderCreated{order_id: uuid, price: 1000, quantity: 10}
 
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
       {:ok, decoded} = GridCodec.decode(binary)
 
       assert %Events.OrderCreated{} = decoded
@@ -78,7 +78,7 @@ defmodule GridCodec.MultiCodecTest do
         timestamp: 1_234_567_890
       }
 
-      binary = GridCodec.encode(fill)
+      {:ok, binary} = GridCodec.encode(fill)
       {:ok, decoded} = GridCodec.decode(binary)
 
       assert %Events.OrderFilled{} = decoded
@@ -92,7 +92,7 @@ defmodule GridCodec.MultiCodecTest do
       uuid = <<3::128>>
       cancel = %Events.OrderCancelled{order_id: uuid, reason_code: 42}
 
-      binary = GridCodec.encode(cancel)
+      {:ok, binary} = GridCodec.encode(cancel)
       {:ok, decoded} = GridCodec.decode(binary)
 
       assert %Events.OrderCancelled{} = decoded
@@ -108,8 +108,8 @@ defmodule GridCodec.MultiCodecTest do
       order = %Events.OrderCreated{order_id: order_uuid, price: 100, quantity: 1}
       trade = %Trades.TradeExecuted{trade_id: trade_uuid, price: 200, quantity: 2}
 
-      order_binary = GridCodec.encode(order)
-      trade_binary = GridCodec.encode(trade)
+      {:ok, order_binary} = GridCodec.encode(order)
+      {:ok, trade_binary} = GridCodec.encode(trade)
 
       {:ok, decoded_order} = GridCodec.decode(order_binary)
       {:ok, decoded_trade} = GridCodec.decode(trade_binary)
@@ -139,7 +139,11 @@ defmodule GridCodec.MultiCodecTest do
       ]
 
       # Encode all events
-      binaries = Enum.map(events, &GridCodec.encode/1)
+      binaries =
+        Enum.map(events, fn e ->
+          {:ok, binary} = GridCodec.encode(e)
+          binary
+        end)
 
       # Decode and verify
       decoded =
@@ -170,8 +174,8 @@ defmodule GridCodec.MultiCodecTest do
         timestamp: 2000
       }
 
-      order_binary = GridCodec.encode(order)
-      fill_binary = GridCodec.encode(fill)
+      {:ok, order_binary} = GridCodec.encode(order)
+      {:ok, fill_binary} = GridCodec.encode(fill)
 
       # Access fields via get macro
       assert Events.OrderCreated.get(order_binary, :price) == 100

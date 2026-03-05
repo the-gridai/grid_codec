@@ -59,7 +59,7 @@ defmodule GridCodec.TelemetryTest do
   describe "encode telemetry" do
     test "emits [:grid_codec, :encode] event with duration and bytes" do
       struct = %WithTelemetry{id: 42, price: 100, name: "test"}
-      _binary = WithTelemetry.encode(struct)
+      {:ok, _binary} = WithTelemetry.encode(struct)
 
       assert_receive {:telemetry_event, [:grid_codec, :encode], measurements, metadata}
 
@@ -76,7 +76,7 @@ defmodule GridCodec.TelemetryTest do
 
     test "emits for encode with header: false" do
       struct = %WithTelemetry{id: 42, price: 100, name: "test"}
-      _binary = WithTelemetry.encode(struct, header: false)
+      {:ok, _binary} = WithTelemetry.encode(struct, header: false)
 
       assert_receive {:telemetry_event, [:grid_codec, :encode], measurements, _metadata}
       assert measurements.bytes > 0
@@ -84,7 +84,7 @@ defmodule GridCodec.TelemetryTest do
 
     test "bytes reflects actual binary size" do
       struct = %WithTelemetry{id: 42, price: 100, name: "test"}
-      binary = WithTelemetry.encode(struct)
+      {:ok, binary} = WithTelemetry.encode(struct)
 
       assert_receive {:telemetry_event, [:grid_codec, :encode], measurements, _metadata}
       assert measurements.bytes == byte_size(binary)
@@ -94,7 +94,7 @@ defmodule GridCodec.TelemetryTest do
   describe "decode telemetry" do
     test "emits [:grid_codec, :decode] event with duration and bytes" do
       struct = %WithTelemetry{id: 42, price: 100, name: "test"}
-      binary = WithTelemetry.encode(struct)
+      {:ok, binary} = WithTelemetry.encode(struct)
 
       # Clear encode event
       assert_receive {:telemetry_event, [:grid_codec, :encode], _, _}
@@ -115,7 +115,7 @@ defmodule GridCodec.TelemetryTest do
 
     test "emits for decode with header: false" do
       struct = %WithTelemetry{id: 42, price: 100, name: "test"}
-      binary = WithTelemetry.encode(struct, header: false)
+      {:ok, binary} = WithTelemetry.encode(struct, header: false)
 
       # Clear encode event
       assert_receive {:telemetry_event, [:grid_codec, :encode], _, _}
@@ -130,7 +130,7 @@ defmodule GridCodec.TelemetryTest do
   describe "telemetry disabled" do
     test "no events emitted when telemetry: false" do
       struct = %WithoutTelemetry{id: 42}
-      binary = WithoutTelemetry.encode(struct)
+      {:ok, binary} = WithoutTelemetry.encode(struct)
       {:ok, _decoded} = WithoutTelemetry.decode(binary)
 
       refute_receive {:telemetry_event, _, _, _}, 50

@@ -157,21 +157,24 @@ defmodule ExampleApp.ProfileRunner do
     # Try to get git info from workspace
     commit =
       case System.cmd("git", ["rev-parse", "--short", "HEAD"],
-                      cd: "/workspace", stderr_to_stdout: true) do
+             cd: "/workspace",
+             stderr_to_stdout: true
+           ) do
         {output, 0} -> String.trim(output)
         _ -> "unknown"
       end
 
     branch =
       case System.cmd("git", ["branch", "--show-current"],
-                      cd: "/workspace", stderr_to_stdout: true) do
+             cd: "/workspace",
+             stderr_to_stdout: true
+           ) do
         {output, 0} -> String.trim(output)
         _ -> "unknown"
       end
 
     dirty =
-      case System.cmd("git", ["status", "--porcelain"],
-                      cd: "/workspace", stderr_to_stdout: true) do
+      case System.cmd("git", ["status", "--porcelain"], cd: "/workspace", stderr_to_stdout: true) do
         {"", 0} -> ""
         {_, 0} -> "+dirty"
         _ -> ""
@@ -192,7 +195,7 @@ defmodule ExampleApp.ProfileRunner do
       flags: 7
     }
 
-    order_bin = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, order_bin} = ExampleApp.Events.OrderCreated.encode(order)
     {order, order_bin}
   end
 
@@ -210,19 +213,22 @@ defmodule ExampleApp.ProfileRunner do
   require ExampleApp.ProfileMarkers, as: Markers
 
   defp do_warmup_both(0, _order, _order_bin), do: :ok
+
   defp do_warmup_both(n, order, order_bin) do
-    encoded = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, encoded} = ExampleApp.Events.OrderCreated.encode(order)
     {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(encoded)
     do_warmup_both(n - 1, order, order_bin)
   end
 
   defp do_warmup_encode(0, _order), do: :ok
+
   defp do_warmup_encode(n, order) do
-    _encoded = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, _} = ExampleApp.Events.OrderCreated.encode(order)
     do_warmup_encode(n - 1, order)
   end
 
   defp do_warmup_decode(0, _order_bin), do: :ok
+
   defp do_warmup_decode(n, order_bin) do
     {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(order_bin)
     do_warmup_decode(n - 1, order_bin)
@@ -232,32 +238,39 @@ defmodule ExampleApp.ProfileRunner do
   # Look for "__profile_encode__" and "__profile_decode__" in flame graphs
 
   defp do_profile_both(0, _order, _order_bin), do: :ok
-  defp do_profile_both(n, order, order_bin) do
-    Markers.mark(:roundtrip) do
-      encoded = Markers.mark(:encode_order) do
-        ExampleApp.Events.OrderCreated.encode(order)
-      end
 
-      Markers.mark(:decode_order) do
+  defp do_profile_both(n, order, order_bin) do
+    Markers.mark :roundtrip do
+      {:ok, encoded} =
+        Markers.mark :encode_order do
+          ExampleApp.Events.OrderCreated.encode(order)
+        end
+
+      Markers.mark :decode_order do
         {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(encoded)
       end
     end
+
     do_profile_both(n - 1, order, order_bin)
   end
 
   defp do_profile_encode(0, _order), do: :ok
+
   defp do_profile_encode(n, order) do
-    Markers.mark(:encode_order) do
-      _encoded = ExampleApp.Events.OrderCreated.encode(order)
+    Markers.mark :encode_order do
+      {:ok, _} = ExampleApp.Events.OrderCreated.encode(order)
     end
+
     do_profile_encode(n - 1, order)
   end
 
   defp do_profile_decode(0, _order_bin), do: :ok
+
   defp do_profile_decode(n, order_bin) do
-    Markers.mark(:decode_order) do
+    Markers.mark :decode_order do
       {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(order_bin)
     end
+
     do_profile_decode(n - 1, order_bin)
   end
 

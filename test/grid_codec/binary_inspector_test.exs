@@ -15,7 +15,7 @@ defmodule GridCodec.BinaryInspectorTest do
   end
 
   test "inspects framed binary with explicit schema" do
-    binary =
+    {:ok, binary} =
       InspectorCodec.encode(%InspectorCodec{
         id: 123,
         price: 456,
@@ -35,7 +35,7 @@ defmodule GridCodec.BinaryInspectorTest do
   end
 
   test "inspects framed binary with registry dispatch" do
-    binary =
+    {:ok, binary} =
       InspectorCodec.encode(%InspectorCodec{
         id: 1,
         price: 2,
@@ -49,7 +49,7 @@ defmodule GridCodec.BinaryInspectorTest do
   end
 
   test "inspects payload-only binary when schema provided" do
-    payload =
+    {:ok, payload} =
       InspectorCodec.encode(%InspectorCodec{id: 9, price: 10, delta: 11, note: "z"},
         header: false
       )
@@ -62,7 +62,7 @@ defmodule GridCodec.BinaryInspectorTest do
   end
 
   test "errors when schema missing for payload-only mode" do
-    payload =
+    {:ok, payload} =
       InspectorCodec.encode(%InspectorCodec{id: 1, price: 1, delta: 1, note: "a"}, header: false)
 
     assert {:error, :schema_required_without_header} =

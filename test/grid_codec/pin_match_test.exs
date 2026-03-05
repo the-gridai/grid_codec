@@ -25,7 +25,8 @@ defmodule GridCodec.PinMatchTest do
   describe "pin on primitive types" do
     setup do
       struct = %Event{id: 42, status: 2, flags: 7, value: 1000}
-      %{bin: Event.encode(struct)}
+      {:ok, bin} = Event.encode(struct)
+      %{bin: bin}
     end
 
     test "pin matches correct value", %{bin: bin} do
@@ -78,7 +79,8 @@ defmodule GridCodec.PinMatchTest do
     setup do
       price = Decimal.new("123.45")
       struct = %Order{order_id: 1, price: price, quantity: 100}
-      %{bin: Order.encode(struct), price: price}
+      {:ok, bin} = Order.encode(struct)
+      %{bin: bin, price: price}
     end
 
     test "encode_field + pin matches correct value", %{bin: bin, price: price} do
@@ -131,9 +133,9 @@ defmodule GridCodec.PinMatchTest do
     test "literal nil matches decimal null sentinel" do
       require Order
 
-      null_bin = Order.encode(%Order{order_id: 1, price: nil, quantity: 100})
+      {:ok, null_bin} = Order.encode(%Order{order_id: 1, price: nil, quantity: 100})
 
-      non_null_bin =
+      {:ok, non_null_bin} =
         Order.encode(%Order{order_id: 1, price: Decimal.new("123.45"), quantity: 100})
 
       assert match?(Order.match(price: nil), null_bin)

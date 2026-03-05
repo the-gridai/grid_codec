@@ -17,7 +17,7 @@ defmodule GridCodec.Types.Bool do
       end
 
       # Encode (includes 8-byte header by default)
-      binary = MyCodec.encode(%MyCodec{is_active: true, is_verified: false})
+      {:ok, binary} = MyCodec.encode(%MyCodec{is_active: true, is_verified: false})
 
       # Decode
       {:ok, %MyCodec{is_active: true, is_verified: false}} = MyCodec.decode(binary)

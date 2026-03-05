@@ -92,7 +92,7 @@ defmodule GridCodec.Dispatch do
 
       # Encode (struct required)
       order = %MyApp.Events.OrderCreated{order_id: <<1::128>>, price: 100}
-      binary = MyApp.Events.OrderCreated.encode(order)
+      {:ok, binary} = MyApp.Events.OrderCreated.encode(order)
 
       # Dispatch decode
       {:ok, data, MyApp.Events.OrderCreated} = MyApp.Events.Dispatch.decode(binary)

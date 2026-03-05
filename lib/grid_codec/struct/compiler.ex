@@ -26,6 +26,11 @@ defmodule GridCodec.Struct.Compiler do
     align_fields = Keyword.get(opts, :align, false)
     generate_typespec = Keyword.get(opts, :generate_typespec, true)
 
+    # Application.get_env is used here (not compile_env) because these values
+    # drive code generation conditionals in this macro body. compile_env is a
+    # macro that must expand in the *calling* module's scope, but we need the
+    # values here to decide which AST to emit. get_env is correct since
+    # __before_compile__ already runs at compile time of the calling module.
     telemetry_enabled =
       Keyword.get(opts, :telemetry, Application.get_env(:grid_codec, :telemetry, false))
 
@@ -216,19 +221,29 @@ defmodule GridCodec.Struct.Compiler do
           {:ok, coerced} ->
             struct = struct(unquote(module), coerced)
 
-            try do
-              __validate__(struct)
-              {:ok, struct}
-            rescue
-              e in GridCodec.ValidationError -> {:error, e}
-            end
+            unquote(
+              if validate_enabled do
+                quote do
+                  try do
+                    __validate__(struct)
+                    {:ok, struct}
+                  rescue
+                    e in GridCodec.ValidationError -> {:error, e}
+                  end
+                end
+              else
+                quote do
+                  {:ok, struct}
+                end
+              end
+            )
 
           {:error, _} = error ->
             error
         end
       end
 
-      unquote(generate_update_and_helpers(module, generate_typespec))
+      unquote(generate_update_and_helpers(module, generate_typespec, validate_enabled))
 
       # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
       unquote(generate_cast_fn(resolved_fields, processed_groups, env.module))
@@ -299,7 +314,9 @@ defmodule GridCodec.Struct.Compiler do
           schema_id,
           template_id,
           telemetry_enabled,
-          telemetry_min_duration
+          telemetry_min_duration,
+          generate_typespec,
+          validate_enabled
         )
       )
 
@@ -327,26 +344,50 @@ defmodule GridCodec.Struct.Compiler do
                 {:ok, binary()} | {:error, GridCodec.ValidationError.t()}
       end
 
-      def new_binary(%unquote(module){} = struct) do
-        __validate__(struct)
-        payload = encode_payload(struct)
-        {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-      rescue
-        e in GridCodec.ValidationError -> {:error, e}
-      end
+      unquote(
+        if validate_enabled do
+          quote do
+            def new_binary(%unquote(module){} = struct) do
+              __validate__(struct)
+              payload = encode_payload(struct)
+              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+            rescue
+              e in GridCodec.ValidationError -> {:error, e}
+            end
+          end
+        else
+          quote do
+            def new_binary(%unquote(module){} = struct) do
+              payload = encode_payload(struct)
+              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+            end
+          end
+        end
+      )
 
       def new_binary(attrs) when is_list(attrs), do: new_binary(Map.new(attrs))
 
       def new_binary(attrs) when is_map(attrs) do
         case __cast__(attrs) do
           {:ok, coerced} ->
-            try do
-              __validate__(coerced)
-              payload = encode_map(coerced)
-              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-            rescue
-              e in GridCodec.ValidationError -> {:error, e}
-            end
+            unquote(
+              if validate_enabled do
+                quote do
+                  try do
+                    __validate__(coerced)
+                    payload = encode_map(coerced)
+                    {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                  rescue
+                    e in GridCodec.ValidationError -> {:error, e}
+                  end
+                end
+              else
+                quote do
+                  payload = encode_map(coerced)
+                  {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                end
+              end
+            )
 
           {:error, _} = error ->
             error
@@ -729,10 +770,20 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
 
   defp resolve_types(fields) do
-    Enum.map(fields, fn {name, type_atom, opts} ->
+    Enum.map(fields, fn {name, type_spec, opts} ->
+      {type_atom, type_opts} = normalize_type_spec(type_spec)
+
       case GridCodec.Type.lookup(type_atom) do
         {:ok, module} ->
-          {name, type_atom, module, opts}
+          merged_opts =
+            if type_opts == [] do
+              opts
+            else
+              Keyword.put(opts, :__type_opts__, type_opts)
+            end
+
+          merged_opts = maybe_resolve_wire_format(name, module, merged_opts)
+          {name, type_atom, module, merged_opts}
 
         {:error, :unknown_type} ->
           raise CompileError,
@@ -741,10 +792,176 @@ defmodule GridCodec.Struct.Compiler do
     end)
   end
 
+  defp normalize_type_spec({type_atom, type_opts}) when is_atom(type_atom) and is_list(type_opts),
+    do: {type_atom, type_opts}
+
+  defp normalize_type_spec(type_atom) when is_atom(type_atom),
+    do: {type_atom, []}
+
+  defp maybe_resolve_wire_format(field_name, domain_module, opts) do
+    wire_format = Keyword.get(opts, :wire_format)
+    type_opts = Keyword.get(opts, :__type_opts__, [])
+
+    wire_format = wire_format || infer_wire_format(domain_module, type_opts)
+
+    if wire_format do
+      case GridCodec.Type.lookup(wire_format) do
+        {:ok, wire_module} ->
+          validate_wire_format!(field_name, domain_module, wire_module, type_opts)
+
+          opts
+          |> Keyword.put(:__wire_module__, wire_module)
+          |> Keyword.put(:__wire_type__, wire_format)
+
+        {:error, :unknown_type} ->
+          raise CompileError,
+            description:
+              "Unknown wire_format: #{inspect(wire_format)} for field #{inspect(field_name)}"
+      end
+    else
+      opts
+    end
+  end
+
+  @decimal_modules [GridCodec.Types.Decimal, GridCodec.Types.PositiveDecimal]
+
+  defp infer_wire_format(domain_module, type_opts) do
+    if domain_module in @decimal_modules and Keyword.has_key?(type_opts, :scale) do
+      if domain_module == GridCodec.Types.PositiveDecimal, do: :u64, else: :i64
+    else
+      nil
+    end
+  end
+
+  defp validate_wire_format!(field_name, domain_module, wire_module, _type_opts) do
+    if wire_module.size() == :variable do
+      raise CompileError,
+        description:
+          "wire_format: #{inspect(wire_module)} is variable-length, " <>
+            "cannot be used as wire format for field #{inspect(field_name)}"
+    end
+
+    Code.ensure_loaded!(domain_module)
+
+    unless function_exported?(domain_module, :encode_to_wire_ast, 2) do
+      raise CompileError,
+        description:
+          "Type #{inspect(domain_module)} does not implement encode_to_wire_ast/2, " <>
+            "required for wire_format: on field #{inspect(field_name)}"
+    end
+
+    unless function_exported?(domain_module, :decode_as_ast, 2) do
+      raise CompileError,
+        description:
+          "Type #{inspect(domain_module)} does not implement decode_as_ast/2, " <>
+            "required for wire_format: on field #{inspect(field_name)}"
+    end
+  end
+
   defp partition_fields(resolved_fields) do
-    Enum.split_with(resolved_fields, fn {_name, _type, module, _opts} ->
-      module.size() != :variable
+    Enum.split_with(resolved_fields, fn field ->
+      effective_size(field) != :variable
     end)
+  end
+
+  # ============================================================================
+  # Wire-format-aware helpers
+  # ============================================================================
+
+  defp effective_module({_name, _type, module, opts}) do
+    Keyword.get(opts, :__wire_module__, module)
+  end
+
+  defp effective_size({_name, _type, module, opts}) do
+    Keyword.get(opts, :__wire_module__, module).size()
+  end
+
+  defp field_encode_ast({name, _type, module, opts}, endian, data_var) do
+    wire_module = Keyword.get(opts, :__wire_module__)
+
+    if wire_module do
+      generate_wire_format_encode_ast(name, module, wire_module, opts, endian, data_var)
+    else
+      presence = Keyword.get(opts, :presence, :optional)
+      const_value = Keyword.get(opts, :value)
+      null_value = module.null_value()
+
+      case presence do
+        :constant ->
+          module.encode_ast(
+            name,
+            const_value,
+            endian,
+            quote(do: %{unquote(name) => unquote(const_value)})
+          )
+
+        _ ->
+          module.encode_ast(name, null_value, endian, data_var)
+      end
+    end
+  end
+
+  defp generate_wire_format_encode_ast(
+         field_name,
+         domain_module,
+         wire_module,
+         opts,
+         endian,
+         data_var
+       ) do
+    type_opts = Keyword.get(opts, :__type_opts__, [])
+    wire_null = wire_module.null_value()
+    domain_val_var = Macro.var(:__wf_val__, __MODULE__)
+    conversion_ast = domain_module.encode_to_wire_ast(domain_val_var, type_opts)
+
+    value_ast =
+      quote do
+        case :maps.get(unquote(field_name), unquote(data_var), nil) do
+          nil -> unquote(wire_null)
+          unquote(domain_val_var) -> unquote(conversion_ast)
+        end
+      end
+
+    wire_spec = wire_binary_spec(wire_module, endian)
+
+    quote do
+      unquote(value_ast) :: unquote(wire_spec)
+    end
+  end
+
+  @wire_specs %{
+    GridCodec.Types.I8 => {8, :signed, nil},
+    GridCodec.Types.I16 => {16, :signed, true},
+    GridCodec.Types.I32 => {32, :signed, true},
+    GridCodec.Types.I64 => {64, :signed, true},
+    GridCodec.Types.U8 => {8, :unsigned, nil},
+    GridCodec.Types.U16 => {16, :unsigned, true},
+    GridCodec.Types.U32 => {32, :unsigned, true},
+    GridCodec.Types.U64 => {64, :unsigned, true},
+    GridCodec.Types.F32 => {32, :float, true},
+    GridCodec.Types.F64 => {64, :float, true}
+  }
+
+  defp wire_binary_spec(wire_module, endian) do
+    meta = [context: Elixir, imports: [{1, Kernel}, {2, Kernel}]]
+
+    case Map.get(@wire_specs, wire_module) do
+      {bits, sign, needs_endian} ->
+        sign_ast = {sign, [], Elixir}
+
+        if needs_endian do
+          endian_ast = {endian, [], Elixir}
+          {:-, meta, [{:-, meta, [sign_ast, endian_ast]}, bits]}
+        else
+          {:-, meta, [sign_ast, bits]}
+        end
+
+      nil ->
+        raise CompileError,
+          description:
+            "wire_format: #{inspect(wire_module)} is not a supported wire type. " <>
+              "Supported: :i8, :i16, :i32, :i64, :u8, :u16, :u32, :u64, :f32, :f64"
+    end
   end
 
   # ============================================================================
@@ -753,16 +970,19 @@ defmodule GridCodec.Struct.Compiler do
 
   defp calculate_offsets(fixed_fields, align_fields) do
     {offsets, total} =
-      Enum.reduce(fixed_fields, {%{}, 0}, fn {name, _type, module, _opts}, {acc, offset} ->
+      Enum.reduce(fixed_fields, {%{}, 0}, fn {_name, _type, _module, _opts} = field,
+                                             {acc, offset} ->
+        eff_mod = effective_module(field)
+
         aligned_offset =
           if align_fields do
-            GridCodec.Type.align(offset, module.alignment())
+            GridCodec.Type.align(offset, eff_mod.alignment())
           else
             offset
           end
 
-        size = module.size()
-        {Map.put(acc, name, aligned_offset), aligned_offset + size}
+        size = eff_mod.size()
+        {Map.put(acc, elem(field, 0), aligned_offset), aligned_offset + size}
       end)
 
     {offsets, total}
@@ -804,9 +1024,9 @@ defmodule GridCodec.Struct.Compiler do
     else
       base = :binary.copy(<<0>>, block_length)
 
-      Enum.reduce(fixed_fields, base, fn {name, _type, module, _opts}, acc ->
+      Enum.reduce(fixed_fields, base, fn {name, _type, _module, _opts} = field, acc ->
         offset = Map.get(field_offsets, name)
-        null_bytes = null_binary_for_type(module, endian)
+        null_bytes = null_binary_for_type(effective_module(field), endian)
         size = byte_size(null_bytes)
 
         <<prefix::binary-size(offset), _::binary-size(size), suffix::binary>> = acc
@@ -863,7 +1083,7 @@ defmodule GridCodec.Struct.Compiler do
         resolved = resolve_types(group_fields)
 
         var_fields =
-          Enum.filter(resolved, fn {_n, _t, mod, _o} -> mod.size() == :variable end)
+          Enum.filter(resolved, fn {_n, _t, _mod, _o} = f -> effective_size(f) == :variable end)
 
         if var_fields != [] do
           names = Enum.map(var_fields, fn {n, _, _, _} -> n end)
@@ -889,7 +1109,7 @@ defmodule GridCodec.Struct.Compiler do
         batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
 
         block_length =
-          Enum.reduce(resolved, 0, fn {_, _, mod, _}, acc -> acc + mod.size() end)
+          Enum.reduce(resolved, 0, fn f, acc -> acc + effective_size(f) end)
 
         updated_opts =
           opts
@@ -926,9 +1146,8 @@ defmodule GridCodec.Struct.Compiler do
     data_var = Macro.var(:entry, __MODULE__)
 
     binary_parts =
-      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
-        null_value = module.null_value()
-        module.encode_ast(name, null_value, endian, data_var)
+      Enum.map(resolved_fields, fn field ->
+        field_encode_ast(field, endian, data_var)
       end)
 
     quote do
@@ -946,7 +1165,7 @@ defmodule GridCodec.Struct.Compiler do
     entry_fn = :"__encode_#{group_name}_entry__"
 
     block_length =
-      Enum.reduce(resolved_fields, 0, fn {_, _, mod, _}, acc -> acc + mod.size() end)
+      Enum.reduce(resolved_fields, 0, fn f, acc -> acc + effective_size(f) end)
 
     quote do
       defp unquote(group_fn)([]) do
@@ -974,9 +1193,9 @@ defmodule GridCodec.Struct.Compiler do
     fn_name = :"__decode_#{group_name}_entry__"
 
     patterns =
-      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+      Enum.map(resolved_fields, fn {name, _type, _module, _opts} = f ->
         var = Macro.var(name, __MODULE__)
-        module.decode_pattern_ast(var, endian)
+        effective_module(f).decode_pattern_ast(var, endian)
       end)
 
     result_pairs = build_decode_result_pairs(resolved_fields)
@@ -992,9 +1211,9 @@ defmodule GridCodec.Struct.Compiler do
     fn_name = :"__decode_all_#{group_name}__"
 
     patterns =
-      Enum.map(resolved_fields, fn {name, _type, module, _opts} ->
+      Enum.map(resolved_fields, fn {name, _type, _module, _opts} = f ->
         var = Macro.var(name, __MODULE__)
-        module.decode_pattern_ast(var, endian)
+        effective_module(f).decode_pattern_ast(var, endian)
       end)
 
     result_pairs = build_decode_result_pairs(resolved_fields)
@@ -1009,58 +1228,37 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  # Shared: build result pairs for group decoders, applying decode_as coercion
   defp build_decode_result_pairs(resolved_fields) do
-    Enum.map(resolved_fields, fn {name, _type, source_module, opts} ->
+    Enum.map(resolved_fields, fn {name, _type, domain_module, opts} ->
       var = Macro.var(name, __MODULE__)
+      wire_module = Keyword.get(opts, :__wire_module__)
 
-      value_ast =
-        if function_exported?(source_module, :decode_value_ast, 1) do
-          source_module.decode_value_ast(var)
-        else
-          var
-        end
+      if wire_module do
+        type_opts = Keyword.get(opts, :__type_opts__, [])
 
-      final_ast =
-        apply_decode_as(value_ast, Keyword.get(opts, :decode_as), source_module)
+        wire_value_ast =
+          if function_exported?(wire_module, :decode_value_ast, 1) do
+            wire_module.decode_value_ast(var)
+          else
+            var
+          end
 
-      {name, final_ast}
+        domain_module.decode_as_ast(
+          wire_value_ast,
+          [{:source_module, wire_module} | type_opts]
+        )
+      else
+        value_ast =
+          if function_exported?(domain_module, :decode_value_ast, 1) do
+            domain_module.decode_value_ast(var)
+          else
+            var
+          end
+
+        value_ast
+      end
+      |> then(fn final_ast -> {name, final_ast} end)
     end)
-  end
-
-  defp apply_decode_as(value_ast, nil, _source_module), do: value_ast
-
-  defp apply_decode_as(value_ast, {type_ref, opts}, source_module) when is_list(opts) do
-    target_module = resolve_decode_as_module(type_ref)
-
-    unless function_exported?(target_module, :decode_as_ast, 2) do
-      raise CompileError,
-        description:
-          "decode_as: {#{inspect(type_ref)}, ...} — module #{inspect(target_module)} " <>
-            "does not implement decode_as_ast/2 callback"
-    end
-
-    target_module.decode_as_ast(value_ast, [{:source_module, source_module} | opts])
-  end
-
-  defp apply_decode_as(value_ast, type_ref, source_module) when is_atom(type_ref) do
-    target_module = resolve_decode_as_module(type_ref)
-
-    unless function_exported?(target_module, :decode_as_ast, 2) do
-      raise CompileError,
-        description:
-          "decode_as: #{inspect(type_ref)} — module #{inspect(target_module)} " <>
-            "does not implement decode_as_ast/2 callback"
-    end
-
-    target_module.decode_as_ast(value_ast, source_module: source_module)
-  end
-
-  defp resolve_decode_as_module(type_ref) do
-    case GridCodec.Type.lookup(type_ref) do
-      {:ok, module} -> module
-      {:error, _} -> type_ref
-    end
   end
 
   # ============================================================================
@@ -1186,23 +1384,8 @@ defmodule GridCodec.Struct.Compiler do
       end
 
     fixed_binary_parts =
-      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-        presence = Keyword.get(opts, :presence, :optional)
-        const_value = Keyword.get(opts, :value)
-        null_value = module.null_value()
-
-        case presence do
-          :constant ->
-            module.encode_ast(
-              name,
-              const_value,
-              endian,
-              quote(do: %{unquote(name) => unquote(const_value)})
-            )
-
-          _ ->
-            module.encode_ast(name, null_value, endian, struct_var)
-        end
+      Enum.map(fixed_fields, fn field ->
+        field_encode_ast(field, endian, struct_var)
       end)
 
     fixed_binary_ast =
@@ -1273,23 +1456,8 @@ defmodule GridCodec.Struct.Compiler do
     extracted_data = {:%{}, [], extracted_data_pairs}
 
     fixed_binary_parts =
-      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-        presence = Keyword.get(opts, :presence, :optional)
-        const_value = Keyword.get(opts, :value)
-        null_value = module.null_value()
-
-        case presence do
-          :constant ->
-            module.encode_ast(
-              name,
-              const_value,
-              endian,
-              quote(do: %{unquote(name) => unquote(const_value)})
-            )
-
-          _ ->
-            module.encode_ast(name, null_value, endian, extracted_data)
-        end
+      Enum.map(fixed_fields, fn field ->
+        field_encode_ast(field, endian, extracted_data)
       end)
 
     fixed_binary_ast =
@@ -1343,23 +1511,8 @@ defmodule GridCodec.Struct.Compiler do
       end
 
     fixed_binary_parts =
-      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-        presence = Keyword.get(opts, :presence, :optional)
-        const_value = Keyword.get(opts, :value)
-        null_value = module.null_value()
-
-        case presence do
-          :constant ->
-            module.encode_ast(
-              name,
-              const_value,
-              endian,
-              quote(do: %{unquote(name) => unquote(const_value)})
-            )
-
-          _ ->
-            module.encode_ast(name, null_value, endian, struct_var)
-        end
+      Enum.map(fixed_fields, fn field ->
+        field_encode_ast(field, endian, struct_var)
       end)
 
     fixed_binary_ast =
@@ -1447,25 +1600,8 @@ defmodule GridCodec.Struct.Compiler do
     extracted_data = {:%{}, [], extracted_data_pairs}
 
     binary_parts =
-      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-        presence = Keyword.get(opts, :presence, :optional)
-        default = Keyword.get(opts, :default)
-        const_value = Keyword.get(opts, :value)
-        null_value = module.null_value()
-
-        case presence do
-          :constant ->
-            module.encode_ast(
-              name,
-              const_value,
-              endian,
-              quote(do: %{unquote(name) => unquote(const_value)})
-            )
-
-          _ ->
-            effective_default = if default == nil, do: null_value, else: default
-            module.encode_ast(name, effective_default, endian, extracted_data)
-        end
+      Enum.map(fixed_fields, fn field ->
+        field_encode_ast(field, endian, extracted_data)
       end)
 
     quote do
@@ -1491,25 +1627,8 @@ defmodule GridCodec.Struct.Compiler do
     required_validations = generate_required_validations(fixed_fields ++ var_fields, data_var)
 
     fixed_encoding =
-      Enum.map(fixed_fields, fn {name, _type, module, opts} ->
-        presence = Keyword.get(opts, :presence, :optional)
-        default = Keyword.get(opts, :default)
-        const_value = Keyword.get(opts, :value)
-        null_value = module.null_value()
-
-        case presence do
-          :constant ->
-            module.encode_ast(
-              name,
-              const_value,
-              endian,
-              quote(do: %{unquote(name) => unquote(const_value)})
-            )
-
-          _ ->
-            effective_default = if default == nil, do: null_value, else: default
-            module.encode_ast(name, effective_default, endian, data_var)
-        end
+      Enum.map(fixed_fields, fn field ->
+        field_encode_ast(field, endian, data_var)
       end)
 
     fixed_binary =
@@ -1661,9 +1780,9 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_decoder(fixed_fields, var_fields, groups, endian) do
     fixed_patterns =
-      Enum.map(fixed_fields, fn {name, _type, module, _opts} ->
+      Enum.map(fixed_fields, fn {name, _type, _module, _opts} = f ->
         var = Macro.var(name, __MODULE__)
-        module.decode_pattern_ast(var, endian)
+        effective_module(f).decode_pattern_ast(var, endian)
       end)
 
     fixed_result_pairs =
@@ -1671,11 +1790,27 @@ defmodule GridCodec.Struct.Compiler do
         var = Macro.var(name, __MODULE__)
         presence = Keyword.get(opts, :presence, :optional)
         const_value = Keyword.get(opts, :value)
+        wire_module = Keyword.get(opts, :__wire_module__)
 
         value_ast =
           case presence do
             :constant ->
               Macro.escape(const_value)
+
+            _ when wire_module != nil ->
+              type_opts = Keyword.get(opts, :__type_opts__, [])
+
+              wire_val =
+                if function_exported?(wire_module, :decode_value_ast, 1) do
+                  wire_module.decode_value_ast(var)
+                else
+                  var
+                end
+
+              module.decode_as_ast(
+                wire_val,
+                [{:source_module, wire_module} | type_opts]
+              )
 
             _ ->
               if function_exported?(module, :decode_value_ast, 1) do
@@ -1748,9 +1883,9 @@ defmodule GridCodec.Struct.Compiler do
   # Generate a decoder that builds the struct directly (no map intermediate)
   defp generate_struct_decoder(fixed_fields, var_fields, groups, endian, struct_module) do
     fixed_patterns =
-      Enum.map(fixed_fields, fn {name, _type, module, _opts} ->
+      Enum.map(fixed_fields, fn {name, _type, _module, _opts} = f ->
         var = Macro.var(name, __MODULE__)
-        module.decode_pattern_ast(var, endian)
+        effective_module(f).decode_pattern_ast(var, endian)
       end)
 
     fixed_result_pairs =
@@ -1758,11 +1893,27 @@ defmodule GridCodec.Struct.Compiler do
         var = Macro.var(name, __MODULE__)
         presence = Keyword.get(opts, :presence, :optional)
         const_value = Keyword.get(opts, :value)
+        wire_module = Keyword.get(opts, :__wire_module__)
 
         value_ast =
           case presence do
             :constant ->
               Macro.escape(const_value)
+
+            _ when wire_module != nil ->
+              type_opts = Keyword.get(opts, :__type_opts__, [])
+
+              wire_val =
+                if function_exported?(wire_module, :decode_value_ast, 1) do
+                  wire_module.decode_value_ast(var)
+                else
+                  var
+                end
+
+              module.decode_as_ast(
+                wire_val,
+                [{:source_module, wire_module} | type_opts]
+              )
 
             _ ->
               if function_exported?(module, :decode_value_ast, 1) do
@@ -1942,29 +2093,30 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   defp generate_var_decoder(var_fields) do
-    field_decoders =
-      Enum.map(var_fields, fn {name, type, _module, _opts} ->
-        decode_fn =
-          case type do
-            :string8 -> :decode8
-            :string16 -> :decode16
-            :string32 -> :decode32
-            :string -> :decode16
-            _ -> :decode16
+    {decode_bindings, final_rest_var} =
+      Enum.reduce(var_fields, {[], quote(do: var_rest)}, fn {name, type, _module, _opts},
+                                                            {bindings, rest_var} ->
+        value_var = Macro.var(:"var_#{name}", __MODULE__)
+        new_rest_var = Macro.var(:"var_rest_after_#{name}", __MODULE__)
+
+        decode_call = var_decode_ast(type, rest_var)
+
+        binding =
+          quote do
+            {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
           end
 
-        {name, decode_fn}
+        {bindings ++ [binding], new_rest_var}
       end)
 
+    map_pairs =
+      for {name, _type, _module, _opts} <- var_fields do
+        {name, Macro.var(:"var_#{name}", __MODULE__)}
+      end
+
     quote do
-      Enum.reduce(
-        unquote(Macro.escape(field_decoders)),
-        {%{}, var_rest},
-        fn {name, decode_fn}, {acc, binary} ->
-          {value, rest} = apply(GridCodec.Types.String, decode_fn, [binary])
-          {Map.put(acc, name, value), rest}
-        end
-      )
+      unquote_splicing(decode_bindings)
+      {%{unquote_splicing(map_pairs)}, unquote(final_rest_var)}
     end
   end
 
@@ -1979,19 +2131,17 @@ defmodule GridCodec.Struct.Compiler do
     # Build a map of field_name => {module, offset} for fixed fields
     # Offsets include header_size since encode/1 includes header by default
     fixed_field_specs =
-      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+      Enum.map(fixed_fields, fn {name, _type_atom, _module, _opts} = field ->
         payload_offset = Map.get(field_offsets, name)
-        # Add header size for framed binary access
         framed_offset = payload_offset + header_size
-        {name, {module, framed_offset}}
+        {name, {effective_module(field), framed_offset}}
       end)
       |> Map.new()
 
-    # Also store payload-only offsets for header: false option
     payload_field_specs =
-      Enum.map(fixed_fields, fn {name, _type_atom, module, _opts} ->
+      Enum.map(fixed_fields, fn {name, _type_atom, _module, _opts} = field ->
         offset = Map.get(field_offsets, name)
-        {name, {module, offset}}
+        {name, {effective_module(field), offset}}
       end)
       |> Map.new()
 
@@ -2653,7 +2803,16 @@ defmodule GridCodec.Struct.Compiler do
   # Encode/Decode API Generation (extracted to reduce __before_compile__ complexity)
   # ============================================================================
 
-  defp generate_encode_api(module, type_name, schema_id, template_id, telemetry?, min_duration) do
+  defp generate_encode_api(
+         module,
+         type_name,
+         schema_id,
+         template_id,
+         telemetry?,
+         min_duration,
+         generate_typespec,
+         validate_enabled
+       ) do
     telemetry_meta = %{
       module: module,
       type_name: type_name,
@@ -2673,10 +2832,15 @@ defmodule GridCodec.Struct.Compiler do
 
         - `:header` - Include header (default: `true`)
         """
+        if unquote(generate_typespec) do
+          @spec encode(t(), keyword()) ::
+                  {:ok, binary()} | {:error, GridCodec.ValidationError.t()}
+        end
+
         def encode(struct, opts \\ [])
 
         def encode(%unquote(module){} = struct, []) do
-          __validate__(struct)
+          unquote(if validate_enabled, do: quote(do: __validate__(struct)))
           start = :erlang.monotonic_time()
           payload = encode_payload(struct)
           binary = <<@__gridcodec_header__::binary, payload::binary>>
@@ -2690,11 +2854,24 @@ defmodule GridCodec.Struct.Compiler do
             )
           end
 
-          binary
+          {:ok, binary}
+        rescue
+          e in GridCodec.ValidationError ->
+            {:error, e}
+
+          e in ArgumentError ->
+            {:error,
+             GridCodec.ValidationError.cast_error(
+               unquote(module),
+               :unknown,
+               :encode,
+               nil,
+               Exception.message(e)
+             )}
         end
 
         def encode(%unquote(module){} = struct, opts) do
-          __validate__(struct)
+          unquote(if validate_enabled, do: quote(do: __validate__(struct)))
           start = :erlang.monotonic_time()
 
           binary =
@@ -2715,7 +2892,20 @@ defmodule GridCodec.Struct.Compiler do
             )
           end
 
-          binary
+          {:ok, binary}
+        rescue
+          e in GridCodec.ValidationError ->
+            {:error, e}
+
+          e in ArgumentError ->
+            {:error,
+             GridCodec.ValidationError.cast_error(
+               unquote(module),
+               :unknown,
+               :encode,
+               nil,
+               Exception.message(e)
+             )}
         end
       end
     else
@@ -2727,23 +2917,57 @@ defmodule GridCodec.Struct.Compiler do
 
         - `:header` - Include header (default: `true`)
         """
+        if unquote(generate_typespec) do
+          @spec encode(t(), keyword()) ::
+                  {:ok, binary()} | {:error, GridCodec.ValidationError.t()}
+        end
+
         def encode(struct, opts \\ [])
 
         def encode(%unquote(module){} = struct, []) do
-          __validate__(struct)
+          unquote(if validate_enabled, do: quote(do: __validate__(struct)))
           payload = encode_payload(struct)
-          <<@__gridcodec_header__::binary, payload::binary>>
+          {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+        rescue
+          e in GridCodec.ValidationError ->
+            {:error, e}
+
+          e in ArgumentError ->
+            {:error,
+             GridCodec.ValidationError.cast_error(
+               unquote(module),
+               :unknown,
+               :encode,
+               nil,
+               Exception.message(e)
+             )}
         end
 
         def encode(%unquote(module){} = struct, opts) do
-          __validate__(struct)
+          unquote(if validate_enabled, do: quote(do: __validate__(struct)))
 
-          if Keyword.get(opts, :header, true) do
-            payload = encode_payload(struct)
-            <<@__gridcodec_header__::binary, payload::binary>>
-          else
-            encode_payload(struct)
-          end
+          binary =
+            if Keyword.get(opts, :header, true) do
+              payload = encode_payload(struct)
+              <<@__gridcodec_header__::binary, payload::binary>>
+            else
+              encode_payload(struct)
+            end
+
+          {:ok, binary}
+        rescue
+          e in GridCodec.ValidationError ->
+            {:error, e}
+
+          e in ArgumentError ->
+            {:error,
+             GridCodec.ValidationError.cast_error(
+               unquote(module),
+               :unknown,
+               :encode,
+               nil,
+               Exception.message(e)
+             )}
         end
       end
     end
@@ -2876,9 +3100,7 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
 
   defp generate_validate_fn(_fields, _groups, false, _module) do
-    quote do
-      defp __validate__(_struct), do: :ok
-    end
+    nil
   end
 
   defp generate_validate_fn(fields, _groups, true, module) do
@@ -2943,7 +3165,7 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp build_group_coercions(groups, module) do
+  defp build_group_coercions(groups, _module) do
     Enum.flat_map(groups, fn {name, _block, opts} ->
       group_fields = Keyword.get(opts, :__resolved_fields__)
 
@@ -3231,22 +3453,8 @@ defmodule GridCodec.Struct.Compiler do
   # Update + Helpers (extracted for complexity)
   # ============================================================================
 
-  defp generate_update_and_helpers(module, generate_typespec) do
+  defp generate_update_and_helpers(module, generate_typespec, validate_enabled) do
     quote do
-      @doc """
-      Like `new/1` but raises on failure.
-      """
-      if unquote(generate_typespec) do
-        @spec new!(map() | keyword()) :: t()
-      end
-
-      def new!(attrs \\ %{}) do
-        case new(attrs) do
-          {:ok, struct} -> struct
-          {:error, error} -> raise error
-        end
-      end
-
       @doc """
       Updates an existing struct with partial attrs, applying coercion and validation.
 
@@ -3275,12 +3483,22 @@ defmodule GridCodec.Struct.Compiler do
           {:ok, coerced} ->
             updated = struct(unquote(module), coerced)
 
-            try do
-              __validate__(updated)
-              {:ok, updated}
-            rescue
-              e in GridCodec.ValidationError -> {:error, e}
-            end
+            unquote(
+              if validate_enabled do
+                quote do
+                  try do
+                    __validate__(updated)
+                    {:ok, updated}
+                  rescue
+                    e in GridCodec.ValidationError -> {:error, e}
+                  end
+                end
+              else
+                quote do
+                  {:ok, updated}
+                end
+              end
+            )
 
           {:error, _} = error ->
             error

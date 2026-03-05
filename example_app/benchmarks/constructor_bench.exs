@@ -1,6 +1,6 @@
 # Constructor & Validation Benchmark
 #
-# Measures overhead of new/1, new!/1, coercion, validation, and content_hash.
+# Measures overhead of new/1, coercion, validation, and content_hash.
 # Compares against raw struct creation to quantify the cost of safety.
 #
 # Run with: mix run benchmarks/constructor_bench.exs
@@ -44,37 +44,79 @@ defmodule ConstructorBench do
     IO.puts("Constructor & Validation Benchmark")
     IO.puts("===================================\n")
 
-    typed_attrs = %{id: 42, count: 100, price: 50_000, active: true, score: -5,
-                    created_at: 1_700_000_000_000_000}
-    string_attrs = %{"id" => "42", "count" => "100", "price" => "50000",
-                     "active" => "true", "score" => "-5",
-                     "created_at" => "2026-01-01T00:00:00Z"}
-    kw_attrs = [id: 42, count: 100, price: 50_000, active: true, score: -5,
-                created_at: 1_700_000_000_000_000]
+    typed_attrs = %{
+      id: 42,
+      count: 100,
+      price: 50_000,
+      active: true,
+      score: -5,
+      created_at: 1_700_000_000_000_000
+    }
+
+    string_attrs = %{
+      "id" => "42",
+      "count" => "100",
+      "price" => "50000",
+      "active" => "true",
+      "score" => "-5",
+      "created_at" => "2026-01-01T00:00:00Z"
+    }
+
+    kw_attrs = [
+      id: 42,
+      count: 100,
+      price: 50_000,
+      active: true,
+      score: -5,
+      created_at: 1_700_000_000_000_000
+    ]
+
     bad_attrs = %{count: 5_000_000_000}
     bad_string = %{"count" => "not_a_number"}
 
-    struct_val = %Validated{id: 42, count: 100, price: 50_000, active: true,
-                            score: -5, created_at: 1_700_000_000_000_000}
-    struct_unval = %Unvalidated{id: 42, count: 100, price: 50_000, active: true,
-                                score: -5, created_at: 1_700_000_000_000_000}
+    struct_val = %Validated{
+      id: 42,
+      count: 100,
+      price: 50_000,
+      active: true,
+      score: -5,
+      created_at: 1_700_000_000_000_000
+    }
+
+    struct_unval = %Unvalidated{
+      id: 42,
+      count: 100,
+      price: 50_000,
+      active: true,
+      score: -5,
+      created_at: 1_700_000_000_000_000
+    }
 
     # -----------------------------------------------------------------
-    # 1. Constructor overhead: raw struct vs new/1 vs new!/1
+    # 1. Constructor overhead: raw struct vs new/1
     # -----------------------------------------------------------------
     IO.puts("--- 1. Constructor overhead ---\n")
 
     Benchee.run(
       %{
-        "raw struct literal" => fn -> %Validated{id: 42, count: 100, price: 50_000,
-          active: true, score: -5, created_at: 1_700_000_000_000_000} end,
+        "raw struct literal" => fn ->
+          %Validated{
+            id: 42,
+            count: 100,
+            price: 50_000,
+            active: true,
+            score: -5,
+            created_at: 1_700_000_000_000_000
+          }
+        end,
         "struct!/2" => fn -> struct!(Validated, typed_attrs) end,
         "new/1 typed (no validate)" => fn -> Unvalidated.new(typed_attrs) end,
-        "new/1 typed (validate: true)" => fn -> Validated.new(typed_attrs) end,
-        "new!/1 typed (validate: true)" => fn -> Validated.new!(typed_attrs) end,
-        "new/1 keyword" => fn -> Validated.new(kw_attrs) end,
+        "new/1 typed (validate: true)" => fn -> {:ok, _} = Validated.new(typed_attrs) end,
+        "new/1 keyword" => fn -> Validated.new(kw_attrs) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------
@@ -85,9 +127,11 @@ defmodule ConstructorBench do
     Benchee.run(
       %{
         "new/1 typed input" => fn -> Validated.new(typed_attrs) end,
-        "new/1 string input (coerce)" => fn -> Validated.new(string_attrs) end,
+        "new/1 string input (coerce)" => fn -> Validated.new(string_attrs) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------
@@ -99,9 +143,11 @@ defmodule ConstructorBench do
       %{
         "new/1 valid (happy path)" => fn -> Validated.new(typed_attrs) end,
         "new/1 validation error (first field)" => fn -> Validated.new(bad_attrs) end,
-        "new/1 cast error (string)" => fn -> Validated.new(bad_string) end,
+        "new/1 cast error (string)" => fn -> Validated.new(bad_string) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------
@@ -111,10 +157,12 @@ defmodule ConstructorBench do
 
     Benchee.run(
       %{
-        "encode/1" => fn -> Validated.encode(struct_val) end,
-        "content_hash/1" => fn -> Validated.content_hash(struct_val) end,
+        "encode/1" => fn -> {:ok, _} = Validated.encode(struct_val) end,
+        "content_hash/1" => fn -> Validated.content_hash(struct_val) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------
@@ -122,15 +170,19 @@ defmodule ConstructorBench do
     # -----------------------------------------------------------------
     IO.puts("\n--- 5. decode_only vs full decode ---\n")
 
-    binary = Validated.encode(struct_val)
+    {:ok, binary} = Validated.encode(struct_val)
 
     Benchee.run(
       %{
         "full decode/1" => fn -> Validated.decode(binary) end,
-        "decode_only [:count, :active]" => fn -> Validated.decode_only(binary, [:count, :active]) end,
-        "decode_only [:price]" => fn -> Validated.decode_only(binary, [:price]) end,
+        "decode_only [:count, :active]" => fn ->
+          Validated.decode_only(binary, [:count, :active])
+        end,
+        "decode_only [:price]" => fn -> Validated.decode_only(binary, [:price]) end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
 
     # -----------------------------------------------------------------
@@ -142,21 +194,23 @@ defmodule ConstructorBench do
       %{
         "struct! → encode → decode (no validation)" => fn ->
           s = struct!(Unvalidated, typed_attrs)
-          bin = Unvalidated.encode(s)
+          {:ok, bin} = Unvalidated.encode(s)
           Unvalidated.decode(bin)
         end,
-        "new! → encode → decode (validated)" => fn ->
-          s = Validated.new!(typed_attrs)
-          bin = Validated.encode(s)
+        "new → encode → decode (validated)" => fn ->
+          {:ok, s} = Validated.new(typed_attrs)
+          {:ok, bin} = Validated.encode(s)
           Validated.decode(bin)
         end,
-        "new!(string) → encode → decode (coerce+validate)" => fn ->
-          s = Validated.new!(string_attrs)
-          bin = Validated.encode(s)
+        "new(string) → encode → decode (coerce+validate)" => fn ->
+          {:ok, s} = Validated.new(string_attrs)
+          {:ok, bin} = Validated.encode(s)
           Validated.decode(bin)
-        end,
+        end
       },
-      warmup: 2, time: 5, memory_time: 1
+      warmup: 2,
+      time: 5,
+      memory_time: 1
     )
   end
 end

@@ -51,8 +51,8 @@ defmodule Bench.Parameterized do
   defp run_size_benchmarks(data, module, _size, config) do
     # encode/1 now includes header by default
     # For payload-only, use encode(struct, header: false)
-    binary = module.encode(data)
-    binary_no_header = module.encode(data, header: false)
+    {:ok, binary} = module.encode(data)
+    {:ok, binary_no_header} = module.encode(data, header: false)
 
     results = %{}
 
@@ -62,17 +62,19 @@ defmodule Bench.Parameterized do
 
       require module
 
-      encode_results = Benchee.run(
-        %{
-          "Direct.encode (with header)" => fn -> module.encode(data) end,
-          "Direct.encode (no header)" => fn -> module.encode(data, header: false) end,
-          "GridCodec.encode (dispatch)" => fn -> GridCodec.encode(data) end
-        },
-        time: config.time,
-        warmup: config.warmup_time,
-        memory_time: config.memory_time,
-        print: [configuration: config.print_config]
-      )
+      encode_results =
+        Benchee.run(
+          %{
+            "Direct.encode (with header)" => fn -> module.encode(data) end,
+            "Direct.encode (no header)" => fn -> module.encode(data, header: false) end,
+            "GridCodec.encode (dispatch)" => fn -> GridCodec.encode(data) end
+          },
+          time: config.time,
+          warmup: config.warmup_time,
+          memory_time: config.memory_time,
+          print: [configuration: config.print_config]
+        )
+
       results = Map.put(results, :encode, encode_results)
     end
 
@@ -82,17 +84,21 @@ defmodule Bench.Parameterized do
 
       require module
 
-      decode_results = Benchee.run(
-        %{
-          "Direct.decode (with header)" => fn -> module.decode(binary) end,
-          "Direct.decode (no header)" => fn -> module.decode(binary_no_header, header: false) end,
-          "GridCodec.decode (dispatch)" => fn -> GridCodec.decode(binary) end
-        },
-        time: config.time,
-        warmup: config.warmup_time,
-        memory_time: config.memory_time,
-        print: [configuration: config.print_config]
-      )
+      decode_results =
+        Benchee.run(
+          %{
+            "Direct.decode (with header)" => fn -> module.decode(binary) end,
+            "Direct.decode (no header)" => fn ->
+              module.decode(binary_no_header, header: false)
+            end,
+            "GridCodec.decode (dispatch)" => fn -> GridCodec.decode(binary) end
+          },
+          time: config.time,
+          warmup: config.warmup_time,
+          memory_time: config.memory_time,
+          print: [configuration: config.print_config]
+        )
+
       results = Map.put(results, :decode, decode_results)
     end
 
@@ -105,18 +111,22 @@ defmodule Bench.Parameterized do
       first_field = List.first(module.__fields__())
 
       if first_field do
-        get_results = Benchee.run(
-          %{
-            # get/2 macro works directly on binary (with header by default)
-            "get(#{first_field}) [with header]" => fn -> module.get(binary, first_field) end,
-            # For payload-only binary, use header: false
-            "get(#{first_field}) [no header]" => fn -> module.get(binary_no_header, first_field, header: false) end
-          },
-          time: config.time,
-          warmup: config.warmup_time,
-          memory_time: config.memory_time,
-          print: [configuration: config.print_config]
-        )
+        get_results =
+          Benchee.run(
+            %{
+              # get/2 macro works directly on binary (with header by default)
+              "get(#{first_field}) [with header]" => fn -> module.get(binary, first_field) end,
+              # For payload-only binary, use header: false
+              "get(#{first_field}) [no header]" => fn ->
+                module.get(binary_no_header, first_field, header: false)
+              end
+            },
+            time: config.time,
+            warmup: config.warmup_time,
+            memory_time: config.memory_time,
+            print: [configuration: config.print_config]
+          )
+
         results = Map.put(results, :zero_copy, get_results)
       end
     end

@@ -56,7 +56,7 @@ defmodule QuickBench do
 
     # Encode/Decode verification
     # encode/1 now includes header by default
-    binary = Codec.encode(data)
+    {:ok, binary} = Codec.encode(data)
     {:ok, decoded} = Codec.decode(binary)
 
     require Codec
@@ -71,26 +71,37 @@ defmodule QuickBench do
 
     IO.puts("\nBenchmark (#{iterations} iterations):")
 
-    {encode_time, _} = :timer.tc(fn ->
-      for _ <- 1..iterations, do: Codec.encode(data)
-    end)
+    {encode_time, _} =
+      :timer.tc(fn ->
+        for _ <- 1..iterations, do: {:ok, _} = Codec.encode(data)
+      end)
 
-    {decode_time, _} = :timer.tc(fn ->
-      for _ <- 1..iterations, do: Codec.decode(binary)
-    end)
+    {decode_time, _} =
+      :timer.tc(fn ->
+        for _ <- 1..iterations, do: Codec.decode(binary)
+      end)
 
     # get/2 macro now works directly on binary (with header)
-    {get_time, _} = :timer.tc(fn ->
-      for _ <- 1..iterations, do: Codec.get(binary, :price)
-    end)
+    {get_time, _} =
+      :timer.tc(fn ->
+        for _ <- 1..iterations, do: Codec.get(binary, :price)
+      end)
 
     encode_ns = encode_time / iterations * 1000
     decode_ns = decode_time / iterations * 1000
     get_ns = get_time / iterations * 1000
 
-    IO.puts("  encode: #{Float.round(encode_ns, 1)} ns/op (#{Float.round(iterations / encode_time * 1_000_000, 0)} ops/sec)")
-    IO.puts("  decode: #{Float.round(decode_ns, 1)} ns/op (#{Float.round(iterations / decode_time * 1_000_000, 0)} ops/sec)")
-    IO.puts("  get:    #{Float.round(get_ns, 1)} ns/op (#{Float.round(iterations / get_time * 1_000_000, 0)} ops/sec)")
+    IO.puts(
+      "  encode: #{Float.round(encode_ns, 1)} ns/op (#{Float.round(iterations / encode_time * 1_000_000, 0)} ops/sec)"
+    )
+
+    IO.puts(
+      "  decode: #{Float.round(decode_ns, 1)} ns/op (#{Float.round(iterations / decode_time * 1_000_000, 0)} ops/sec)"
+    )
+
+    IO.puts(
+      "  get:    #{Float.round(get_ns, 1)} ns/op (#{Float.round(iterations / get_time * 1_000_000, 0)} ops/sec)"
+    )
 
     IO.puts("\nDone!")
   end

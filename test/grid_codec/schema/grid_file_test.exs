@@ -48,7 +48,7 @@ defmodule GridCodec.Schema.GridFileTest do
         active: true
       }
 
-      binary = OrderFromFile.encode(order)
+      {:ok, binary} = OrderFromFile.encode(order)
       {:ok, decoded} = OrderFromFile.decode(binary)
 
       assert decoded.id == order.id
@@ -66,7 +66,7 @@ defmodule GridCodec.Schema.GridFileTest do
         quantity: 10
       }
 
-      binary = TradeFromFile.encode(trade)
+      {:ok, binary} = TradeFromFile.encode(trade)
       {:ok, decoded} = TradeFromFile.decode(binary)
 
       assert decoded.trade_id == trade.trade_id
@@ -84,7 +84,7 @@ defmodule GridCodec.Schema.GridFileTest do
         active: false
       }
 
-      binary = OrderFromFile.encode(order)
+      {:ok, binary} = OrderFromFile.encode(order)
       {:ok, decoded} = GridCodec.decode(binary)
 
       # Check values match what we encoded

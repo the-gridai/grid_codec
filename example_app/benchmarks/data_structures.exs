@@ -60,7 +60,8 @@ defmodule Bench.DataStructures do
       # Use integer timestamp for optimal performance
       timestamp: System.system_time(:microsecond),
       flags: 7,
-      symbol: String.duplicate("A", 10)  # 10 char symbol
+      # 10 char symbol
+      symbol: String.duplicate("A", 10)
     }
   end
 
@@ -108,14 +109,18 @@ defmodule Bench.DataStructures do
       time_in_force: 1,
       # Use integer timestamps for optimal performance
       timestamp: now,
-      expiry_time: now + 86_400_000_000,  # +1 day in microseconds
+      # +1 day in microseconds
+      expiry_time: now + 86_400_000_000,
       flags: 7,
       priority: 5,
       reserved1: 0,
       reserved2: 0,
-      symbol: String.duplicate("BTCUSD", 2),  # 10 chars
-      client_order_id: String.duplicate("CLIENT-", 7),  # 42 chars
-      notes: String.duplicate("NOTE", 4)  # 16 chars
+      # 10 chars
+      symbol: String.duplicate("BTCUSD", 2),
+      # 42 chars
+      client_order_id: String.duplicate("CLIENT-", 7),
+      # 16 chars
+      notes: String.duplicate("NOTE", 4)
     }
   end
 

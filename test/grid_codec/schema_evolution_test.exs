@@ -132,7 +132,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "v1 binary decoded by v2 codec" do
     test "new fixed fields decode as nil" do
       v1 = %EventV1{id: 42, price: 1000}
-      binary = EventV1.encode(v1)
+      {:ok, binary} = EventV1.encode(v1)
 
       assert {:ok, result} = EventV2.decode(binary)
       assert result.id == 42
@@ -142,7 +142,7 @@ defmodule GridCodec.SchemaEvolutionTest do
 
     test "same-version binary decodes normally" do
       v2 = %EventV2{id: 42, price: 1000, quantity: 50}
-      binary = EventV2.encode(v2)
+      {:ok, binary} = EventV2.encode(v2)
 
       assert {:ok, result} = EventV2.decode(binary)
       assert result.id == 42
@@ -154,7 +154,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "v1 binary decoded by v3 codec (multi-version gap)" do
     test "all newer fields decode as nil" do
       v1 = %EventV1{id: 99, price: 500}
-      binary = EventV1.encode(v1)
+      {:ok, binary} = EventV1.encode(v1)
 
       assert {:ok, result} = EventV3.decode(binary)
       assert result.id == 99
@@ -165,7 +165,7 @@ defmodule GridCodec.SchemaEvolutionTest do
 
     test "v2 binary decoded by v3 keeps v2 fields" do
       v2 = %EventV2{id: 99, price: 500, quantity: 25}
-      binary = EventV2.encode(v2)
+      {:ok, binary} = EventV2.encode(v2)
 
       assert {:ok, result} = EventV3.decode(binary)
       assert result.id == 99
@@ -178,7 +178,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "version-aware decode with variable-length fields" do
     test "v1 string fields survive padding" do
       v1 = %WithStringV1{id: 7, name: "hello world"}
-      binary = WithStringV1.encode(v1)
+      {:ok, binary} = WithStringV1.encode(v1)
 
       assert {:ok, result} = WithStringV2.decode(binary)
       assert result.id == 7
@@ -188,7 +188,7 @@ defmodule GridCodec.SchemaEvolutionTest do
 
     test "v1 with nil string decoded by v2" do
       v1 = %WithStringV1{id: 7, name: nil}
-      binary = WithStringV1.encode(v1)
+      {:ok, binary} = WithStringV1.encode(v1)
 
       assert {:ok, result} = WithStringV2.decode(binary)
       assert result.id == 7
@@ -201,7 +201,7 @@ defmodule GridCodec.SchemaEvolutionTest do
     test "uuid and bool fields preserved, decimal and timestamp default to nil" do
       uuid = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>
       v1 = %MixedV1{id: uuid, active: true}
-      binary = MixedV1.encode(v1)
+      {:ok, binary} = MixedV1.encode(v1)
 
       assert {:ok, result} = MixedV2.decode(binary)
       assert result.id == uuid
@@ -214,7 +214,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "nil values in existing fields survive evolution" do
     test "v1 fields that are nil stay nil after v2 decode" do
       v1 = %EventV1{id: nil, price: nil}
-      binary = EventV1.encode(v1)
+      {:ok, binary} = EventV1.encode(v1)
 
       assert {:ok, result} = EventV2.decode(binary)
       assert result.id == nil
@@ -224,7 +224,7 @@ defmodule GridCodec.SchemaEvolutionTest do
 
     test "mix of nil and non-nil v1 fields" do
       v1 = %WithStringV1AllNil{id: 42, price: nil}
-      binary = WithStringV1AllNil.encode(v1)
+      {:ok, binary} = WithStringV1AllNil.encode(v1)
 
       assert {:ok, result} = WithStringV2AllNil.decode(binary)
       assert result.id == 42
@@ -236,7 +236,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "signed integer :since fields" do
     test "signed i32 and i64 fields decode as nil from v1 binary" do
       v1 = %SignedV1{id: 100}
-      binary = SignedV1.encode(v1)
+      {:ok, binary} = SignedV1.encode(v1)
 
       assert {:ok, result} = SignedV2.decode(binary)
       assert result.id == 100
@@ -248,7 +248,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "header: false path is unaffected" do
     test "payload-only decode still works normally" do
       v2 = %EventV2{id: 42, price: 1000, quantity: 50}
-      payload = EventV2.encode(v2, header: false)
+      {:ok, payload} = EventV2.encode(v2, header: false)
 
       assert {:ok, result} = EventV2.decode(payload, header: false)
       assert result.id == 42
@@ -260,7 +260,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "no :since fields (version-aware decode is no-op)" do
     test "normal roundtrip works without :since" do
       v1 = %NoSinceV1{id: 42, count: 10}
-      binary = NoSinceV1.encode(v1)
+      {:ok, binary} = NoSinceV1.encode(v1)
 
       assert {:ok, result} = NoSinceV1.decode(binary)
       assert result.id == 42
@@ -271,12 +271,12 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "re-encode after evolution preserves data" do
     test "decode v1 with v2, then re-encode with v2 produces valid v2 binary" do
       v1 = %EventV1{id: 42, price: 1000}
-      v1_binary = EventV1.encode(v1)
+      {:ok, v1_binary} = EventV1.encode(v1)
 
       {:ok, evolved} = EventV2.decode(v1_binary)
       assert evolved.quantity == nil
 
-      v2_binary = EventV2.encode(evolved)
+      {:ok, v2_binary} = EventV2.encode(evolved)
       {:ok, roundtripped} = EventV2.decode(v2_binary)
       assert roundtripped.id == 42
       assert roundtripped.price == 1000
@@ -285,12 +285,12 @@ defmodule GridCodec.SchemaEvolutionTest do
 
     test "decode v1 with v2, set new field, re-encode" do
       v1 = %EventV1{id: 42, price: 1000}
-      v1_binary = EventV1.encode(v1)
+      {:ok, v1_binary} = EventV1.encode(v1)
 
       {:ok, evolved} = EventV2.decode(v1_binary)
       updated = %{evolved | quantity: 99}
 
-      v2_binary = EventV2.encode(updated)
+      {:ok, v2_binary} = EventV2.encode(updated)
       {:ok, roundtripped} = EventV2.decode(v2_binary)
       assert roundtripped.id == 42
       assert roundtripped.price == 1000
@@ -348,7 +348,7 @@ defmodule GridCodec.SchemaEvolutionTest do
   describe "version validation" do
     test "newer version binary rejected" do
       v2 = %EventV2{id: 42, price: 1000, quantity: 50}
-      binary = EventV2.encode(v2)
+      {:ok, binary} = EventV2.encode(v2)
 
       assert {:error, {:version_too_new, 2, 1}} = EventV1.decode(binary)
     end

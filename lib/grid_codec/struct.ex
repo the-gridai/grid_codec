@@ -108,8 +108,8 @@ defmodule GridCodec.Struct do
       }
 
       # Encode with header (for dispatch)
-      binary = GridCodec.encode(trade)
-      # or: binary = MyApp.Trade.encode(trade)
+      {:ok, binary} = GridCodec.encode(trade)
+      # or: {:ok, binary} = MyApp.Trade.encode(trade)
 
       # Decode (dispatch finds correct module)
       {:ok, %MyApp.Trade{}} = GridCodec.decode(binary)
@@ -312,7 +312,7 @@ defmodule GridCodec.Struct do
 
   ## Generated Functions
 
-  - `encode/1,2` - Encodes struct to binary (with header by default)
+  - `encode/1,2` - Encodes struct to binary, returns `{:ok, binary} | {:error, ValidationError.t()}`
   - `decode/1,2` - Decodes binary to struct (expects header by default)
   - `get/2,3` macro - Zero-copy field access via binary pattern matching
   - `match/1,2` macro - Multi-field pattern matching

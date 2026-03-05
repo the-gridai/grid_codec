@@ -77,7 +77,7 @@ events = [
 ]
 
 for {stream_id, event} <- events do
-  binary = event.__struct__.encode(event)
+  {:ok, binary} = event.__struct__.encode(event)
   type_name = event.__struct__.__type__()
 
   Repo.query!(

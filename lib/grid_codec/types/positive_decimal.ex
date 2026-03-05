@@ -178,6 +178,36 @@ defmodule GridCodec.Types.PositiveDecimal do
   end
 
   @impl true
+  def encode_to_wire_ast(var, opts) do
+    scale = Keyword.get(opts, :scale, 0)
+
+    quote do
+      case unquote(var) do
+        %Decimal{sign: 1, coef: coef, exp: exp} ->
+          diff = unquote(scale) + exp
+
+          if diff >= 0 do
+            coef * GridCodec.Types.Decimal.int_pow10(diff)
+          else
+            div(coef, GridCodec.Types.Decimal.int_pow10(-diff))
+          end
+
+        %Decimal{coef: coef, exp: exp} ->
+          diff = unquote(scale) + exp
+
+          if diff >= 0 do
+            coef * GridCodec.Types.Decimal.int_pow10(diff)
+          else
+            div(coef, GridCodec.Types.Decimal.int_pow10(-diff))
+          end
+
+        n when is_integer(n) ->
+          n
+      end
+    end
+  end
+
+  @impl true
   def coerce_ast(var) do
     dec_mod = Decimal
 

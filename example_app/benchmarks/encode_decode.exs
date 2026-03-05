@@ -62,10 +62,14 @@ defmodule Bench.EncodeDecode do
       %{
         "OrderCreated.encode" => fn -> ExampleApp.Events.OrderCreated.encode(order) end,
         "OrderCreated.decode" => fn -> ExampleApp.Events.OrderCreated.decode(order_bin) end,
-        "OrderCreated.get(:price)" => fn -> ExampleApp.Events.OrderCreated.get(order_bin, :price) end,
+        "OrderCreated.get(:price)" => fn ->
+          ExampleApp.Events.OrderCreated.get(order_bin, :price)
+        end,
         "TradeExecuted.encode" => fn -> ExampleApp.Events.TradeExecuted.encode(trade) end,
         "TradeExecuted.decode" => fn -> ExampleApp.Events.TradeExecuted.decode(trade_bin) end,
-        "TradeExecuted.get(:price)" => fn -> ExampleApp.Events.TradeExecuted.get(trade_bin, :price) end
+        "TradeExecuted.get(:price)" => fn ->
+          ExampleApp.Events.TradeExecuted.get(trade_bin, :price)
+        end
       },
       time: 3,
       warmup: 1,

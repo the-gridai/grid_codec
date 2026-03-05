@@ -26,7 +26,7 @@ defmodule GridCodec.FramingTest do
 
     test "encode/1 includes header by default" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      binary = OrderEvent.encode(data)
+      {:ok, binary} = OrderEvent.encode(data)
 
       # Framed = header (8) + payload (20) = 28 bytes
       assert byte_size(binary) == 28
@@ -42,7 +42,7 @@ defmodule GridCodec.FramingTest do
 
     test "encode/2 with header: false produces payload only" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      payload = OrderEvent.encode(data, header: false)
+      {:ok, payload} = OrderEvent.encode(data, header: false)
 
       # Payload should be exactly block_length bytes (8 + 8 + 4 = 20)
       assert byte_size(payload) == 20
@@ -50,7 +50,7 @@ defmodule GridCodec.FramingTest do
 
     test "decode/1 expects header by default" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      framed = OrderEvent.encode(data)
+      {:ok, framed} = OrderEvent.encode(data)
 
       assert {:ok, decoded} = OrderEvent.decode(framed)
       assert decoded.order_id == 123
@@ -60,7 +60,7 @@ defmodule GridCodec.FramingTest do
 
     test "decode/2 with header: false decodes payload only" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      payload = OrderEvent.encode(data, header: false)
+      {:ok, payload} = OrderEvent.encode(data, header: false)
 
       assert {:ok, decoded} = OrderEvent.decode(payload, header: false)
       assert decoded.order_id == 123
@@ -133,7 +133,7 @@ defmodule GridCodec.FramingTest do
 
     test "get macro retrieves field from framed binary" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      framed = OrderEvent.encode(data)
+      {:ok, framed} = OrderEvent.encode(data)
       require OrderEvent
 
       assert OrderEvent.get(framed, :order_id) == 123
@@ -143,7 +143,7 @@ defmodule GridCodec.FramingTest do
 
     test "get macro with header: false retrieves field from payload" do
       data = %OrderEvent{order_id: 123, price: 1000, quantity: 50}
-      payload = OrderEvent.encode(data, header: false)
+      {:ok, payload} = OrderEvent.encode(data, header: false)
       require OrderEvent
 
       assert OrderEvent.get(payload, :order_id, header: false) == 123
@@ -175,7 +175,7 @@ defmodule GridCodec.FramingTest do
     end
 
     test "encode/1 includes header with defaults" do
-      framed = SimpleCodec.encode(%SimpleCodec{value: 42})
+      {:ok, framed} = SimpleCodec.encode(%SimpleCodec{value: 42})
 
       {:ok, header, _} = GridCodec.Header.decode(framed)
       assert header.template_id == SimpleCodec.__template_id__()
@@ -206,7 +206,7 @@ defmodule GridCodec.FramingTest do
         active: true
       }
 
-      framed = ComplexEvent.encode(data)
+      {:ok, framed} = ComplexEvent.encode(data)
       {:ok, decoded} = ComplexEvent.decode(framed)
 
       assert decoded.id == uuid

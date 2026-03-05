@@ -35,7 +35,7 @@ defmodule GridCodec.ModuleTypeTest do
   describe "module reference as field type" do
     test "roundtrip with enum module reference" do
       struct = %WithModuleType{id: 42, side: :buy, price: Decimal.new("99.50")}
-      binary = WithModuleType.encode(struct)
+      {:ok, binary} = WithModuleType.encode(struct)
       assert {:ok, decoded} = WithModuleType.decode(binary)
 
       assert decoded.id == 42
@@ -45,7 +45,7 @@ defmodule GridCodec.ModuleTypeTest do
 
     test "nil enum value roundtrips" do
       struct = %WithModuleType{id: 1, side: nil, price: nil}
-      binary = WithModuleType.encode(struct)
+      {:ok, binary} = WithModuleType.encode(struct)
       assert {:ok, decoded} = WithModuleType.decode(binary)
 
       assert decoded.side == nil
@@ -53,7 +53,7 @@ defmodule GridCodec.ModuleTypeTest do
 
     test "aliased module reference works identically" do
       struct = %WithAliasedModuleType{id: 42, side: :sell, price: Decimal.new("100")}
-      binary = WithAliasedModuleType.encode(struct)
+      {:ok, binary} = WithAliasedModuleType.encode(struct)
       assert {:ok, decoded} = WithAliasedModuleType.decode(binary)
 
       assert decoded.side == :sell
@@ -98,7 +98,7 @@ defmodule GridCodec.ModuleTypeTest do
         timestamp: System.system_time(:microsecond)
       }
 
-      binary = OrderEvent.encode(struct)
+      {:ok, binary} = OrderEvent.encode(struct)
       assert {:ok, decoded} = OrderEvent.decode(binary)
 
       assert decoded.order_id == <<1::128>>
@@ -118,7 +118,7 @@ defmodule GridCodec.ModuleTypeTest do
         timestamp: System.system_time(:microsecond)
       }
 
-      binary = OrderEvent.encode(struct)
+      {:ok, binary} = OrderEvent.encode(struct)
       assert {:ok, decoded} = OrderEvent.decode(binary)
 
       assert decoded.side == nil
@@ -136,7 +136,7 @@ defmodule GridCodec.ModuleTypeTest do
           timestamp: System.system_time(:microsecond)
         }
 
-        binary = OrderEvent.encode(struct)
+        {:ok, binary} = OrderEvent.encode(struct)
         assert {:ok, decoded} = OrderEvent.decode(binary)
         assert decoded.side == side
         assert decoded.status == status

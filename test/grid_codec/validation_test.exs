@@ -41,23 +41,20 @@ defmodule GridCodec.ValidationTest do
         created_at: System.system_time(:microsecond)
       }
 
-      binary = ValidatedCodec.encode(struct)
+      {:ok, binary} = ValidatedCodec.encode(struct)
       assert {:ok, _decoded} = ValidatedCodec.decode(binary)
     end
 
     test "nil values are accepted" do
       struct = %ValidatedCodec{}
-      binary = ValidatedCodec.encode(struct)
+      {:ok, binary} = ValidatedCodec.encode(struct)
       assert {:ok, _} = ValidatedCodec.decode(binary)
     end
 
-    test "u32 overflow raises ValidationError" do
+    test "u32 overflow returns ValidationError" do
       struct = %ValidatedCodec{count: 5_000_000_000}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :out_of_range
       assert error.details.field == :count
@@ -68,25 +65,19 @@ defmodule GridCodec.ValidationTest do
       assert Exception.message(error) =~ ":count"
     end
 
-    test "u32 negative raises ValidationError" do
+    test "u32 negative returns ValidationError" do
       struct = %ValidatedCodec{count: -1}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :out_of_range
       assert error.details.field == :count
     end
 
-    test "i8 overflow raises ValidationError" do
+    test "i8 overflow returns ValidationError" do
       struct = %ValidatedCodec{score: 200}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :out_of_range
       assert error.details.field == :score
@@ -94,13 +85,10 @@ defmodule GridCodec.ValidationTest do
       assert Exception.message(error) =~ "-128..127"
     end
 
-    test "bool wrong type raises ValidationError" do
+    test "bool wrong type returns ValidationError" do
       struct = %ValidatedCodec{active: "yes"}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :type_mismatch
       assert error.details.field == :active
@@ -108,26 +96,20 @@ defmodule GridCodec.ValidationTest do
       assert Exception.message(error) =~ "true, false, or nil"
     end
 
-    test "uuid wrong format raises ValidationError" do
+    test "uuid wrong format returns ValidationError" do
       struct = %ValidatedCodec{id: "not-a-uuid"}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :invalid_format
       assert error.details.field == :id
       assert error.details.type == :uuid
     end
 
-    test "decimal wrong type raises ValidationError" do
+    test "decimal wrong type returns ValidationError" do
       struct = %ValidatedCodec{price: "100.50"}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :type_mismatch
       assert error.details.field == :price
@@ -135,13 +117,10 @@ defmodule GridCodec.ValidationTest do
       assert Exception.message(error) =~ "Decimal"
     end
 
-    test "timestamp wrong type raises ValidationError" do
+    test "timestamp wrong type returns ValidationError" do
       struct = %ValidatedCodec{created_at: "2026-01-01"}
 
-      error =
-        assert_raise GridCodec.ValidationError, fn ->
-          ValidatedCodec.encode(struct)
-        end
+      assert {:error, error} = ValidatedCodec.encode(struct)
 
       assert error.code == :type_mismatch
       assert error.details.field == :created_at
@@ -180,15 +159,16 @@ defmodule GridCodec.ValidationTest do
     end
   end
 
-  describe "new!/1 constructor" do
-    test "returns struct for valid data" do
-      assert %ValidatedCodec{count: 100} = ValidatedCodec.new!(count: 100)
+  describe "encode/1 error handling" do
+    test "returns {:ok, binary} for valid data" do
+      {:ok, struct} = ValidatedCodec.new(count: 42)
+      assert {:ok, binary} = ValidatedCodec.encode(struct)
+      assert is_binary(binary)
     end
 
-    test "raises ValidationError for invalid data" do
-      assert_raise GridCodec.ValidationError, ~r/out of range/, fn ->
-        ValidatedCodec.new!(count: 5_000_000_000)
-      end
+    test "returns {:error, %ValidationError{}} for invalid data" do
+      struct = %ValidatedCodec{count: 5_000_000_000}
+      assert {:error, %GridCodec.ValidationError{}} = ValidatedCodec.encode(struct)
     end
   end
 
@@ -241,21 +221,16 @@ defmodule GridCodec.ValidationTest do
   end
 
   describe "validation disabled" do
-    test "overflow raises ArgumentError not ValidationError" do
+    test "overflow returns error" do
       struct = %UnvalidatedCodec{count: 5_000_000_000}
 
-      error =
-        assert_raise ArgumentError, fn ->
-          UnvalidatedCodec.encode(struct)
-        end
-
+      assert {:error, error} = UnvalidatedCodec.encode(struct)
       assert Exception.message(error) =~ "u32"
-      refute is_struct(error, GridCodec.ValidationError)
     end
 
     test "valid data encodes normally without validation" do
       struct = %UnvalidatedCodec{count: 100}
-      binary = UnvalidatedCodec.encode(struct)
+      {:ok, binary} = UnvalidatedCodec.encode(struct)
       assert {:ok, decoded} = UnvalidatedCodec.decode(binary)
       assert decoded.count == 100
     end

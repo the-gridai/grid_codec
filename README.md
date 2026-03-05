@@ -13,6 +13,27 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
 - **Generic top-level types** – `GridCodec.layout()`, `GridCodec.framed_layout()`, and `GridCodec.codec_data()`
 
+## Performance
+
+Full pipeline (construct + validate + serialize):
+
+| Operation | Latency | Memory | Wire size |
+|-----------|---------|--------|-----------|
+| `GridCodec.new_binary/1` | **345 ns** | 0.8 KB | 63 B |
+| Ecto changeset + Jason | 4,142 ns | 7.1 KB | 170 B |
+
+**12x faster, 9x less memory, 2.7x smaller on the wire.**
+
+Single field access from binary without decoding:
+
+| Method | Latency |
+|--------|---------|
+| `GridCodec.get/2` | **31 ns** |
+| JSON decode + map access | 1,239 ns |
+
+See [Performance Guide](docs/performance.md) for full benchmarks including
+Protobuf, ETF, and MessagePack comparisons.
+
 ## Installation
 
 Add `grid_codec` to your dependencies in `mix.exs`:
@@ -24,6 +45,14 @@ def deps do
   ]
 end
 ```
+
+## Next Steps After Installation
+
+1. **First codec** — [Getting Started](docs/getting-started.md): define a codec, encode/decode, zero-copy access.
+2. **Schemas** — [Schemas](docs/schemas.md): `.grid` schema syntax and code generation.
+3. **Evolution** — [Schema evolution](docs/schema-evolution.md): versioning and safe rollout.
+4. **Performance** — [Performance](docs/performance.md): profiling and optimization.
+5. **Consumers** — [Consumer integration](docs/consumer-integration.md): checklist for apps using GridCodec (e.g. downstream applications).
 
 ## Quick Start
 
@@ -49,7 +78,7 @@ user = %MyApp.Events.UserCreated{
   created_at: System.system_time(:microsecond)
 }
 
-binary = MyApp.Events.UserCreated.encode(user)
+{:ok, binary} = MyApp.Events.UserCreated.encode(user)
 
 # Zero-copy field access (no full decode!)
 require MyApp.Events.UserCreated
@@ -60,7 +89,7 @@ score = MyApp.Events.UserCreated.get(binary, :score)
 {:ok, decoded} = MyApp.Events.UserCreated.decode(binary)
 
 # Top-level dispatch (with framed binary)
-framed = GridCodec.encode(user)
+{:ok, framed} = GridCodec.encode(user)
 {:ok, decoded} = GridCodec.decode(framed)
 ```
 
@@ -138,6 +167,7 @@ Guides:
 - `docs/schema-evolution.md` - Versioning and rollout guidance
 - `docs/performance.md` - Profiling and optimization practices
 - `docs/troubleshooting.md` - Common errors and fixes
+- `docs/consumer-integration.md` - Checklist for apps using GridCodec (e.g. downstream applications)
 
 ## Common Tasks
 
@@ -197,6 +227,13 @@ mix credo --strict                # Static analysis
 mix test                          # Run test suite
 mix dialyzer                      # Type checking
 ```
+
+### Publishing a release
+
+1. Bump `@version` in `mix.exs` and add a `## [X.Y.Z] - YYYY-MM-DD` entry to `CHANGELOG.md` under `## [Unreleased]` (move Unreleased items into the new version).
+2. Run `mix check` (compile, format, credo, test, dialyzer).
+3. Commit, then tag: `git tag v0.21.0 && git push origin v0.21.0`.
+4. Publish to Hex (if applicable): `mix hex.publish`.
 
 ### Code Quality
 

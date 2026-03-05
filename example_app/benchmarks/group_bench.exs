@@ -9,6 +9,7 @@ defmodule GroupBench do
 
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -17,6 +18,7 @@ defmodule GroupBench do
 
   defmodule OrderType do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:limit)
       value(:market)
@@ -86,7 +88,7 @@ defmodule GroupBench do
   defp make_orders(n) do
     for i <- 1..n do
       %{
-        order_id: <<(i + 1_000_000)::128>>,
+        order_id: <<i + 1_000_000::128>>,
         trader_id: <<rem(i, 500)::128>>,
         side: if(rem(i, 2) == 0, do: :buy, else: :sell),
         order_type: if(rem(i, 5) == 0, do: :market, else: :limit),
@@ -129,7 +131,7 @@ defmodule GroupBench do
     events =
       for {nb, no, label} <- scenarios, into: %{} do
         ev = make_event(nb, no)
-        bin = TradingPeriodSettled.encode(ev)
+        {:ok, bin} = TradingPeriodSettled.encode(ev)
 
         IO.puts(
           "#{label}: #{div(byte_size(bin), 1024)} KB " <>
@@ -144,7 +146,7 @@ defmodule GroupBench do
     # -- Encode --
     Benchee.run(
       for {label, {ev, _bin}} <- events, into: %{} do
-        {"encode #{label}", fn -> TradingPeriodSettled.encode(ev) end}
+        {"encode #{label}", fn -> {:ok, _} = TradingPeriodSettled.encode(ev) end}
       end,
       warmup: 2,
       time: 5,
@@ -184,7 +186,7 @@ defmodule GroupBench do
       for {label, {ev, _bin}} <- events, into: %{} do
         {"roundtrip #{label}",
          fn ->
-           bin = TradingPeriodSettled.encode(ev)
+           {:ok, bin} = TradingPeriodSettled.encode(ev)
            {:ok, dec} = TradingPeriodSettled.decode(bin)
            GridCodec.Group.to_list(dec.balances)
            GridCodec.Group.to_list(dec.open_orders)

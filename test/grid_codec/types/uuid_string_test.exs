@@ -77,7 +77,7 @@ defmodule GridCodec.Types.UUIDStringTest do
         secondary_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
 
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
       # Header (8) + id (16) + secondary_id (16) = 40
       assert byte_size(binary) == 40
     end
@@ -86,7 +86,7 @@ defmodule GridCodec.Types.UUIDStringTest do
       raw_uuid = <<85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0>>
 
       data = %TestStruct{id: raw_uuid, secondary_id: raw_uuid}
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
 
       {:ok, decoded} = TestStruct.decode(binary)
       assert decoded.id == "550e8400-e29b-41d4-a716-446655440000"
@@ -98,7 +98,7 @@ defmodule GridCodec.Types.UUIDStringTest do
         secondary_id: "550e8400e29b41d4a716446655440000"
       }
 
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
       {:ok, decoded} = TestStruct.decode(binary)
 
       assert decoded.id == "550e8400-e29b-41d4-a716-446655440000"
@@ -106,23 +106,21 @@ defmodule GridCodec.Types.UUIDStringTest do
 
     test "encodes nil as null UUID" do
       data = %TestStruct{id: nil, secondary_id: nil}
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
 
       {:ok, decoded} = TestStruct.decode(binary)
       assert decoded.id == nil
       assert decoded.secondary_id == nil
     end
 
-    test "raises on invalid UUID format" do
-      assert_raise ArgumentError, ~r/Invalid UUID/, fn ->
-        TestStruct.encode(%TestStruct{id: "not-a-uuid", secondary_id: nil})
-      end
+    test "returns error on invalid UUID format" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               TestStruct.encode(%TestStruct{id: "not-a-uuid", secondary_id: nil})
     end
 
-    test "raises on wrong-length binary" do
-      assert_raise ArgumentError, ~r/Invalid UUID/, fn ->
-        TestStruct.encode(%TestStruct{id: <<1, 2, 3>>, secondary_id: nil})
-      end
+    test "returns error on wrong-length binary" do
+      assert {:error, %GridCodec.ValidationError{}} =
+               TestStruct.encode(%TestStruct{id: <<1, 2, 3>>, secondary_id: nil})
     end
   end
 
@@ -133,7 +131,7 @@ defmodule GridCodec.Types.UUIDStringTest do
         secondary_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
       }
 
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
       {:ok, decoded} = TestStruct.decode(binary)
 
       assert decoded.id == "550e8400-e29b-41d4-a716-446655440000"
@@ -142,7 +140,7 @@ defmodule GridCodec.Types.UUIDStringTest do
 
     test "decodes null UUID as nil" do
       data = %TestStruct{id: nil, secondary_id: nil}
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
 
       {:ok, decoded} = TestStruct.decode(binary)
       assert decoded.id == nil
@@ -155,7 +153,7 @@ defmodule GridCodec.Types.UUIDStringTest do
         secondary_id: nil
       }
 
-      binary = TestStruct.encode(data)
+      {:ok, binary} = TestStruct.encode(data)
       {:ok, decoded} = TestStruct.decode(binary)
 
       assert String.valid?(decoded.id)
@@ -170,7 +168,7 @@ defmodule GridCodec.Types.UUIDStringTest do
 
       # Encode with :uuid_string type
       string_data = %TestStruct{id: uuid_string, secondary_id: nil}
-      string_binary = TestStruct.encode(string_data)
+      {:ok, string_binary} = TestStruct.encode(string_data)
 
       # The raw UUID bytes should be in the payload
       # Skip header (8 bytes), check first 16 bytes of payload
@@ -259,7 +257,7 @@ defmodule GridCodec.Types.UUIDStringTest do
           secondary_id: if(uuid2 == <<0::128>>, do: nil, else: uuid2)
         }
 
-        binary = TestStruct.encode(data)
+        {:ok, binary} = TestStruct.encode(data)
         {:ok, decoded} = TestStruct.decode(binary)
 
         # Compare: nil stays nil, bytes become formatted strings
@@ -284,11 +282,11 @@ defmodule GridCodec.Types.UUIDStringTest do
 
           # Encode with string input
           data_string = %TestStruct{id: uuid_string, secondary_id: nil}
-          binary_from_string = TestStruct.encode(data_string)
+          {:ok, binary_from_string} = TestStruct.encode(data_string)
 
           # Encode with bytes input
           data_bytes = %TestStruct{id: uuid_bytes, secondary_id: nil}
-          binary_from_bytes = TestStruct.encode(data_bytes)
+          {:ok, binary_from_bytes} = TestStruct.encode(data_bytes)
 
           assert binary_from_string == binary_from_bytes
         end
@@ -299,7 +297,7 @@ defmodule GridCodec.Types.UUIDStringTest do
       check all(uuid_bytes <- binary(length: 16)) do
         if uuid_bytes != <<0::128>> do
           data = %TestStruct{id: uuid_bytes, secondary_id: nil}
-          binary = TestStruct.encode(data)
+          {:ok, binary} = TestStruct.encode(data)
           {:ok, decoded} = TestStruct.decode(binary)
 
           assert String.valid?(decoded.id)

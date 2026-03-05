@@ -27,7 +27,7 @@ defmodule GridCodec.TopLevelApiTest do
     test "encodes a struct with header" do
       order = %Order{id: 12345, price: 999, quantity: 50}
 
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
 
       # Should include 8-byte header + payload
       assert is_binary(binary)
@@ -39,7 +39,7 @@ defmodule GridCodec.TopLevelApiTest do
     test "encoded binary has correct header" do
       order = %Order{id: 12345, price: 999, quantity: 50}
 
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
 
       {:ok, header, _payload} = GridCodec.Header.decode(binary)
       assert header.template_id == 301
@@ -56,7 +56,7 @@ defmodule GridCodec.TopLevelApiTest do
   describe "GridCodec.decode/1" do
     test "decodes to correct struct type based on header" do
       order = %Order{id: 12345, price: 999, quantity: 50}
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
 
       {:ok, decoded} = GridCodec.decode(binary)
 
@@ -70,8 +70,8 @@ defmodule GridCodec.TopLevelApiTest do
       order = %Order{id: 111, price: 100, quantity: 10}
       trade = %Trade{trade_id: 222, amount: 500}
 
-      order_binary = GridCodec.encode(order)
-      trade_binary = GridCodec.encode(trade)
+      {:ok, order_binary} = GridCodec.encode(order)
+      {:ok, trade_binary} = GridCodec.encode(trade)
 
       {:ok, decoded_order} = GridCodec.decode(order_binary)
       {:ok, decoded_trade} = GridCodec.decode(trade_binary)
@@ -105,15 +105,15 @@ defmodule GridCodec.TopLevelApiTest do
     test "GridCodec.encode equals Module.encode" do
       order = %Order{id: 12345, price: 999, quantity: 50}
 
-      via_gridcodec = GridCodec.encode(order)
-      via_module = Order.encode(order)
+      {:ok, via_gridcodec} = GridCodec.encode(order)
+      {:ok, via_module} = Order.encode(order)
 
       assert via_gridcodec == via_module
     end
 
     test "both GridCodec.decode and Module.decode return same struct" do
       order = %Order{id: 12345, price: 999, quantity: 50}
-      binary = GridCodec.encode(order)
+      {:ok, binary} = GridCodec.encode(order)
 
       {:ok, via_gridcodec} = GridCodec.decode(binary)
       {:ok, via_module} = Order.decode(binary)

@@ -44,6 +44,7 @@ end
 
 defmodule Bench.AC.TypingEvent do
   use GridCodec.Struct, template_id: 71, schema_id: 400
+
   defcodec do
     field :channel_id, :u64
     field :user_id, :u64
@@ -54,6 +55,7 @@ end
 
 defmodule Bench.AC.ReactionEvent do
   use GridCodec.Struct, template_id: 72, schema_id: 400
+
   defcodec do
     field :message_id, :u64
     field :channel_id, :u64
@@ -85,6 +87,7 @@ defmodule Bench.AgentChat do
 
   defp struct_validate(%ChatMessage{content_length: cl, message_type: mt})
        when cl < 10_000_000 and mt in [1, 2, 3, 4], do: true
+
   defp struct_validate(_), do: false
 
   defp struct_route(%ChatMessage{channel_id: ch, message_type: mt}), do: {ch, mt}
@@ -99,6 +102,7 @@ defmodule Bench.AgentChat do
 
   defp layout_validate(chat(content_length: cl, message_type: mt))
        when cl < 10_000_000 and mt in [1, 2, 3, 4], do: true
+
   defp layout_validate(_), do: false
 
   defp layout_route(chat(channel_id: ch, message_type: mt)), do: {ch, mt}
@@ -114,19 +118,37 @@ defmodule Bench.AgentChat do
     now = System.system_time(:microsecond)
 
     chat_struct = %ChatMessage{
-      message_id: 99_001, channel_id: 42, guild_id: 1,
-      author_id: 7, parent_id: 0, nonce: 12345,
-      content_length: 256, content_hash: 0xDEADBEEF,
-      message_type: 1, author_type: 2, model_id: 3,
-      prompt_tokens: 150, completion_tokens: 80,
-      temperature_x1k: 700, top_p_x1k: 950, max_tokens: 4096,
-      latency_first_ms: 45, latency_total_ms: 1200,
-      cost_micros: 3500, rate_remaining: 88, rate_reset_ms: 60_000,
-      status: 2, flags: 1, edit_count: 0, reply_count: 3,
-      thread_id: 0, created_at: now, edited_at: now
+      message_id: 99_001,
+      channel_id: 42,
+      guild_id: 1,
+      author_id: 7,
+      parent_id: 0,
+      nonce: 12345,
+      content_length: 256,
+      content_hash: 0xDEADBEEF,
+      message_type: 1,
+      author_type: 2,
+      model_id: 3,
+      prompt_tokens: 150,
+      completion_tokens: 80,
+      temperature_x1k: 700,
+      top_p_x1k: 950,
+      max_tokens: 4096,
+      latency_first_ms: 45,
+      latency_total_ms: 1200,
+      cost_micros: 3500,
+      rate_remaining: 88,
+      rate_reset_ms: 60_000,
+      status: 2,
+      flags: 1,
+      edit_count: 0,
+      reply_count: 3,
+      thread_id: 0,
+      created_at: now,
+      edited_at: now
     }
 
-    chat_binary = ChatMessage.encode(chat_struct)
+    {:ok, chat_binary} = ChatMessage.encode(chat_struct)
     {:ok, chat_decoded} = ChatMessage.decode(chat_binary)
 
     word = :erlang.system_info(:wordsize)
@@ -161,21 +183,26 @@ defmodule Bench.AgentChat do
     IO.puts(String.duplicate("═", 70))
     IO.puts("  Agent message burst: 1000 messages, ~70% rate-limited\n")
 
-    batch = Enum.map(1..1000, fn i ->
-      msg = cond do
-        rem(i, 10) < 3 -> %{chat_struct | message_id: i, rate_remaining: 0}
-        rem(i, 10) < 5 -> %{chat_struct | message_id: i, flags: 0, author_type: 1}
-        rem(i, 10) < 7 -> %{chat_struct | message_id: i, content_length: 99_000_000}
-        true           -> %{chat_struct | message_id: i}
-      end
-      ChatMessage.encode(msg)
-    end)
+    batch =
+      Enum.map(1..1000, fn i ->
+        msg =
+          cond do
+            rem(i, 10) < 3 -> %{chat_struct | message_id: i, rate_remaining: 0}
+            rem(i, 10) < 5 -> %{chat_struct | message_id: i, flags: 0, author_type: 1}
+            rem(i, 10) < 7 -> %{chat_struct | message_id: i, content_length: 99_000_000}
+            true -> %{chat_struct | message_id: i}
+          end
+
+        {:ok, binary} = ChatMessage.encode(msg)
+        binary
+      end)
 
     Benchee.run(
       %{
         "struct: decode ALL then filter" => {
           fn bin ->
             {:ok, s} = ChatMessage.decode(bin)
+
             with true <- struct_rate_check(s),
                  true <- struct_perm_check(s),
                  true <- struct_validate(s) do
@@ -236,7 +263,10 @@ defmodule Bench.AgentChat do
       bin_us = measure_send(chat_binary, n)
       str_us = measure_send(chat_struct, n)
       ratio = Float.round(str_us / max(bin_us, 1), 1)
-      IO.puts("  N=#{String.pad_leading(to_string(n), 4)}  binary: #{String.pad_leading(to_string(bin_us), 6)}μs  struct: #{String.pad_leading(to_string(str_us), 6)}μs  (#{ratio}x)")
+
+      IO.puts(
+        "  N=#{String.pad_leading(to_string(n), 4)}  binary: #{String.pad_leading(to_string(bin_us), 6)}μs  struct: #{String.pad_leading(to_string(str_us), 6)}μs  (#{ratio}x)"
+      )
     end
 
     IO.puts("")
@@ -244,16 +274,22 @@ defmodule Bench.AgentChat do
 
   defp measure_send(msg, n) do
     parent = self()
-    pids = Enum.map(1..n, fn _ ->
-      spawn(fn ->
-        receive do _msg -> :ok end
-        send(parent, :done)
-      end)
-    end)
 
-    {us, _} = :timer.tc(fn ->
-      Enum.each(pids, fn pid -> send(pid, msg) end)
-    end)
+    pids =
+      Enum.map(1..n, fn _ ->
+        spawn(fn ->
+          receive do
+            _msg -> :ok
+          end
+
+          send(parent, :done)
+        end)
+      end)
+
+    {us, _} =
+      :timer.tc(fn ->
+        Enum.each(pids, fn pid -> send(pid, msg) end)
+      end)
 
     for _ <- 1..n, do: receive(do: (:done -> :ok))
     us
@@ -267,12 +303,16 @@ defmodule Bench.AgentChat do
     etf_s = :erlang.term_to_binary(chat_struct)
     etf_b = :erlang.term_to_binary(chat_binary)
 
-    IO.puts("  ETF wire: struct=#{byte_size(etf_s)}B  binary=#{byte_size(etf_b)}B  (#{Float.round(byte_size(etf_s) / byte_size(etf_b), 1)}x)")
+    IO.puts(
+      "  ETF wire: struct=#{byte_size(etf_s)}B  binary=#{byte_size(etf_b)}B  (#{Float.round(byte_size(etf_s) / byte_size(etf_b), 1)}x)"
+    )
 
     {s_us, _} = :timer.tc(fn -> for _ <- 1..100_000, do: :erlang.term_to_binary(chat_struct) end)
     {b_us, _} = :timer.tc(fn -> for _ <- 1..100_000, do: :erlang.term_to_binary(chat_binary) end)
 
-    IO.puts("  Serialize 100K: struct=#{div(s_us, 1000)}ms  binary=#{div(b_us, 1000)}ms  (#{Float.round(s_us / max(b_us, 1), 1)}x)\n")
+    IO.puts(
+      "  Serialize 100K: struct=#{div(s_us, 1000)}ms  binary=#{div(b_us, 1000)}ms  (#{Float.round(s_us / max(b_us, 1), 1)}x)\n"
+    )
   end
 
   # ============================================================================
@@ -317,14 +357,38 @@ defmodule Bench.AgentChat do
 
     now = System.system_time(:microsecond)
 
-    messages = Enum.map(1..1000, fn i ->
-      case rem(i, 3) do
-        0 -> ChatMessage.encode(chat_struct)
-        1 -> TypingEvent.encode(%TypingEvent{channel_id: 42, user_id: 7, timestamp: now, is_agent: 1})
-        2 -> ReactionEvent.encode(%ReactionEvent{message_id: 99_001, channel_id: 42, user_id: 3,
-               emoji_id: 0x1F525, timestamp: now, action: 1})
-      end
-    end)
+    messages =
+      Enum.map(1..1000, fn i ->
+        case rem(i, 3) do
+          0 ->
+            {:ok, b} = ChatMessage.encode(chat_struct)
+            b
+
+          1 ->
+            {:ok, b} =
+              TypingEvent.encode(%TypingEvent{
+                channel_id: 42,
+                user_id: 7,
+                timestamp: now,
+                is_agent: 1
+              })
+
+            b
+
+          2 ->
+            {:ok, b} =
+              ReactionEvent.encode(%ReactionEvent{
+                message_id: 99_001,
+                channel_id: 42,
+                user_id: 3,
+                emoji_id: 0x1F525,
+                timestamp: now,
+                action: 1
+              })
+
+            b
+        end
+      end)
 
     Benchee.run(
       %{
@@ -341,6 +405,7 @@ defmodule Bench.AgentChat do
         "layout: header dispatch + 1 field" => {
           fn bin ->
             {:ok, h, _} = GridCodec.Header.decode(bin)
+
             case h.template_id do
               70 -> {:chat, get_chat_author(bin)}
               71 -> {:typing, get_typing_user(bin)}
@@ -362,8 +427,17 @@ defmodule Bench.AgentChat do
     IO.puts("BUFFER: 1000 ChatMessages in GenServer State")
     IO.puts(String.duplicate("═", 70))
 
-    binaries = Enum.map(1..1000, fn _ -> ChatMessage.encode(chat_struct) end)
-    structs = Enum.map(binaries, fn bin -> {:ok, s} = ChatMessage.decode(bin); s end)
+    binaries =
+      Enum.map(1..1000, fn _ ->
+        {:ok, b} = ChatMessage.encode(chat_struct)
+        b
+      end)
+
+    structs =
+      Enum.map(binaries, fn bin ->
+        {:ok, s} = ChatMessage.decode(bin)
+        s
+      end)
 
     word = :erlang.system_info(:wordsize)
     b = :erts_debug.size(binaries) * word

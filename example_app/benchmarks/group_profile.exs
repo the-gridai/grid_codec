@@ -5,6 +5,7 @@
 defmodule GroupProfile do
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -13,6 +14,7 @@ defmodule GroupProfile do
 
   defmodule OrderType do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:limit)
       value(:market)
@@ -71,7 +73,7 @@ defmodule GroupProfile do
   defp make_orders(n) do
     for i <- 1..n do
       %{
-        order_id: <<(i + 1_000_000)::128>>,
+        order_id: <<i + 1_000_000::128>>,
         trader_id: <<rem(i, 500)::128>>,
         side: if(rem(i, 2) == 0, do: :buy, else: :sell),
         order_type: if(rem(i, 5) == 0, do: :market, else: :limit),
@@ -97,12 +99,12 @@ defmodule GroupProfile do
       open_orders: make_orders(2_000)
     }
 
-    binary = TradingPeriodSettled.encode(event)
+    {:ok, binary} = TradingPeriodSettled.encode(event)
     IO.puts("Wire size: #{div(byte_size(binary), 1024)} KB (500 balances + 2000 orders)")
 
     # Warmup
     for _ <- 1..50 do
-      TradingPeriodSettled.encode(event)
+      {:ok, _} = TradingPeriodSettled.encode(event)
       {:ok, d} = TradingPeriodSettled.decode(binary)
       GridCodec.Group.to_list(d.balances)
       GridCodec.Group.to_list(d.open_orders)
@@ -116,7 +118,7 @@ defmodule GroupProfile do
 
     Mix.Tasks.Profile.Tprof.profile(
       fn ->
-        for _ <- 1..iterations, do: TradingPeriodSettled.encode(event)
+        for _ <- 1..iterations, do: {:ok, _} = TradingPeriodSettled.encode(event)
         :ok
       end,
       type: :time,
@@ -131,7 +133,7 @@ defmodule GroupProfile do
 
     Mix.Tasks.Profile.Tprof.profile(
       fn ->
-        for _ <- 1..iterations, do: TradingPeriodSettled.encode(event)
+        for _ <- 1..iterations, do: {:ok, _} = TradingPeriodSettled.encode(event)
         :ok
       end,
       type: :memory,
@@ -151,6 +153,7 @@ defmodule GroupProfile do
           GridCodec.Group.to_list(d.balances)
           GridCodec.Group.to_list(d.open_orders)
         end
+
         :ok
       end,
       type: :time,
@@ -170,6 +173,7 @@ defmodule GroupProfile do
           GridCodec.Group.to_list(d.balances)
           GridCodec.Group.to_list(d.open_orders)
         end
+
         :ok
       end,
       type: :memory,

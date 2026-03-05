@@ -80,7 +80,7 @@ defmodule Bench.MapsVsCodec do
 
     struct = build_small_struct()
     # Use header: false for payload-only binary (fair comparison)
-    binary = SmallStruct.encode(struct, header: false)
+    {:ok, binary} = SmallStruct.encode(struct, header: false)
     map = struct_to_map(struct, 8)
 
     IO.puts("Binary size: #{byte_size(binary)} bytes (payload only)\n")
@@ -93,9 +93,21 @@ defmodule Bench.MapsVsCodec do
         "Map.get (end)" => fn -> Map.get(map, :field_8) end,
         # match macro - raw binary pattern (no null check)
         # Use header: false for payload-only binary
-        "match (start)" => fn -> case binary do SmallStruct.match([field_1: v], header: false) -> v end end,
-        "match (mid)" => fn -> case binary do SmallStruct.match([field_4: v], header: false) -> v end end,
-        "match (end)" => fn -> case binary do SmallStruct.match([field_8: v], header: false) -> v end end,
+        "match (start)" => fn ->
+          case binary do
+            SmallStruct.match([field_1: v], header: false) -> v
+          end
+        end,
+        "match (mid)" => fn ->
+          case binary do
+            SmallStruct.match([field_4: v], header: false) -> v
+          end
+        end,
+        "match (end)" => fn ->
+          case binary do
+            SmallStruct.match([field_8: v], header: false) -> v
+          end
+        end,
         # get macro - inline binary pattern (with null check)
         "get (start)" => fn -> SmallStruct.get(binary, :field_1, header: false) end,
         "get (mid)" => fn -> SmallStruct.get(binary, :field_4, header: false) end,
@@ -117,7 +129,7 @@ defmodule Bench.MapsVsCodec do
     IO.puts(String.duplicate("═", 70) <> "\n")
 
     struct = build_medium_struct()
-    binary = MediumStruct.encode(struct, header: false)
+    {:ok, binary} = MediumStruct.encode(struct, header: false)
     map = struct_to_map(struct, 32)
 
     IO.puts("Binary size: #{byte_size(binary)} bytes (payload only)\n")
@@ -127,9 +139,21 @@ defmodule Bench.MapsVsCodec do
         "Map.get (start)" => fn -> Map.get(map, :field_1) end,
         "Map.get (mid)" => fn -> Map.get(map, :field_16) end,
         "Map.get (end)" => fn -> Map.get(map, :field_32) end,
-        "match (start)" => fn -> case binary do MediumStruct.match([field_1: v], header: false) -> v end end,
-        "match (mid)" => fn -> case binary do MediumStruct.match([field_16: v], header: false) -> v end end,
-        "match (end)" => fn -> case binary do MediumStruct.match([field_32: v], header: false) -> v end end,
+        "match (start)" => fn ->
+          case binary do
+            MediumStruct.match([field_1: v], header: false) -> v
+          end
+        end,
+        "match (mid)" => fn ->
+          case binary do
+            MediumStruct.match([field_16: v], header: false) -> v
+          end
+        end,
+        "match (end)" => fn ->
+          case binary do
+            MediumStruct.match([field_32: v], header: false) -> v
+          end
+        end,
         "get (start)" => fn -> MediumStruct.get(binary, :field_1, header: false) end,
         "get (mid)" => fn -> MediumStruct.get(binary, :field_16, header: false) end,
         "get (end)" => fn -> MediumStruct.get(binary, :field_32, header: false) end
@@ -150,7 +174,7 @@ defmodule Bench.MapsVsCodec do
     IO.puts(String.duplicate("═", 70) <> "\n")
 
     struct = build_large_struct()
-    binary = LargeStruct.encode(struct, header: false)
+    {:ok, binary} = LargeStruct.encode(struct, header: false)
     map = struct_to_map(struct, 33)
 
     IO.puts("Binary size: #{byte_size(binary)} bytes (payload only)\n")
@@ -160,9 +184,21 @@ defmodule Bench.MapsVsCodec do
         "Map.get (start)" => fn -> Map.get(map, :field_1) end,
         "Map.get (mid)" => fn -> Map.get(map, :field_16) end,
         "Map.get (end)" => fn -> Map.get(map, :field_33) end,
-        "match (start)" => fn -> case binary do LargeStruct.match([field_1: v], header: false) -> v end end,
-        "match (mid)" => fn -> case binary do LargeStruct.match([field_16: v], header: false) -> v end end,
-        "match (end)" => fn -> case binary do LargeStruct.match([field_33: v], header: false) -> v end end,
+        "match (start)" => fn ->
+          case binary do
+            LargeStruct.match([field_1: v], header: false) -> v
+          end
+        end,
+        "match (mid)" => fn ->
+          case binary do
+            LargeStruct.match([field_16: v], header: false) -> v
+          end
+        end,
+        "match (end)" => fn ->
+          case binary do
+            LargeStruct.match([field_33: v], header: false) -> v
+          end
+        end,
         "get (start)" => fn -> LargeStruct.get(binary, :field_1, header: false) end,
         "get (mid)" => fn -> LargeStruct.get(binary, :field_16, header: false) end,
         "get (end)" => fn -> LargeStruct.get(binary, :field_33, header: false) end
@@ -179,34 +215,88 @@ defmodule Bench.MapsVsCodec do
 
   defp build_small_struct do
     %SmallStruct{
-      field_1: 1, field_2: 2, field_3: 3, field_4: 4,
-      field_5: 5, field_6: 6, field_7: 7, field_8: 8
+      field_1: 1,
+      field_2: 2,
+      field_3: 3,
+      field_4: 4,
+      field_5: 5,
+      field_6: 6,
+      field_7: 7,
+      field_8: 8
     }
   end
 
   defp build_medium_struct do
     %MediumStruct{
-      field_1: 1, field_2: 2, field_3: 3, field_4: 4,
-      field_5: 5, field_6: 6, field_7: 7, field_8: 8,
-      field_9: 9, field_10: 10, field_11: 11, field_12: 12,
-      field_13: 13, field_14: 14, field_15: 15, field_16: 16,
-      field_17: 17, field_18: 18, field_19: 19, field_20: 20,
-      field_21: 21, field_22: 22, field_23: 23, field_24: 24,
-      field_25: 25, field_26: 26, field_27: 27, field_28: 28,
-      field_29: 29, field_30: 30, field_31: 31, field_32: 32
+      field_1: 1,
+      field_2: 2,
+      field_3: 3,
+      field_4: 4,
+      field_5: 5,
+      field_6: 6,
+      field_7: 7,
+      field_8: 8,
+      field_9: 9,
+      field_10: 10,
+      field_11: 11,
+      field_12: 12,
+      field_13: 13,
+      field_14: 14,
+      field_15: 15,
+      field_16: 16,
+      field_17: 17,
+      field_18: 18,
+      field_19: 19,
+      field_20: 20,
+      field_21: 21,
+      field_22: 22,
+      field_23: 23,
+      field_24: 24,
+      field_25: 25,
+      field_26: 26,
+      field_27: 27,
+      field_28: 28,
+      field_29: 29,
+      field_30: 30,
+      field_31: 31,
+      field_32: 32
     }
   end
 
   defp build_large_struct do
     %LargeStruct{
-      field_1: 1, field_2: 2, field_3: 3, field_4: 4,
-      field_5: 5, field_6: 6, field_7: 7, field_8: 8,
-      field_9: 9, field_10: 10, field_11: 11, field_12: 12,
-      field_13: 13, field_14: 14, field_15: 15, field_16: 16,
-      field_17: 17, field_18: 18, field_19: 19, field_20: 20,
-      field_21: 21, field_22: 22, field_23: 23, field_24: 24,
-      field_25: 25, field_26: 26, field_27: 27, field_28: 28,
-      field_29: 29, field_30: 30, field_31: 31, field_32: 32,
+      field_1: 1,
+      field_2: 2,
+      field_3: 3,
+      field_4: 4,
+      field_5: 5,
+      field_6: 6,
+      field_7: 7,
+      field_8: 8,
+      field_9: 9,
+      field_10: 10,
+      field_11: 11,
+      field_12: 12,
+      field_13: 13,
+      field_14: 14,
+      field_15: 15,
+      field_16: 16,
+      field_17: 17,
+      field_18: 18,
+      field_19: 19,
+      field_20: 20,
+      field_21: 21,
+      field_22: 22,
+      field_23: 23,
+      field_24: 24,
+      field_25: 25,
+      field_26: 26,
+      field_27: 27,
+      field_28: 28,
+      field_29: 29,
+      field_30: 30,
+      field_31: 31,
+      field_32: 32,
       field_33: 33
     }
   end

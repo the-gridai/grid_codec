@@ -82,7 +82,7 @@ Re-encoding produces a valid v2 binary:
 
 ```elixir
 updated = %{order | quantity: 50}
-v2_binary = Events.OrderPlaced.encode(updated)
+{:ok, v2_binary} = Events.OrderPlaced.encode(updated)
 ```
 
 ## Schema Metadata

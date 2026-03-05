@@ -228,6 +228,51 @@ defmodule GridCodec.Types.Decimal do
     end
   end
 
+  @impl true
+  def encode_to_wire_ast(var, opts) do
+    scale = Keyword.get(opts, :scale, 0)
+
+    quote do
+      case unquote(var) do
+        %Decimal{sign: sign, coef: coef, exp: exp} ->
+          diff = unquote(scale) + exp
+
+          adjusted =
+            if diff >= 0 do
+              coef * GridCodec.Types.Decimal.int_pow10(diff)
+            else
+              div(coef, GridCodec.Types.Decimal.int_pow10(-diff))
+            end
+
+          if sign == 1, do: adjusted, else: -adjusted
+
+        {m, e} when is_integer(m) and is_integer(e) ->
+          diff = unquote(scale) + e
+
+          if diff >= 0 do
+            m * GridCodec.Types.Decimal.int_pow10(diff)
+          else
+            div(m, GridCodec.Types.Decimal.int_pow10(-diff))
+          end
+
+        n when is_integer(n) ->
+          n
+      end
+    end
+  end
+
+  @doc false
+  def int_pow10(0), do: 1
+  def int_pow10(1), do: 10
+  def int_pow10(2), do: 100
+  def int_pow10(3), do: 1_000
+  def int_pow10(4), do: 10_000
+  def int_pow10(5), do: 100_000
+  def int_pow10(6), do: 1_000_000
+  def int_pow10(7), do: 10_000_000
+  def int_pow10(8), do: 100_000_000
+  def int_pow10(n) when n > 0, do: 10 * int_pow10(n - 1)
+
   @integer_types [
     GridCodec.Types.I8,
     GridCodec.Types.I16,

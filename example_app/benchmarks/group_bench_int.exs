@@ -5,6 +5,7 @@
 defmodule GroupBenchInt do
   defmodule OrderSide do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:buy)
       value(:sell)
@@ -13,6 +14,7 @@ defmodule GroupBenchInt do
 
   defmodule OrderType do
     use GridCodec.Types.Enum, encoding: :u8
+
     defenum do
       value(:limit)
       value(:market)
@@ -120,7 +122,7 @@ defmodule GroupBenchInt do
   defp make_decimal_orders(n) do
     for i <- 1..n do
       %{
-        order_id: <<(i + 1_000_000)::128>>,
+        order_id: <<i + 1_000_000::128>>,
         trader_id: <<rem(i, 500)::128>>,
         side: if(rem(i, 2) == 0, do: :buy, else: :sell),
         order_type: if(rem(i, 5) == 0, do: :market, else: :limit),
@@ -164,9 +166,12 @@ defmodule GroupBenchInt do
     no = 10_000
 
     dec_event = %SettledDecimal{
-      market_id: <<1::128>>, period_id: <<2::128>>, instrument_id: <<3::128>>,
+      market_id: <<1::128>>,
+      period_id: <<2::128>>,
+      instrument_id: <<3::128>>,
       settled_at: System.system_time(:microsecond),
-      period_seq: 42, trade_sequence: 9999,
+      period_seq: 42,
+      trade_sequence: 9999,
       last_trade_price: Decimal.new("51234.56"),
       total_volume: Decimal.new("123456789.99"),
       balances: make_decimal_balances(nb),
@@ -174,17 +179,20 @@ defmodule GroupBenchInt do
     }
 
     int_event = %SettledInt{
-      market_id: 1, period_id: 2, instrument_id: 3,
+      market_id: 1,
+      period_id: 2,
+      instrument_id: 3,
       settled_at: System.system_time(:microsecond),
-      period_seq: 42, trade_sequence: 9999,
+      period_seq: 42,
+      trade_sequence: 9999,
       last_trade_price: 51_234_56,
       total_volume: 123_456_789_99,
       balances: make_int_balances(nb),
       open_orders: make_int_orders(no)
     }
 
-    dec_bin = SettledDecimal.encode(dec_event)
-    int_bin = SettledInt.encode(int_event)
+    {:ok, dec_bin} = SettledDecimal.encode(dec_event)
+    {:ok, int_bin} = SettledInt.encode(int_event)
 
     IO.puts("Large market: #{nb} users, #{no} orders (#{nb + no} total entries)")
     IO.puts("Decimal codec: #{div(byte_size(dec_bin), 1024)} KB wire")
@@ -193,10 +201,12 @@ defmodule GroupBenchInt do
 
     Benchee.run(
       %{
-        "encode DECIMAL (uuid + Decimal)" => fn -> SettledDecimal.encode(dec_event) end,
-        "encode INTEGER (u64 + i64)" => fn -> SettledInt.encode(int_event) end
+        "encode DECIMAL (uuid + Decimal)" => fn -> {:ok, _} = SettledDecimal.encode(dec_event) end,
+        "encode INTEGER (u64 + i64)" => fn -> {:ok, _} = SettledInt.encode(int_event) end
       },
-      warmup: 2, time: 5, memory_time: 1,
+      warmup: 2,
+      time: 5,
+      memory_time: 1,
       title: "Encode — 2k users + 10k orders"
     )
 
@@ -213,26 +223,30 @@ defmodule GroupBenchInt do
           GridCodec.Group.to_list(d.open_orders)
         end
       },
-      warmup: 2, time: 5, memory_time: 1,
+      warmup: 2,
+      time: 5,
+      memory_time: 1,
       title: "Decode+list — 2k users + 10k orders"
     )
 
     Benchee.run(
       %{
         "roundtrip DECIMAL" => fn ->
-          bin = SettledDecimal.encode(dec_event)
+          {:ok, bin} = SettledDecimal.encode(dec_event)
           {:ok, d} = SettledDecimal.decode(bin)
           GridCodec.Group.to_list(d.balances)
           GridCodec.Group.to_list(d.open_orders)
         end,
         "roundtrip INTEGER" => fn ->
-          bin = SettledInt.encode(int_event)
+          {:ok, bin} = SettledInt.encode(int_event)
           {:ok, d} = SettledInt.decode(bin)
           GridCodec.Group.to_list(d.balances)
           GridCodec.Group.to_list(d.open_orders)
         end
       },
-      warmup: 2, time: 5, memory_time: 1,
+      warmup: 2,
+      time: 5,
+      memory_time: 1,
       title: "Full roundtrip — 2k users + 10k orders"
     )
   end

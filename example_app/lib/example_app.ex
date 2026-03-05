@@ -42,7 +42,7 @@ defmodule ExampleApp do
     }
 
     # Encode with header (default)
-    binary = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, binary} = ExampleApp.Events.OrderCreated.encode(order)
     IO.puts("Encoded to #{byte_size(binary)} bytes (with 8-byte header)")
 
     # Decode (expects header by default)
@@ -50,13 +50,13 @@ defmodule ExampleApp do
     IO.puts("Decoded: #{inspect(decoded.symbol)}")
 
     # Payload only (no header)
-    payload = ExampleApp.Events.OrderCreated.encode(order, header: false)
+    {:ok, payload} = ExampleApp.Events.OrderCreated.encode(order, header: false)
     IO.puts("Payload only: #{byte_size(payload)} bytes")
     {:ok, decoded2} = ExampleApp.Events.OrderCreated.decode(payload, header: false)
     IO.puts("Decoded payload: #{inspect(decoded2.symbol)}")
 
     # Dispatch via GridCodec (always uses header)
-    framed = GridCodec.encode(order)
+    {:ok, framed} = GridCodec.encode(order)
     {:ok, decoded3} = GridCodec.decode(framed)
     IO.puts("Dispatched and decoded: #{inspect(decoded3.symbol)}")
 
