@@ -359,6 +359,80 @@ defmodule GridCodec do
     end
   end
 
+  @doc """
+  Defines a heterogeneous batch field that holds an ordered sequence of
+  entries from a compile-time `any_of:` type set.
+
+  ## Options
+
+  - `:any_of` (required) — list of GridCodec struct modules allowed in the batch
+  - `:strategy` — encoding strategy (default: `:padded_union`)
+
+  ## Strategies
+
+  | Strategy | Random Access | Wire Size | Best For |
+  |----------|--------------|-----------|----------|
+  | `:padded_union` | O(1) | Larger (padded to max type) | Random access, similar-size types |
+  | `:typed_frames` | O(1) after decode | Compact (no padding) | Sequential iteration, varied-size types |
+
+  **`:padded_union`** (default) — Each entry is padded to the maximum block length
+  across all types, yielding fixed-size entries. Reuses `GridCodec.Group` wire format.
+  Best when types have similar sizes or O(1) random access from raw binary is needed.
+
+  **`:typed_frames`** — Each entry is length-prefixed with no padding waste. An offset
+  index is built on decode for O(1) random access. Best when types have very different
+  sizes and sequential streaming is the primary access pattern.
+
+  ### Wire size comparison (SmallCmd=24B, LargeCmd=80B, 1000 entries mixed)
+
+      :padded_union  → 1000 × (80 + 5) = 85,000 bytes
+      :typed_frames  → 1000 × (avg ~52 + 7) ≈ 59,000 bytes  (30% smaller)
+
+  Padding waste grows with the size ratio between largest and smallest type.
+  When types are similar sizes, both strategies produce nearly identical wire sizes.
+
+  ## Examples
+
+      # Default strategy (padded_union) — O(1) random access
+      defcodec do
+        field :market_id, :uuid
+        batch :commands, any_of: [PlaceOrder, CancelOrder, ReplaceOrder]
+      end
+
+      # Typed frames — compact wire format, sequential streaming
+      defcodec do
+        field :market_id, :uuid
+        batch :commands, any_of: [PlaceOrder, CancelOrder, ReplaceOrder],
+                         strategy: :typed_frames
+      end
+
+  Decoded batches are `%GridCodec.Batch{}` structs with the same API
+  regardless of strategy. See `GridCodec.Batch` for the access API.
+  """
+  defmacro batch(name, opts) do
+    caller = __CALLER__
+
+    strategy = Keyword.get(opts, :strategy, :padded_union)
+
+    unless strategy in [:padded_union, :typed_frames] do
+      raise CompileError,
+        description:
+          "invalid batch strategy #{inspect(strategy)}, " <>
+            "expected :padded_union or :typed_frames"
+    end
+
+    any_of =
+      opts
+      |> Keyword.fetch!(:any_of)
+      |> Enum.map(fn mod ->
+        Macro.expand(mod, caller)
+      end)
+
+    quote do
+      @gridcodec_batches {unquote(name), unquote(any_of), unquote(opts)}
+    end
+  end
+
   # ============================================================================
   # Top-Level Struct API
   # ============================================================================

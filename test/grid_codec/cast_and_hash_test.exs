@@ -48,9 +48,12 @@ defmodule GridCodec.CastAndHashTest do
       assert {:ok, %TestCodec{price: %Decimal{}}} = TestCodec.new(price: "100.50")
     end
 
-    test "coerces ISO 8601 timestamps" do
-      assert {:ok, %TestCodec{created_at: %DateTime{}}} =
+    test "coerces ISO 8601 timestamps to integer microseconds" do
+      assert {:ok, %TestCodec{created_at: us}} =
                TestCodec.new(created_at: "2026-01-01T00:00:00Z")
+
+      assert is_integer(us)
+      assert us == DateTime.to_unix(~U[2026-01-01 00:00:00Z], :microsecond)
     end
 
     test "coerces string floats" do

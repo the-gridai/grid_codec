@@ -125,6 +125,63 @@ defmodule GridCodec.StructAllTypesTest do
       assert decoded.timestamp_ns == nil
     end
 
+    # Test datetime types (DateTime domain)
+    defmodule DateTimeStruct do
+      use GridCodec.Struct, template_id: 109, schema_id: 1
+
+      defcodec do
+        field :created_at, :datetime_us
+        field :event_time, :datetime_ns
+      end
+    end
+
+    test "datetime_us roundtrips as DateTime" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      original = %DateTimeStruct{created_at: dt, event_time: nil}
+
+      {:ok, binary} = DateTimeStruct.encode(original)
+      {:ok, decoded} = DateTimeStruct.decode(binary)
+
+      assert %DateTime{} = decoded.created_at
+      assert DateTime.compare(decoded.created_at, dt) == :eq
+    end
+
+    test "datetime_ns roundtrips as DateTime" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      original = %DateTimeStruct{created_at: nil, event_time: dt}
+
+      {:ok, binary} = DateTimeStruct.encode(original)
+      {:ok, decoded} = DateTimeStruct.decode(binary)
+
+      assert %DateTime{} = decoded.event_time
+      assert DateTime.compare(decoded.event_time, dt) == :eq
+    end
+
+    test "nil datetimes roundtrip" do
+      original = %DateTimeStruct{created_at: nil, event_time: nil}
+      {:ok, binary} = DateTimeStruct.encode(original)
+      {:ok, decoded} = DateTimeStruct.decode(binary)
+
+      assert decoded.created_at == nil
+      assert decoded.event_time == nil
+    end
+
+    test "datetime types wire-compatible with timestamp types" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      us = DateTime.to_unix(dt, :microsecond)
+
+      dt_struct = %DateTimeStruct{created_at: dt, event_time: nil}
+      {:ok, dt_binary} = DateTimeStruct.encode(dt_struct)
+
+      ts_struct = %TimestampStruct{timestamp_us: us, timestamp_ns: nil}
+      {:ok, ts_binary} = TimestampStruct.encode(ts_struct)
+
+      header_size = 8
+      dt_payload = binary_part(dt_binary, header_size, 16)
+      ts_payload = binary_part(ts_binary, header_size, 16)
+      assert dt_payload == ts_payload
+    end
+
     # Test decimal type
     defmodule DecimalStruct do
       use GridCodec.Struct, template_id: 102, schema_id: 1
@@ -350,6 +407,187 @@ defmodule GridCodec.StructAllTypesTest do
       {:ok, decoded} = PositiveDecimalStruct.decode(binary)
 
       assert decoded.balance == nil
+    end
+  end
+
+  describe "new/1 ↔ decode/1 identity invariant" do
+    defmodule IdentityCodec do
+      use GridCodec.Struct, template_id: 120, schema_id: 1
+
+      defcodec do
+        field :uuid_str, :uuid_string
+        field :ts_us, :timestamp_us
+        field :ts_ns, :timestamp_ns
+        field :dec, :decimal
+        field :pos_dec, :positive_decimal
+        field :flag, :bool
+        field :uid, :uuid
+      end
+    end
+
+    test "uuid_string: new/1 then roundtrip preserves identity" do
+      uuid = "550e8400-e29b-41d4-a716-446655440000"
+      {:ok, via_new} = IdentityCodec.new(%{uuid_str: uuid})
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+
+      assert via_new.uuid_str == via_decode.uuid_str
+    end
+
+    test "uuid_string: raw bytes input normalized to string" do
+      raw = <<85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0>>
+      {:ok, via_new} = IdentityCodec.new(%{uuid_str: raw})
+
+      assert is_binary(via_new.uuid_str)
+      assert byte_size(via_new.uuid_str) == 36
+      assert via_new.uuid_str == "550e8400-e29b-41d4-a716-446655440000"
+    end
+
+    test "uuid_string: hex string input normalized to dash format" do
+      hex = "550e8400e29b41d4a716446655440000"
+      {:ok, via_new} = IdentityCodec.new(%{uuid_str: hex})
+
+      assert via_new.uuid_str == "550e8400-e29b-41d4-a716-446655440000"
+    end
+
+    test "timestamp_us: DateTime input normalized to integer" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      {:ok, via_new} = IdentityCodec.new(%{ts_us: dt})
+
+      assert is_integer(via_new.ts_us)
+      assert via_new.ts_us == DateTime.to_unix(dt, :microsecond)
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+      assert via_new.ts_us == via_decode.ts_us
+    end
+
+    test "timestamp_us: ISO 8601 string normalized to integer" do
+      {:ok, via_new} = IdentityCodec.new(%{ts_us: "2024-06-15T12:30:00Z"})
+
+      assert is_integer(via_new.ts_us)
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+      assert via_new.ts_us == via_decode.ts_us
+    end
+
+    test "timestamp_ns: DateTime input normalized to integer" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      {:ok, via_new} = IdentityCodec.new(%{ts_ns: dt})
+
+      assert is_integer(via_new.ts_ns)
+      assert via_new.ts_ns == DateTime.to_unix(dt, :nanosecond)
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+      assert via_new.ts_ns == via_decode.ts_ns
+    end
+
+    test "decimal: {mantissa, exponent} tuple normalized to %Decimal{}" do
+      {:ok, via_new} = IdentityCodec.new(%{dec: {12345, -2}})
+
+      assert %Decimal{} = via_new.dec
+      assert Decimal.equal?(via_new.dec, Decimal.new("123.45"))
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+      assert via_new.dec == via_decode.dec
+    end
+
+    test "positive_decimal: {mantissa, exponent} tuple normalized to %Decimal{}" do
+      {:ok, via_new} = IdentityCodec.new(%{pos_dec: {99999, -4}})
+
+      assert %Decimal{} = via_new.pos_dec
+      assert Decimal.equal?(via_new.pos_dec, Decimal.new("9.9999"))
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+      assert via_new.pos_dec == via_decode.pos_dec
+    end
+
+    test "all types: new/1 → encode → decode produces identical struct" do
+      uuid_str = "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+      ts = System.system_time(:microsecond)
+      price = Decimal.new("42.50")
+      balance = Decimal.new("100.00")
+      raw_uuid = :crypto.strong_rand_bytes(16)
+
+      {:ok, via_new} =
+        IdentityCodec.new(%{
+          uuid_str: uuid_str,
+          ts_us: ts,
+          ts_ns: ts * 1000,
+          dec: price,
+          pos_dec: balance,
+          flag: true,
+          uid: raw_uuid
+        })
+
+      {:ok, bin} = IdentityCodec.encode(via_new)
+      {:ok, via_decode} = IdentityCodec.decode(bin)
+
+      assert via_new.uuid_str == via_decode.uuid_str
+      assert via_new.ts_us == via_decode.ts_us
+      assert via_new.ts_ns == via_decode.ts_ns
+      assert via_new.dec == via_decode.dec
+      assert via_new.pos_dec == via_decode.pos_dec
+      assert via_new.flag == via_decode.flag
+      assert via_new.uid == via_decode.uid
+    end
+
+    defmodule DateTimeIdentityCodec do
+      use GridCodec.Struct, template_id: 121, schema_id: 1
+
+      defcodec do
+        field :dt_us, :datetime_us
+        field :dt_ns, :datetime_ns
+      end
+    end
+
+    test "datetime_us: new/1 with DateTime preserves identity" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      {:ok, via_new} = DateTimeIdentityCodec.new(%{dt_us: dt})
+
+      assert %DateTime{} = via_new.dt_us
+      assert DateTime.compare(via_new.dt_us, dt) == :eq
+
+      {:ok, bin} = DateTimeIdentityCodec.encode(via_new)
+      {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
+      assert DateTime.compare(via_new.dt_us, via_decode.dt_us) == :eq
+    end
+
+    test "datetime_us: new/1 with integer coerces to DateTime" do
+      us = 1_718_451_000_123_456
+      {:ok, via_new} = DateTimeIdentityCodec.new(%{dt_us: us})
+
+      assert %DateTime{} = via_new.dt_us
+
+      {:ok, bin} = DateTimeIdentityCodec.encode(via_new)
+      {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
+      assert DateTime.compare(via_new.dt_us, via_decode.dt_us) == :eq
+    end
+
+    test "datetime_us: new/1 with ISO 8601 string coerces to DateTime" do
+      {:ok, via_new} = DateTimeIdentityCodec.new(%{dt_us: "2024-06-15T12:30:00Z"})
+
+      assert %DateTime{} = via_new.dt_us
+
+      {:ok, bin} = DateTimeIdentityCodec.encode(via_new)
+      {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
+      assert DateTime.compare(via_new.dt_us, via_decode.dt_us) == :eq
+    end
+
+    test "datetime_ns: new/1 with DateTime preserves identity" do
+      dt = ~U[2024-06-15 12:30:00.123456Z]
+      {:ok, via_new} = DateTimeIdentityCodec.new(%{dt_ns: dt})
+
+      assert %DateTime{} = via_new.dt_ns
+
+      {:ok, bin} = DateTimeIdentityCodec.encode(via_new)
+      {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
+      assert DateTime.compare(via_new.dt_ns, via_decode.dt_ns) == :eq
     end
   end
 end

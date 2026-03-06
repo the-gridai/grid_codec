@@ -7,11 +7,12 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 ## Features
 
 - **Zero-copy field access** – Read fields directly from binary without full decode (O(1))
-- **Sub-binary sharing** – One encode, many readers with no memory copies
+- **Sub-binary sharing** – One encode, many readers with no memory copies; `copy: true` option to detach when needed
 - **Compile-time code generation** – No runtime reflection overhead
 - **Struct-based API** – Natural Elixir structs with binary serialization
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
 - **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
+- **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences with two strategies (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
 
 ## Performance
@@ -87,6 +88,9 @@ require MyApp.Events.UserCreated
 score = MyApp.Events.UserCreated.get(binary, :score)
 # => 1500
 
+# Detach sub-binary to release original from memory
+uuid = MyApp.Events.UserCreated.get(binary, :id, copy: true)
+
 # Full decode when needed
 {:ok, decoded} = MyApp.Events.UserCreated.decode(binary)
 
@@ -106,8 +110,10 @@ score = MyApp.Events.UserCreated.get(binary, :score)
 | `:f32`, `:f64` | 4, 8 | IEEE 754 floats |
 | `:uuid` | 16 | Binary UUID |
 | `:bool` | 1 | Boolean |
-| `:timestamp_us` | 8 | Microsecond timestamp |
-| `:timestamp_ns` | 8 | Nanosecond timestamp |
+| `:timestamp_us` | 8 | Microsecond timestamp (integer domain) |
+| `:timestamp_ns` | 8 | Nanosecond timestamp (integer domain) |
+| `:datetime_us` | 8 | Microsecond timestamp (DateTime domain) |
+| `:datetime_ns` | 8 | Nanosecond timestamp (DateTime domain) |
 | `:decimal` | 9 | Decimal (mantissa + exponent) |
 
 ### Variable-Size Types
@@ -157,8 +163,10 @@ Key modules:
 - `GridCodec` – Top-level dispatch API
 - `GridCodec.Struct` – DSL for defining struct codecs
 - `GridCodec.Group` – Repeating groups (variable-length collections)
+- `GridCodec.Batch` – Heterogeneous batches with strategy selection
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
+- `GridCodec.Binary` – Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
 - `GridCodec.BinaryInspector` – Binary diagnostics (header/layout/value inspection)
 - `GridCodec.Json` – JSON interchange adapters (`to_map/from_map/to_json/from_json`)
 

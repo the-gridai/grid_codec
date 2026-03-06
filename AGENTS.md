@@ -448,8 +448,40 @@ This generates:
 ### Key Modules
 
 - `GridCodec.Struct.Compiler` - Generates encode/decode AST
-- `GridCodec.Types.*` - Type implementations
+- `GridCodec.Types.*` - Type implementations (includes `:datetime_us`/`:datetime_ns` for DateTime-domain timestamps)
 - `GridCodec.Header` - Binary header handling
+- `GridCodec.Binary` - Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
+- `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
+- `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
+- `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
+
+### Batch Strategies
+
+The `batch/2` macro supports two encoding strategies:
+
+| Strategy | Wire Size | Random Access | Best For |
+|----------|-----------|---------------|----------|
+| `:padded_union` | `n × (max_bl + 5)` | O(1) from raw binary | Similar-size types |
+| `:typed_frames` | `8 + Σ(payload_i + 7)` | O(1) after decode | Varied-size types |
+
+Choose `:typed_frames` when `max_block / min_block > 3` to avoid padding waste.
+
+### Binary Memory Model
+
+GridCodec binaries are almost always > 64 bytes, making them **refc binaries**
+(reference-counted, stored in `binary_alloc`). Key implications:
+
+- **Sending is O(1)**: `send/2` copies only the ProcBin pointer (~5 words), not
+  the payload. This is why "encode once, fan out to N" is efficient.
+- **ETS insertion is O(1)**: ETS gets its own ProcBin reference.
+- **Sub-binary retention**: `get/2` on `:uuid` and `char_array` fields returns
+  sub-binaries that pin the entire original. Use `get(bin, :field, copy: true)`
+  or `GridCodec.Binary.detach/1` to release the original.
+- **GC and binary virtual heap**: The `bin_vheap_sz` threshold triggers GC of
+  dead ProcBin references. Tune `min_bin_vheap_size` for binary-heavy processes.
+
+See [The BEAM Book — Memory](https://github.com/happi/theBeamBook/blob/master/chapters/memory.asciidoc)
+for the full BEAM binary memory model.
 
 ### Type System
 

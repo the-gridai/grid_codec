@@ -220,7 +220,7 @@ defmodule GridCodec.Types.PositiveDecimal do
           {:ok, v}
 
         {m, e} when is_integer(m) and is_integer(e) ->
-          {:ok, {m, e}}
+          {:ok, %unquote(dec_mod){sign: 1, coef: m, exp: e}}
 
         v when is_integer(v) ->
           {:ok, unquote(dec_mod).new(v)}
@@ -282,7 +282,7 @@ defmodule GridCodec.Types.PositiveDecimal do
       one_of([
         bind(integer(0..1_000_000_000), fn mantissa ->
           bind(integer(-8..8), fn exp ->
-            constant({mantissa, exp})
+            constant(%Decimal{sign: 1, coef: mantissa, exp: exp})
           end)
         end),
         constant(nil)

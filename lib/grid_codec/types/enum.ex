@@ -284,6 +284,15 @@ defmodule GridCodec.Types.Enum do
             )
           )
 
+        int_to_atom_clauses =
+          unquote(
+            Macro.escape(
+              for {atom_name, int_val} <- values do
+                {:->, [], [[int_val], {:ok, atom_name}]}
+              end
+            )
+          )
+
         atom_clause =
           {:->, [],
            [[{:when, [], [{:v, [], nil}, {:is_atom, [], [{:v, [], nil}]}]}], {:ok, {:v, [], nil}}]}
@@ -309,7 +318,10 @@ defmodule GridCodec.Types.Enum do
                ]}}
            ]}
 
-        all = [nil_clause | string_clauses] ++ [atom_clause, int_clause, error_clause]
+        all =
+          [nil_clause | string_clauses] ++
+            [atom_clause] ++ int_to_atom_clauses ++ [int_clause, error_clause]
+
         {:case, [], [var, [do: all]]}
       end
 

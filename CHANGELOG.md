@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-03-05
+
+### Added
+- **`:datetime_us` and `:datetime_ns` types** — DateTime-domain timestamp types
+  that decode to `%DateTime{}` instead of raw integer microseconds/nanoseconds.
+  Same 8-byte i64 LE wire format as `:timestamp_us`/`:timestamp_ns`, binaries
+  are interchangeable. Use `:datetime_us` for application code, JSON APIs, and
+  Ecto-like workflows; use `:timestamp_us` for hot paths where decode overhead
+  matters.
+- **`GridCodec.Batch` — heterogeneous batch encoding** with compile-time
+  `any_of:` type sets. Preserves insertion order with O(1) count, random access,
+  lazy streaming, and type-based filtering. Two strategies available:
+  - **`:padded_union`** (default) — fixed-size entries padded to max block length,
+    reuses `GridCodec.Group` wire format, O(1) random access from raw binary.
+  - **`:typed_frames`** — length-prefixed entries with no padding waste, builds
+    offset index on decode for O(1) access. 30% smaller wire size when types
+    have different `block_length` values.
+- **`batch/2` DSL macro** — `batch :commands, any_of: [PlaceOrder, CancelOrder],
+  strategy: :typed_frames` generates compile-time union encoders/decoders with
+  type-tag dispatch. Strategy is chosen once at compile time; the runtime API
+  is identical regardless of strategy.
+- **`GridCodec.Binary` module** — utilities for managing binary memory lifecycle.
+  `detach/1` copies all binary-valued fields in a decoded struct, releasing
+  sub-binary references to the original encoded data. `copy_field/1` is a
+  nil-safe wrapper around `:binary.copy/1`.
+- **`get/2` `:copy` option** — `get(binary, :field, copy: true)` wraps the
+  result in `:binary.copy/1` to detach sub-binary references from the original
+  encoded binary, preventing memory retention. Safe on any field type —
+  non-binary values pass through unchanged.
+
+### Changed
+- **`GridCodec.Json` now uses Elixir's built-in `JSON` module** instead of
+  `Jason`. The `:jason` dependency has been removed. Requires Elixir >= 1.18.
+  Custom types should implement the `JSON.Encoder` protocol instead of
+  `Jason.Encoder`. The `:pretty` and `:keys` options are preserved with the
+  same behavior.
+
+### Fixed
+- **`coerce_ast` identity invariant** — fixed 6 types where `new/1` and
+  `decode/1` produced different in-memory representations for the same value:
+  - `:uuid_string` — coerce now normalizes to 36-char dash-separated string
+    (was converting to raw 16-byte binary, breaking map key lookups)
+  - `:timestamp_us`/`:timestamp_ns` — coerce now converts `%DateTime{}` and
+    ISO 8601 strings to integer microseconds/nanoseconds (matching decode)
+  - `:decimal`/`:positive_decimal` — `{mantissa, exponent}` tuple input now
+    normalizes to `%Decimal{}` struct (matching decode)
+  - Enum types — coerce now resolves known integer values to atoms (matching
+    decode). Unknown integers still pass through.
+  - `CharArray` — coerce now strips trailing null bytes (matching decode)
+
+### Removed
+- **`:jason` dependency** — `GridCodec.Json` now uses Elixir's native `JSON`
+  module (available since 1.18). No external JSON library required.
+
+### Documentation
+- **Memory & Binary Lifecycle** section in performance guide — documents refc
+  binary threshold (64 bytes), sub-binary retention problem, `on_heap` vs
+  `off_heap` message queue strategy, `min_bin_vheap_size` tuning, the load
+  balancer anti-pattern, and distribution wire efficiency.
+- **Production Monitoring** section in performance guide — documents
+  `erlang:memory(:binary)`, `recon:bin_leak/1`, common leak causes, and
+  BEAM allocator flags for binary-heavy workloads.
+- **AGENTS.md** updated with Binary Memory Model section explaining refc
+  binary implications for GridCodec.
+- **ExDoc**: All numeric type modules (U8–U64, I8–I64, F32, F64) now appear
+  in the Types sidebar group. Consumer Integration guide added to extras.
+- **Performance skill**: Documented that `iolist_to_binary` is NOT faster than
+  `<<a::binary, b::binary>>` for encode assembly — the JIT optimizes binary
+  concat into direct memcpy, avoiding iolist traversal overhead.
+
 ## [0.22.0] - 2026-03-05
 
 ### Added

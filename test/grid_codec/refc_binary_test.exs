@@ -165,9 +165,6 @@ defmodule GridCodec.RefcBinaryTest do
       {:ok, map_info} = spawn_tiny_heap_with_map(large_map, 233)
       {:ok, binary_info} = spawn_tiny_heap_with_binary_check(large_binary, 233)
 
-      IO.puts("\n  1000-entry map memory: #{map_info.memory_bytes} bytes")
-      IO.puts("  30KB binary memory: #{binary_info.memory_bytes} bytes")
-
       # Map should use MUCH more process memory than binary
       # The 30KB binary lives in shared memory, process only holds ~24 byte ref
       assert map_info.memory_bytes > binary_info.memory_bytes * 2,
@@ -190,9 +187,6 @@ defmodule GridCodec.RefcBinaryTest do
       # Calculate standard deviation (volatility)
       map_std = std_dev(map_samples)
       binary_std = std_dev(binary_samples)
-
-      IO.puts("\n  Map memory std dev: #{Float.round(map_std, 1)} KB")
-      IO.puts("  Binary memory std dev: #{Float.round(binary_std, 1)} KB")
 
       # Map should have higher volatility (more GC churn)
       # This might not always pass due to GC timing, so we're lenient

@@ -22,6 +22,21 @@ defmodule GridCodecTest do
     end
   end
 
+  # > 64 bytes total to ensure refc binary behavior for sub-binary tests
+  # header(8) + uuid(16) + uuid(16) + u64(8) + u64(8) + u64(8) + u32(4) = 68 bytes
+  defmodule LargeUUIDCodec do
+    use GridCodec.Struct
+
+    defcodec do
+      field(:trace_id, :uuid)
+      field(:span_id, :uuid)
+      field(:start_time, :u64)
+      field(:end_time, :u64)
+      field(:duration, :u64)
+      field(:status, :u32)
+    end
+  end
+
   defmodule SignedCodec do
     use GridCodec.Struct
 
@@ -107,6 +122,87 @@ defmodule GridCodecTest do
       assert UUIDCodec.get(binary, :order_id) == uuid
       assert UUIDCodec.get(binary, :price) == 15000
     end
+
+    test "get with copy: true returns correct value for uuid" do
+      require LargeUUIDCodec
+
+      trace_id = :crypto.strong_rand_bytes(16)
+      span_id = :crypto.strong_rand_bytes(16)
+
+      data = %LargeUUIDCodec{
+        trace_id: trace_id,
+        span_id: span_id,
+        start_time: 1000,
+        end_time: 2000,
+        duration: 1000,
+        status: 1
+      }
+
+      {:ok, binary} = LargeUUIDCodec.encode(data)
+
+      result = LargeUUIDCodec.get(binary, :trace_id, copy: true)
+      assert result == trace_id
+      # copy: true ensures the result is independent (at most 16 bytes referenced)
+      assert :binary.referenced_byte_size(result) == 16
+    end
+
+    test "get with copy: true on integer field passes through unchanged" do
+      require SimpleCodec
+
+      data = %SimpleCodec{id: 42, count: 7, flag: true}
+      {:ok, binary} = SimpleCodec.encode(data)
+
+      assert SimpleCodec.get(binary, :id, copy: true) == 42
+      assert SimpleCodec.get(binary, :flag, copy: true) == true
+    end
+
+    test "get with copy: true on null uuid returns nil" do
+      require LargeUUIDCodec
+
+      data = %LargeUUIDCodec{
+        trace_id: nil,
+        span_id: :crypto.strong_rand_bytes(16),
+        start_time: 1,
+        end_time: 2,
+        duration: 1,
+        status: 0
+      }
+
+      {:ok, binary} = LargeUUIDCodec.encode(data)
+      assert LargeUUIDCodec.get(binary, :trace_id, copy: true) == nil
+    end
+
+    test "copy: true guarantees independent binary regardless of original size" do
+      require LargeUUIDCodec
+
+      trace_id = :crypto.strong_rand_bytes(16)
+      span_id = :crypto.strong_rand_bytes(16)
+
+      data = %LargeUUIDCodec{
+        trace_id: trace_id,
+        span_id: span_id,
+        start_time: 1000,
+        end_time: 2000,
+        duration: 1000,
+        status: 1
+      }
+
+      {:ok, binary} = LargeUUIDCodec.encode(data)
+
+      result_copy = LargeUUIDCodec.get(binary, :trace_id, copy: true)
+      result_no_copy = LargeUUIDCodec.get(binary, :trace_id)
+
+      # Both return the correct value
+      assert result_copy == trace_id
+      assert result_no_copy == trace_id
+
+      # With copy: always exactly 16 bytes referenced (independent copy)
+      assert :binary.referenced_byte_size(result_copy) == 16
+      # Without copy: either a sub-binary (references full binary) or
+      # a heap binary (BEAM may optimize small extractions). Either way,
+      # referenced size is <= original size.
+      assert :binary.referenced_byte_size(result_no_copy) <= byte_size(binary)
+    end
   end
 
   describe "binary size" do
@@ -170,6 +266,71 @@ defmodule GridCodecTest do
       # Dialyzer passing is the real verification that t() is correctly typed
       # The test "__fields__/0 returns list of field names" also verifies compilation
       assert is_list(SimpleCodec.__fields__())
+    end
+  end
+
+  describe "GridCodec.Binary" do
+    test "detach/1 copies binary fields in decoded struct" do
+      trace_id = :crypto.strong_rand_bytes(16)
+      span_id = :crypto.strong_rand_bytes(16)
+
+      data = %LargeUUIDCodec{
+        trace_id: trace_id,
+        span_id: span_id,
+        start_time: 1000,
+        end_time: 2000,
+        duration: 1000,
+        status: 1
+      }
+
+      {:ok, binary} = LargeUUIDCodec.encode(data)
+      {:ok, decoded} = LargeUUIDCodec.decode(binary)
+
+      detached = GridCodec.Binary.detach(decoded)
+
+      # Values are preserved
+      assert detached.trace_id == trace_id
+      assert detached.span_id == span_id
+      assert detached.start_time == 1000
+      assert detached.status == 1
+      # Binary fields are independent copies (16 bytes each)
+      assert :binary.referenced_byte_size(detached.trace_id) == 16
+      assert :binary.referenced_byte_size(detached.span_id) == 16
+    end
+
+    test "detach/1 handles nil binary fields" do
+      data = %LargeUUIDCodec{
+        trace_id: nil,
+        span_id: :crypto.strong_rand_bytes(16),
+        start_time: 1,
+        end_time: 2,
+        duration: 1,
+        status: 0
+      }
+
+      {:ok, binary} = LargeUUIDCodec.encode(data)
+      {:ok, decoded} = LargeUUIDCodec.decode(binary)
+
+      detached = GridCodec.Binary.detach(decoded)
+      assert detached.trace_id == nil
+      assert detached.span_id == decoded.span_id
+      assert detached.start_time == 1
+    end
+
+    test "detach/1 on struct with no binary fields is a no-op" do
+      data = %SimpleCodec{id: 42, count: 7, flag: true}
+      {:ok, binary} = SimpleCodec.encode(data)
+      {:ok, decoded} = SimpleCodec.decode(binary)
+
+      detached = GridCodec.Binary.detach(decoded)
+      assert detached == decoded
+    end
+
+    test "copy_field/1 copies binary and handles nil" do
+      binary = :crypto.strong_rand_bytes(16)
+      assert GridCodec.Binary.copy_field(binary) == binary
+      assert GridCodec.Binary.copy_field(nil) == nil
+      assert GridCodec.Binary.copy_field(42) == 42
     end
   end
 end

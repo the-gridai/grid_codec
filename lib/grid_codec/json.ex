@@ -3,18 +3,17 @@ defmodule GridCodec.Json do
   Simple JSON transcoder for GridCodec structs.
 
   Converts between GridCodec binary format and JSON using the naive approach:
-  - Encode: `GridCodec.decode → Map.from_struct → Jason.encode`
-  - Decode: `Jason.decode → struct → GridCodec.encode`
+  - Encode: `GridCodec.decode → Map.from_struct → JSON.encode!`
+  - Decode: `JSON.decode → struct → GridCodec.encode`
 
-  Requires the `:jason` dependency (optional in GridCodec's mix.exs).
-  If Jason is not available, all functions raise a clear error at compile time.
+  Uses Elixir's built-in `JSON` module (available since Elixir 1.18).
 
   ## Requirements
 
   For this to work, your struct fields must be JSON-serializable:
   - Use `:uuid_string` instead of `:uuid` for JSON-safe UUIDs
   - Integers, floats, booleans, strings work out of the box
-  - For custom types, implement the `Jason.Encoder` protocol
+  - For custom types, implement the `JSON.Encoder` protocol
 
   ## Examples
 
@@ -26,16 +25,12 @@ defmodule GridCodec.Json do
 
   ## Options
 
-  Encoding options (passed to `Jason.encode/2`):
+  Encoding options:
   - `:pretty` - Pretty print the JSON (default: false)
 
   Decoding options:
   - `:keys` - How to handle JSON keys, `:atoms` or `:strings` (default: `:strings`)
   """
-
-  unless Code.ensure_loaded?(Jason) do
-    @compile {:no_warn_undefined, Jason}
-  end
 
   @doc """
   Converts a GridCodec binary to a plain map.
@@ -140,12 +135,12 @@ defmodule GridCodec.Json do
   def from_json(json, schema, opts \\ []) when is_binary(json) and is_atom(schema) do
     keys = Keyword.get(opts, :keys, :strings)
 
-    with {:ok, map} <- Jason.decode(json, keys: keys),
+    with {:ok, raw_map} <- JSON.decode(json),
+         map = if(keys == :atoms, do: atomize_keys(raw_map), else: raw_map),
          {:ok, binary} <- from_map(map, schema, opts) do
       {:ok, binary}
     else
-      {:error, %Jason.DecodeError{} = e} -> {:error, {:json_decode_error, e}}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> {:error, {:json_decode_error, reason}}
     end
   end
 
@@ -180,11 +175,54 @@ defmodule GridCodec.Json do
   end
 
   defp json_encode_map(map, opts) do
-    jason_opts = if opts[:pretty], do: [pretty: true], else: []
+    json = JSON.encode!(map)
+    {:ok, if(opts[:pretty], do: pretty_format(json), else: json)}
+  rescue
+    e -> {:error, {:json_encode_error, e}}
+  end
 
-    case Jason.encode(map, jason_opts) do
-      {:ok, json} -> {:ok, json}
-      {:error, reason} -> {:error, {:json_encode_error, reason}}
+  defp atomize_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
+  end
+
+  defp pretty_format(json) do
+    json
+    |> JSON.decode!()
+    |> do_pretty(0)
+    |> IO.iodata_to_binary()
+  end
+
+  defp do_pretty(map, indent) when is_map(map) do
+    if map_size(map) == 0 do
+      "{}"
+    else
+      pad = String.duplicate("  ", indent + 1)
+      close_pad = String.duplicate("  ", indent)
+
+      entries =
+        Enum.map(Map.to_list(map), fn {k, v} ->
+          [pad, JSON.encode!(k), ": ", do_pretty(v, indent + 1)]
+        end)
+
+      ["{\n", Enum.intersperse(entries, ",\n"), "\n", close_pad, "}"]
     end
   end
+
+  defp do_pretty(list, indent) when is_list(list) do
+    if list == [] do
+      "[]"
+    else
+      pad = String.duplicate("  ", indent + 1)
+      close_pad = String.duplicate("  ", indent)
+
+      entries =
+        Enum.map(list, fn v ->
+          [pad, do_pretty(v, indent + 1)]
+        end)
+
+      ["[\n", Enum.intersperse(entries, ",\n"), "\n", close_pad, "]"]
+    end
+  end
+
+  defp do_pretty(other, _indent), do: JSON.encode!(other)
 end

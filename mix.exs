@@ -1,14 +1,14 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.22.0"
+  @version "0.23.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
     [
       app: :grid_codec,
       version: @version,
-      elixir: "~> 1.17",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -80,9 +80,6 @@ defmodule GridCodec.MixProject do
       # Runtime - Decimal type support
       {:decimal, "~> 2.0"},
 
-      # Optional - JSON transcoder support
-      {:jason, "~> 1.4", optional: true},
-
       # Telemetry (for instrumented encode/decode + metric definitions)
       {:telemetry, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
@@ -119,6 +116,7 @@ defmodule GridCodec.MixProject do
         "docs/schema-evolution.md": [title: "Schema Evolution"],
         "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
         "docs/performance.md": [title: "Performance Guide"],
+        "docs/consumer-integration.md": [title: "Consumer Integration"],
         "docs/troubleshooting.md": [title: "Troubleshooting"],
         "CHANGELOG.md": [title: "Changelog"],
         LICENSE: [title: "License"]
@@ -133,13 +131,19 @@ defmodule GridCodec.MixProject do
         ],
         Runtime: [
           GridCodec.Group,
+          GridCodec.Batch,
+          GridCodec.Batch.PaddedUnion,
+          GridCodec.Batch.TypedFrames,
+          GridCodec.Batch.PerTypeGroups,
+          GridCodec.Binary,
           GridCodec.Dispatch,
           GridCodec.Header,
           GridCodec.Registry,
           GridCodec.BinaryInspector,
           GridCodec.Json,
           GridCodec.SQL,
-          GridCodec.Telemetry.Metrics
+          GridCodec.Telemetry.Metrics,
+          GridCodec.Generators
         ],
         Schema: [
           GridCodec.Schema.Parser,
@@ -147,14 +151,29 @@ defmodule GridCodec.MixProject do
         ],
         Types: [
           GridCodec.Type,
+          GridCodec.Types.U8,
+          GridCodec.Types.U16,
+          GridCodec.Types.U32,
+          GridCodec.Types.U64,
+          GridCodec.Types.I8,
+          GridCodec.Types.I16,
+          GridCodec.Types.I32,
+          GridCodec.Types.I64,
+          GridCodec.Types.F32,
+          GridCodec.Types.F64,
           GridCodec.Types.Bool,
           GridCodec.Types.Decimal,
           GridCodec.Types.PositiveDecimal,
           GridCodec.Types.String,
+          GridCodec.Types.String8,
+          GridCodec.Types.String16,
+          GridCodec.Types.String32,
           GridCodec.Types.UUID,
           GridCodec.Types.UUIDString,
           GridCodec.Types.TimestampMicros,
           GridCodec.Types.TimestampNanos,
+          GridCodec.Types.DateTimeMicros,
+          GridCodec.Types.DateTimeNanos,
           GridCodec.Types.Enum,
           GridCodec.Types.Bitset,
           GridCodec.Types.CharArray

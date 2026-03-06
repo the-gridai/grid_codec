@@ -158,13 +158,14 @@ defmodule GridCodec.Struct do
         # Standard defcodec approach
         quote do
           import GridCodec.Struct, only: [defcodec: 1]
-          import GridCodec, only: [field: 2, field: 3, group: 2, group: 3]
+          import GridCodec, only: [field: 2, field: 3, group: 2, group: 3, batch: 2]
 
           @gridcodec_opts unquote(opts)
           @gridcodec_is_struct true
 
           Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
+          Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
         end
     end
   end

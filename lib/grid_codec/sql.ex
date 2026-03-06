@@ -247,6 +247,9 @@ defmodule GridCodec.SQL do
     end
   end
 
+  defp enum_type?({_type, _opts}), do: false
+  defp enum_type?(_), do: false
+
   defp generate_enum_table(enum_module) do
     table_name = enum_table_name(enum_module)
 
@@ -478,7 +481,7 @@ defmodule GridCodec.SQL do
       type == :decimal ->
         "gridcodec.read_decimal(data, #{offset})"
 
-      type == :timestamp_us ->
+      type in [:timestamp_us, :datetime_us] ->
         "gridcodec.read_timestamp_us(data, #{offset})"
 
       true ->
@@ -511,12 +514,16 @@ defmodule GridCodec.SQL do
       type == :uuid_string -> "uuid"
       type == :bool -> "boolean"
       type == :decimal -> "numeric"
-      type in [:timestamp_us, :timestamp_ns] -> "timestamptz"
+      type in [:timestamp_us, :timestamp_ns, :datetime_us, :datetime_ns] -> "timestamptz"
       type in [:string, :string8, :string16, :string32] -> "text"
       enum_type?(type) -> "text"
       true -> "text"
     end
   end
+
+  defp sql_column_type({:decimal, _opts}), do: "numeric"
+  defp sql_column_type({:positive_decimal, _opts}), do: "numeric"
+  defp sql_column_type({_type, _opts}), do: "text"
 
   defp sql_read_expr(name, type, type_mod, offset) do
     if enum_type?(type) do
@@ -538,8 +545,10 @@ defmodule GridCodec.SQL do
           type in [:uuid, :uuid_string] -> "gridcodec.read_uuid_nullable(data, #{offset})"
           type == :bool -> "gridcodec.read_bool(data, #{offset})"
           type == :decimal -> "gridcodec.read_decimal(data, #{offset})"
-          type == :timestamp_us -> "gridcodec.read_timestamp_us(data, #{offset})"
-          true -> "'unsupported:#{type}'::text"
+          match?({:decimal, _}, type) -> "gridcodec.read_i64(data, #{offset})"
+          match?({:positive_decimal, _}, type) -> "gridcodec.read_u64(data, #{offset})"
+          type in [:timestamp_us, :datetime_us] -> "gridcodec.read_timestamp_us(data, #{offset})"
+          true -> "'unsupported:#{inspect(type)}'::text"
         end
 
       case null_expr do
@@ -564,12 +573,32 @@ defmodule GridCodec.SQL do
 
   defp null_check_expr(type, _type_mod, offset) do
     cond do
-      type == :u8 -> "get_byte(data, #{offset}) = 255"
-      type == :u16 -> "gridcodec.read_u16(data, #{offset}) = 65535"
-      type == :u32 -> "gridcodec.read_u32(data, #{offset}) = 4294967295"
-      type == :u64 -> "gridcodec.read_u64(data, #{offset}) = 18446744073709551615"
-      type in [:uuid, :uuid_string, :bool, :decimal, :timestamp_us, :timestamp_ns] -> nil
-      true -> nil
+      type == :u8 ->
+        "get_byte(data, #{offset}) = 255"
+
+      type == :u16 ->
+        "gridcodec.read_u16(data, #{offset}) = 65535"
+
+      type == :u32 ->
+        "gridcodec.read_u32(data, #{offset}) = 4294967295"
+
+      type == :u64 ->
+        "gridcodec.read_u64(data, #{offset}) = 18446744073709551615"
+
+      type in [
+        :uuid,
+        :uuid_string,
+        :bool,
+        :decimal,
+        :timestamp_us,
+        :timestamp_ns,
+        :datetime_us,
+        :datetime_ns
+      ] ->
+        nil
+
+      true ->
+        nil
     end
   end
 end

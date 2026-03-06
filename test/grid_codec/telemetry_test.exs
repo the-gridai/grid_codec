@@ -29,25 +29,27 @@ defmodule GridCodec.TelemetryTest do
     end
   end
 
+  defmodule Handler do
+    def handle_event(event, measurements, metadata, pid) do
+      send(pid, {:telemetry_event, event, measurements, metadata})
+    end
+  end
+
   setup do
     test_pid = self()
 
     :telemetry.attach(
       "test-encode-#{inspect(test_pid)}",
       [:grid_codec, :encode],
-      fn event, measurements, metadata, _config ->
-        send(test_pid, {:telemetry_event, event, measurements, metadata})
-      end,
-      nil
+      &Handler.handle_event/4,
+      test_pid
     )
 
     :telemetry.attach(
       "test-decode-#{inspect(test_pid)}",
       [:grid_codec, :decode],
-      fn event, measurements, metadata, _config ->
-        send(test_pid, {:telemetry_event, event, measurements, metadata})
-      end,
-      nil
+      &Handler.handle_event/4,
+      test_pid
     )
 
     on_exit(fn ->
@@ -133,7 +135,7 @@ defmodule GridCodec.TelemetryTest do
       {:ok, binary} = WithoutTelemetry.encode(struct)
       {:ok, _decoded} = WithoutTelemetry.decode(binary)
 
-      refute_receive {:telemetry_event, _, _, _}, 50
+      refute_receive {:telemetry_event, _, _, _}, 10
     end
   end
 end

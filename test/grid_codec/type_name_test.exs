@@ -80,11 +80,6 @@ defmodule GridCodec.TypeNameTest do
   # ============================================================================
 
   describe "lookup_by_type/1" do
-    setup do
-      GridCodec.Registry.clear_cache()
-      :ok
-    end
-
     test "finds module by explicit type name" do
       assert {:ok, ExplicitName} = GridCodec.Registry.lookup_by_type("OrderSubmitted")
     end

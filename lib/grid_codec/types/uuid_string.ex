@@ -45,9 +45,9 @@ defmodule GridCodec.Types.UUIDString do
   The main benefit of `:uuid_string` is JSON compatibility:
 
       {:ok, struct} = MyCodec.decode(binary)
-      Jason.encode!(Map.from_struct(struct))  # Works!
+      JSON.encode!(Map.from_struct(struct))  # Works!
 
-  With `:uuid`, you'd get a Jason.EncodeError because raw bytes aren't valid UTF-8.
+  With `:uuid`, you'd get a `JSON.EncodeError` because raw bytes aren't valid UTF-8.
   """
 
   @behaviour GridCodec.Type
@@ -230,14 +230,14 @@ defmodule GridCodec.Types.UUIDString do
         nil ->
           {:ok, nil}
 
-        <<_::binary-size(16)>> = v ->
-          {:ok, v}
+        <<_::binary-size(16)>> = raw ->
+          {:ok, GridCodec.Types.UUIDString.format_uuid(raw)}
 
         v when is_binary(v) and byte_size(v) == 36 ->
-          {:ok, GridCodec.Types.UUIDString.parse_uuid_string!(v)}
+          {:ok, v}
 
         v when is_binary(v) and byte_size(v) == 32 ->
-          {:ok, Base.decode16!(v, case: :mixed)}
+          {:ok, GridCodec.Types.UUIDString.format_uuid(Base.decode16!(v, case: :mixed))}
 
         v ->
           {:error, "expected UUID binary or string, got #{inspect(v)}"}

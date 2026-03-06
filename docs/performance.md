@@ -131,6 +131,140 @@ faster for 55k entries. Falls back to sequential for small groups.
 For maximum throughput, use `:i64` for monetary values (fixed-point integers)
 and `:uuid` for IDs. The `%Decimal{}` struct allocation dominates decode cost.
 
+## Memory & Binary Lifecycle
+
+Understanding how the BEAM manages binary memory is critical for getting the
+most out of GridCodec in production.
+
+### Refc Binaries and Zero-Copy Sends
+
+Binaries > 64 bytes are **reference-counted** (refc binaries). The payload lives
+in a shared binary allocator; each process holds only a small `ProcBin`
+reference (~5 words) on its heap.
+
+GridCodec encoded structs are almost always > 64 bytes, which means:
+
+- **Sending is O(1)**: `send(pid, encoded_binary)` copies only the ProcBin
+  pointer, not the payload. This is why "encode once, fan out to N processes"
+  is so effective.
+- **ETS insertion is O(1)**: `ets:insert` also creates a ProcBin reference,
+  not a full copy of the binary data.
+- **GC doesn't touch the payload**: Only the ProcBin linked list is scanned
+  during garbage collection. The binary payload is freed when the last
+  ProcBin reference is collected.
+
+### Sub-Binary Retention (The "Chapter from a Book" Problem)
+
+When `get/2` extracts a binary-typed field (`:uuid`, `char_array`), the result
+is a **sub-binary** — a lightweight pointer into the original encoded binary.
+This sub-binary keeps the *entire* original alive:
+
+```elixir
+# This 16-byte sub-binary pins the full ~200 byte encoded binary in memory
+uuid = MyCodec.get(large_binary, :trace_id)
+large_binary = nil  # Doesn't help — uuid still references it!
+```
+
+This matters most when:
+
+1. **Scanning groups**: Iterating over a 100KB group, extracting one UUID per
+   entry — every group binary stays pinned
+2. **ETS lookup + extract**: Fetching a binary from ETS, extracting one field,
+   discarding the binary — the sub-binary pins it
+3. **Long-lived references**: Storing extracted UUIDs in a GenServer state while
+   the source binaries are no longer needed
+
+**Fix with `copy: true`:**
+
+```elixir
+require MyCodec
+uuid = MyCodec.get(binary, :trace_id, copy: true)
+```
+
+Or use `GridCodec.Binary.detach/1` after full decode:
+
+```elixir
+{:ok, struct} = MyCodec.decode(large_binary)
+struct = GridCodec.Binary.detach(struct)
+```
+
+**Types affected**: `:uuid` and `char_array(N)` return sub-binaries.
+**Types NOT affected**: All integer types, `:bool`, `:decimal`, floats,
+`:uuid_string` (creates a new formatted string), timestamps.
+
+### Message Queue Strategy
+
+For high-throughput GridCodec consumers, consider the `message_queue_data`
+process flag:
+
+```elixir
+spawn_opt(fn -> consumer_loop() end, [message_queue_data: :off_heap])
+```
+
+- **`:on_heap`** (default): sender tries to write directly to receiver's heap.
+  Lower latency when the lock is available.
+- **`:off_heap`**: sender allocates a heap fragment without locking. Reduces
+  contention when the receiver is processing heavily.
+
+Since GridCodec binaries are refc, the "message" being copied is just the
+ProcBin pointer either way — the main benefit of `:off_heap` is avoiding
+the main lock on the receiver.
+
+### Binary Virtual Heap and GC Tuning
+
+Each process tracks refc binary references in a **binary virtual heap**
+(`bin_vheap_sz`). When accumulated binary references exceed this threshold,
+GC is triggered to sweep dead ProcBin references and decrement refcounts.
+
+For processes that create and discard many GridCodec binaries:
+
+```elixir
+spawn_opt(fn -> encoder_loop() end, [min_bin_vheap_size: 100_000])
+```
+
+The default `min_bin_vheap_size` (46422 words) works for most workloads. Only
+tune this if profiling shows excessive minor GCs in binary-heavy processes.
+
+### The Load Balancer Anti-Pattern
+
+A process that receives GridCodec binaries and forwards them (router, load
+balancer) accumulates ProcBin references without GC pressure:
+
+```elixir
+# This process never allocates — GC may not run for a long time
+def loop(workers, n) do
+  receive do
+    binary ->
+      Enum.at(workers, n) |> send(binary)
+      loop(workers, rem(n + 1, length(workers)))
+  end
+end
+```
+
+Fix: trigger GC periodically or use `hibernate` in the receive timeout:
+
+```elixir
+receive do
+  binary -> forward(binary)
+after
+  5_000 -> :erlang.garbage_collect(); loop(workers, n)
+end
+```
+
+### Distribution: GridCodec is Wire-Efficient
+
+When sending between Erlang nodes, terms go through `term_to_binary` for the
+wire. A raw binary has minimal ETF overhead (tag + length prefix), while
+maps/structs have per-field overhead. Sending a GridCodec binary between nodes
+is more efficient than sending the equivalent Elixir struct.
+
+The inter-node buffer is 128MB by default. Tune with `+zdbbl` if sending
+large batches of GridCodec binaries between nodes:
+
+```
+erl +zdbbl 256000   # 256MB buffer
+```
+
 ## Telemetry
 
 Enable per-module for production latency tracking:
@@ -166,3 +300,51 @@ Benchmark scripts in `example_app/benchmarks/`:
 - `parallel_decode_bench.exs` — parallel vs sequential group decode
 - `ecto_comparison.exs` — GridCodec vs Ecto changeset + JSON
 - `format_comparison.exs` — GridCodec vs Protobuf, ETF, MessagePack, JSON
+
+## Production Monitoring
+
+### Binary Memory
+
+Monitor total binary allocator usage:
+
+```elixir
+:erlang.memory(:binary)
+```
+
+Track per-process binary references to find processes retaining large binaries:
+
+```elixir
+Process.info(pid, :binary)
+# Returns list of {binary_id, size, refcount} tuples
+```
+
+### Detecting Binary Leaks
+
+Use `recon` to find processes whose binary memory grows between GC cycles:
+
+```elixir
+:recon.bin_leak(10)  # Top 10 processes by binary growth
+```
+
+Common causes of binary leaks with GridCodec:
+
+1. **Router processes** that forward binaries without GC (see load balancer
+   anti-pattern above)
+2. **GenServer state** accumulating sub-binary references from `get/2` calls
+3. **ETS tables** growing without cleanup — each entry's binary stays in
+   `binary_alloc`
+
+### BEAM Allocator Flags
+
+For systems with heavy GridCodec binary workloads, these VM flags may help:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `+MBas bf` | best fit | Binary allocator strategy |
+| `+MBsbct 512` | varies | Singleblock carrier threshold (KB) |
+| `+MBlmbcs 8192` | varies | Max multiblock carrier size (KB) |
+| `+zdbbl 128000` | 128MB | Distribution buffer size (KB) |
+| `+hmqd off_heap` | on_heap | Default message queue strategy |
+
+Only tune these after profiling with `recon_alloc:memory/1` and
+`recon_alloc:fragmentation/1`. The defaults work well for most workloads.

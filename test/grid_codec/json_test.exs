@@ -28,7 +28,7 @@ defmodule GridCodec.JsonTest do
       {:ok, binary} = TestOrder.encode(order)
       assert {:ok, json} = Json.encode(binary, TestOrder)
 
-      decoded = Jason.decode!(json)
+      decoded = JSON.decode!(json)
       assert decoded["id"] == "550e8400-e29b-41d4-a716-446655440000"
       assert decoded["user_id"] == 12345
       assert decoded["symbol"] == "BTC/USD"
@@ -179,7 +179,7 @@ defmodule GridCodec.JsonTest do
 
       {:ok, binary} = TestOrder.encode(order)
       assert {:ok, json} = Json.to_json(binary)
-      decoded = Jason.decode!(json)
+      decoded = JSON.decode!(json)
 
       assert decoded["id"] == order.id
       assert decoded["symbol"] == order.symbol

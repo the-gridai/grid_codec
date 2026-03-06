@@ -378,9 +378,12 @@ defmodule GridCodec.Type do
       # Composite types
       decimal: GridCodec.Types.Decimal,
       positive_decimal: GridCodec.Types.PositiveDecimal,
-      # Timestamps (i64)
+      # Timestamps (i64) — integer domain
       timestamp_us: GridCodec.Types.TimestampMicros,
-      timestamp_ns: GridCodec.Types.TimestampNanos
+      timestamp_ns: GridCodec.Types.TimestampNanos,
+      # DateTimes (i64) — DateTime domain, wire-compatible with timestamps
+      datetime_us: GridCodec.Types.DateTimeMicros,
+      datetime_ns: GridCodec.Types.DateTimeNanos
     }
   end
 

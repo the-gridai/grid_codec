@@ -17,6 +17,7 @@ defmodule GridCodec.Struct.Compiler do
   defmacro __before_compile__(env) do
     fields = Module.get_attribute(env.module, :gridcodec_fields) |> Enum.reverse()
     groups = Module.get_attribute(env.module, :gridcodec_groups) |> Enum.reverse()
+    batches = (Module.get_attribute(env.module, :gridcodec_batches) || []) |> Enum.reverse()
     opts = Module.get_attribute(env.module, :gridcodec_opts) || []
 
     # Extract options with defaults
@@ -98,12 +99,16 @@ defmodule GridCodec.Struct.Compiler do
     # Pre-compute null sentinel block for version-aware decoding
     null_fixed_block = compute_null_fixed_block(fixed_fields, field_offsets, block_length, endian)
 
+    # Convert batch declarations into groups with specialized union encoder/decoder
+    {batch_groups, batch_fns} = process_batches(batches)
+    all_groups = groups ++ batch_groups
+
     # Process groups — auto-generate entry codecs from field declarations when
     # entry_encoder/entry_decoder are not explicitly provided
-    {processed_groups, auto_group_fns} = process_groups(groups, endian)
+    {processed_groups, auto_group_fns} = process_groups(all_groups, endian)
 
     # Build struct field list with defaults (includes group names with default [])
-    {struct_fields, enforce_keys} = build_struct_fields(fields, groups)
+    {struct_fields, enforce_keys} = build_struct_fields(fields, all_groups)
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
     struct_typedoc = build_struct_typedoc(resolved_fields, groups)
 
@@ -300,6 +305,9 @@ defmodule GridCodec.Struct.Compiler do
 
       # Auto-generated group entry codecs
       unquote_splicing(auto_group_fns)
+
+      # Auto-generated batch union encoder/decoder
+      unquote_splicing(batch_fns)
 
       # Field validation (when validate: true)
       unquote(
@@ -544,9 +552,12 @@ defmodule GridCodec.Struct.Compiler do
       end)
 
     group_fields =
-      Enum.map(groups, fn {name, _block, _opts} ->
-        # Encode path expects list entries; decode path returns GridCodec.Group.t().
-        {name, quote(do: [map()] | GridCodec.Group.t())}
+      Enum.map(groups, fn {name, _block, opts} ->
+        if Keyword.get(opts, :is_batch, false) do
+          {name, quote(do: [struct()] | GridCodec.Batch.t())}
+        else
+          {name, quote(do: [map()] | GridCodec.Group.t())}
+        end
       end)
 
     quote do
@@ -577,6 +588,10 @@ defmodule GridCodec.Struct.Compiler do
 
   defp base_field_type_ast(type_atom, _module) when type_atom in [:timestamp_us, :timestamp_ns] do
     quote(do: integer() | DateTime.t())
+  end
+
+  defp base_field_type_ast(type_atom, _module) when type_atom in [:datetime_us, :datetime_ns] do
+    quote(do: DateTime.t())
   end
 
   defp base_field_type_ast(:decimal, _module) do
@@ -754,6 +769,8 @@ defmodule GridCodec.Struct.Compiler do
   defp pattern_segment_for_type(:decimal, _module), do: "binary-size(9)"
   defp pattern_segment_for_type(:timestamp_us, _module), do: "signed-little-64"
   defp pattern_segment_for_type(:timestamp_ns, _module), do: "signed-little-64"
+  defp pattern_segment_for_type(:datetime_us, _module), do: "signed-little-64"
+  defp pattern_segment_for_type(:datetime_ns, _module), do: "signed-little-64"
   defp pattern_segment_for_type(_type, module), do: "binary-size(#{module.size()})"
 
   defp variable_note([], []), do: "No variable section (fixed-size payload only)."
@@ -1063,6 +1080,266 @@ defmodule GridCodec.Struct.Compiler do
     case endian do
       :little -> <<val::integer-little-size(bits)>>
       :big -> <<val::integer-big-size(bits)>>
+    end
+  end
+
+  # ============================================================================
+  # ============================================================================
+  # Auto-Generated Batch Codecs
+  # ============================================================================
+
+  defp process_batches(batches) do
+    Enum.map_reduce(batches, [], fn {name, any_of_modules, opts}, acc_fns ->
+      strategy = Keyword.get(opts, :strategy, :padded_union)
+
+      type_specs =
+        any_of_modules
+        |> Enum.with_index()
+        |> Enum.map(fn {mod, tag} ->
+          bl = mod.block_length()
+          {tag, mod, bl}
+        end)
+
+      case strategy do
+        :padded_union -> process_batch_padded_union(name, type_specs, opts, acc_fns)
+        :typed_frames -> process_batch_typed_frames(name, type_specs, opts, acc_fns)
+      end
+    end)
+  end
+
+  # -- Padded Union strategy (default) -----------------------------------------
+
+  defp process_batch_padded_union(name, type_specs, opts, acc_fns) do
+    max_bl =
+      type_specs
+      |> Enum.map(fn {_, _, bl} -> bl end)
+      |> Enum.max(fn -> 0 end)
+
+    seq_size = 4
+    tag_size = 1
+    envelope_size = seq_size + tag_size + max_bl
+
+    entry_encoder_fn = generate_pu_entry_encoder(name, type_specs, max_bl)
+    batch_encoder_fn = generate_pu_group_encoder(name, envelope_size)
+    entry_decoder_fn = generate_pu_entry_decoder(name, type_specs, max_bl)
+    batch_decoder_fn = generate_pu_group_decoder(name, type_specs, max_bl)
+
+    encoder_fn_name = :"__encode_#{name}_entry__"
+    decoder_fn_name = :"__decode_#{name}_entry__"
+    batch_encoder_fn_name = :"__encode_#{name}_group__"
+    batch_decoder_fn_name = :"__decode_all_#{name}__"
+
+    encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 2]}]}
+    decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+    batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
+
+    group_opts =
+      opts
+      |> Keyword.put(:entry_encoder, encoder_capture)
+      |> Keyword.put(:entry_decoder, decoder_capture)
+      |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+      |> Keyword.put(:batch_decoder, batch_decoder_capture)
+      |> Keyword.put(:block_length, envelope_size)
+      |> Keyword.put(:is_batch, true)
+      |> Keyword.put(:batch_strategy, :padded_union)
+      |> Keyword.put(:batch_type_specs, type_specs)
+
+    group_tuple = {name, nil, group_opts}
+    fns = [entry_encoder_fn, batch_encoder_fn, entry_decoder_fn, batch_decoder_fn]
+    {group_tuple, acc_fns ++ fns}
+  end
+
+  defp generate_pu_entry_encoder(batch_name, type_specs, max_bl) do
+    fn_name = :"__encode_#{batch_name}_entry__"
+    entry_var = Macro.var(:entry, __MODULE__)
+    seq_var = Macro.var(:seq, __MODULE__)
+
+    clauses =
+      Enum.map(type_specs, fn {tag, mod, bl} ->
+        padding_bits = (max_bl - bl) * 8
+
+        body =
+          quote do
+            {:ok, payload} = unquote(mod).encode(unquote(entry_var), header: false)
+
+            <<unquote(seq_var)::little-32, unquote(tag)::8, payload::binary,
+              0::size(unquote(padding_bits))>>
+          end
+
+        {:->, [], [[mod], body]}
+      end)
+
+    case_ast = {:case, [], [quote(do: unquote(entry_var).__struct__), [do: clauses]]}
+
+    quote do
+      defp unquote(fn_name)({unquote(entry_var), unquote(seq_var)})
+           when is_map(unquote(entry_var)) do
+        unquote(case_ast)
+      end
+    end
+  end
+
+  defp generate_pu_group_encoder(batch_name, envelope_size) do
+    group_fn = :"__encode_#{batch_name}_group__"
+    loop_fn = :"__encode_#{batch_name}_list__"
+    entry_fn = :"__encode_#{batch_name}_entry__"
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<0::little-16, 0::little-16>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        iodata = unquote(loop_fn)(entries, 0)
+
+        :erlang.iolist_to_binary([
+          <<unquote(envelope_size)::little-16, count::little-16>> | iodata
+        ])
+      end
+
+      defp unquote(loop_fn)([], _seq), do: []
+
+      defp unquote(loop_fn)([entry | rest], seq) do
+        [unquote(entry_fn)({entry, seq}) | unquote(loop_fn)(rest, seq + 1)]
+      end
+    end
+  end
+
+  defp generate_pu_entry_decoder(batch_name, type_specs, max_bl) do
+    fn_name = :"__decode_#{batch_name}_entry__"
+    seq_var = Macro.var(:seq, __MODULE__)
+    pp_var = Macro.var(:payload_and_padding, __MODULE__)
+
+    clauses =
+      Enum.map(type_specs, fn {tag, mod, bl} ->
+        body =
+          quote do
+            payload = binary_part(unquote(pp_var), 0, unquote(bl))
+            {:ok, decoded} = unquote(mod).decode(payload, header: false)
+            {:ok, {unquote(seq_var), unquote(tag), decoded}}
+          end
+
+        {:->, [], [[tag], body]}
+      end)
+
+    case_ast = {:case, [], [Macro.var(:tag, __MODULE__), [do: clauses]]}
+
+    quote do
+      defp unquote(fn_name)(
+             <<unquote(seq_var)::little-32, tag::8,
+               unquote(pp_var)::binary-size(unquote(max_bl))>>
+           ) do
+        unquote(case_ast)
+      end
+    end
+  end
+
+  defp generate_pu_group_decoder(batch_name, type_specs, max_bl) do
+    fn_name = :"__decode_all_#{batch_name}__"
+    seq_var = Macro.var(:seq, __MODULE__)
+    pp_var = Macro.var(:payload_and_padding, __MODULE__)
+
+    clauses =
+      Enum.map(type_specs, fn {tag, mod, bl} ->
+        body =
+          quote do
+            payload = binary_part(unquote(pp_var), 0, unquote(bl))
+            {:ok, decoded} = unquote(mod).decode(payload, header: false)
+            {unquote(seq_var), unquote(tag), decoded}
+          end
+
+        {:->, [], [[tag], body]}
+      end)
+
+    case_ast = {:case, [], [Macro.var(:tag, __MODULE__), [do: clauses]]}
+
+    quote do
+      defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
+
+      defp unquote(fn_name)(
+             <<unquote(seq_var)::little-32, tag::8, unquote(pp_var)::binary-size(unquote(max_bl)),
+               rest::binary>>,
+             acc
+           ) do
+        entry = unquote(case_ast)
+        unquote(fn_name)(rest, [entry | acc])
+      end
+    end
+  end
+
+  # -- Typed Frames strategy ---------------------------------------------------
+
+  defp process_batch_typed_frames(name, type_specs, opts, acc_fns) do
+    entry_encoder_fn = generate_tf_entry_encoder(name, type_specs)
+    batch_encoder_fn = generate_tf_group_encoder(name)
+
+    batch_encoder_fn_name = :"__encode_#{name}_group__"
+
+    group_opts =
+      opts
+      |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+      |> Keyword.put(:is_batch, true)
+      |> Keyword.put(:batch_strategy, :typed_frames)
+      |> Keyword.put(:batch_type_specs, type_specs)
+
+    group_tuple = {name, nil, group_opts}
+    fns = [entry_encoder_fn, batch_encoder_fn]
+    {group_tuple, acc_fns ++ fns}
+  end
+
+  defp generate_tf_entry_encoder(batch_name, type_specs) do
+    fn_name = :"__encode_#{batch_name}_entry__"
+    entry_var = Macro.var(:entry, __MODULE__)
+    seq_var = Macro.var(:seq, __MODULE__)
+
+    clauses =
+      Enum.map(type_specs, fn {tag, mod, _bl} ->
+        body =
+          quote do
+            {:ok, payload} = unquote(mod).encode(unquote(entry_var), header: false)
+            payload_len = byte_size(payload)
+
+            <<unquote(seq_var)::little-32, unquote(tag)::8, payload_len::little-16,
+              payload::binary>>
+          end
+
+        {:->, [], [[mod], body]}
+      end)
+
+    case_ast = {:case, [], [quote(do: unquote(entry_var).__struct__), [do: clauses]]}
+
+    quote do
+      defp unquote(fn_name)({unquote(entry_var), unquote(seq_var)})
+           when is_map(unquote(entry_var)) do
+        unquote(case_ast)
+      end
+    end
+  end
+
+  defp generate_tf_group_encoder(batch_name) do
+    group_fn = :"__encode_#{batch_name}_group__"
+    loop_fn = :"__encode_#{batch_name}_list__"
+    entry_fn = :"__encode_#{batch_name}_entry__"
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<4::little-32, 0::little-32>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        frames_iodata = unquote(loop_fn)(entries, 0)
+        frames_bin = :erlang.iolist_to_binary(frames_iodata)
+        body_size = 4 + byte_size(frames_bin)
+        <<body_size::little-32, count::little-32, frames_bin::binary>>
+      end
+
+      defp unquote(loop_fn)([], _seq), do: []
+
+      defp unquote(loop_fn)([entry | rest], seq) do
+        [unquote(entry_fn)({entry, seq}) | unquote(loop_fn)(rest, seq + 1)]
+      end
     end
   end
 
@@ -2060,24 +2337,63 @@ defmodule GridCodec.Struct.Compiler do
                                                         {steps, rest_var, pairs} ->
         decoder = Keyword.get(opts, :entry_decoder) || quote(do: fn b -> {:ok, b} end)
         batch_decoder = Keyword.get(opts, :batch_decoder)
+        is_batch = Keyword.get(opts, :is_batch, false)
+        batch_strategy = Keyword.get(opts, :batch_strategy, :padded_union)
+        batch_type_specs = Keyword.get(opts, :batch_type_specs)
         group_var = Macro.var(:"__grp_#{name}__", __MODULE__)
         new_rest = Macro.var(:"__rest_#{name}__", __MODULE__)
 
         step =
-          if batch_decoder do
-            quote do
-              {unquote(group_var), unquote(new_rest)} =
-                GridCodec.Group.parse_with_rest!(
-                  unquote(rest_var),
-                  unquote(decoder),
-                  unquote(batch_decoder)
-                )
-            end
-          else
-            quote do
-              {unquote(group_var), unquote(new_rest)} =
-                GridCodec.Group.parse_with_rest!(unquote(rest_var), unquote(decoder))
-            end
+          cond do
+            is_batch and batch_strategy == :typed_frames ->
+              escaped_specs = Macro.escape(batch_type_specs)
+
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Batch.TypedFrames.parse_with_rest!(
+                    unquote(rest_var),
+                    unquote(escaped_specs)
+                  )
+
+                unquote(group_var) =
+                  GridCodec.Batch.wrap_typed_frames(unquote(group_var), unquote(escaped_specs))
+              end
+
+            is_batch ->
+              escaped_specs = Macro.escape(batch_type_specs)
+
+              parse_step =
+                quote do
+                  {unquote(group_var), unquote(new_rest)} =
+                    GridCodec.Group.parse_with_rest!(
+                      unquote(rest_var),
+                      unquote(decoder),
+                      unquote(batch_decoder)
+                    )
+                end
+
+              quote do
+                unquote(parse_step)
+
+                unquote(group_var) =
+                  GridCodec.Batch.wrap(unquote(group_var), unquote(escaped_specs))
+              end
+
+            batch_decoder ->
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Group.parse_with_rest!(
+                    unquote(rest_var),
+                    unquote(decoder),
+                    unquote(batch_decoder)
+                  )
+              end
+
+            true ->
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Group.parse_with_rest!(unquote(rest_var), unquote(decoder))
+              end
           end
 
         {steps ++ [step], new_rest, pairs ++ [{name, group_var}]}
@@ -2156,7 +2472,16 @@ defmodule GridCodec.Struct.Compiler do
       Handles null sentinel values, returning `nil` for null fields.
 
       By default, expects a framed binary (with header from `encode/1`).
-      Use `header: false` option for payload-only binaries.
+
+      ## Options
+
+      - `:header` — `true` (default) expects framed binary; `false` for payload-only
+      - `:copy` — `true` to detach sub-binary results via `:binary.copy/1`,
+        preventing the original binary from being retained in memory.
+        Only affects binary-typed fields (`:uuid`, `char_array`). Safe to
+        use on any field — non-binary values pass through unchanged.
+
+      ## Examples
 
           require #{inspect(__MODULE__)}
 
@@ -2165,6 +2490,9 @@ defmodule GridCodec.Struct.Compiler do
 
           # Payload only (from encode(struct, header: false))
           value = #{inspect(__MODULE__)}.get(payload, :price, header: false)
+
+          # Detach sub-binary to release the original from memory
+          uuid = #{inspect(__MODULE__)}.get(binary, :trace_id, copy: true)
       """
       defmacro get(binary_expr, field_name, opts \\ []) do
         # Choose offsets based on header option
@@ -2179,6 +2507,7 @@ defmodule GridCodec.Struct.Compiler do
         groups = unquote(group_names)
         endian = unquote(endian)
         module = __MODULE__
+        copy = Keyword.get(opts, :copy, false)
 
         GridCodec.Struct.Compiler.__build_inline_getter__(
           binary_expr,
@@ -2187,7 +2516,8 @@ defmodule GridCodec.Struct.Compiler do
           var_fields,
           groups,
           endian,
-          module
+          module,
+          copy
         )
       end
     end
@@ -2201,7 +2531,8 @@ defmodule GridCodec.Struct.Compiler do
         var_fields,
         groups,
         endian,
-        module
+        module,
+        copy \\ false
       ) do
     case field_name do
       # Literal atom - inline the binary pattern
@@ -2209,25 +2540,26 @@ defmodule GridCodec.Struct.Compiler do
         cond do
           Map.has_key?(fixed_specs, name) ->
             {type_module, offset} = Map.get(fixed_specs, name)
-            # Use the binary_expr directly in the pattern if it's a simple var
-            # Otherwise bind it first
-            getter_body = type_module.getter_ast(offset, endian, binary_expr)
 
-            # Check if binary_expr is already a simple variable
-            case binary_expr do
-              {var_name, _, context} when is_atom(var_name) and is_atom(context) ->
-                # Simple variable - use directly
-                getter_body
+            raw_body =
+              case binary_expr do
+                {var_name, _, context} when is_atom(var_name) and is_atom(context) ->
+                  type_module.getter_ast(offset, endian, binary_expr)
 
-              _ ->
-                # Complex expression - bind to temp var first
-                temp_var = Macro.var(:__binary__, __MODULE__)
-                temp_body = type_module.getter_ast(offset, endian, temp_var)
+                _ ->
+                  temp_var = Macro.var(:__binary__, __MODULE__)
+                  temp_body = type_module.getter_ast(offset, endian, temp_var)
 
-                quote do
-                  unquote(temp_var) = unquote(binary_expr)
-                  unquote(temp_body)
-                end
+                  quote do
+                    unquote(temp_var) = unquote(binary_expr)
+                    unquote(temp_body)
+                  end
+              end
+
+            if copy do
+              wrap_with_binary_copy(raw_body)
+            else
+              raw_body
             end
 
           name in var_fields ->
@@ -2254,6 +2586,24 @@ defmodule GridCodec.Struct.Compiler do
         quote do
           unquote(module).get(unquote(binary_expr), unquote(field_name))
         end
+    end
+  end
+
+  @doc false
+  def wrap_with_binary_copy(getter_ast) do
+    result_var = Macro.var(:__get_result__, __MODULE__)
+
+    quote do
+      case unquote(getter_ast) do
+        nil ->
+          nil
+
+        unquote(result_var) when is_binary(unquote(result_var)) ->
+          :binary.copy(unquote(result_var))
+
+        unquote(result_var) ->
+          unquote(result_var)
+      end
     end
   end
 
@@ -3360,14 +3710,10 @@ defmodule GridCodec.Struct.Compiler do
         {fname, extract, coerced}
       end)
 
-    steps =
-      Enum.map(field_steps, fn {fname, extract, coerced} ->
+    step_asts =
+      Enum.flat_map(field_steps, fn {fname, extract, coerced} ->
         var = Macro.var(:"__ef_#{fname}__", __MODULE__)
-
-        quote do
-          unquote(extract)
-          unquote(var) = unquote(coerced)
-        end
+        [extract, {:=, [], [var, coerced]}]
       end)
 
     pairs =
@@ -3375,12 +3721,7 @@ defmodule GridCodec.Struct.Compiler do
         {fname, Macro.var(:"__ef_#{fname}__", __MODULE__)}
       end)
 
-    quote do
-      (fn ->
-         unquote_splicing(steps)
-         %{unquote_splicing(pairs)}
-       end).()
-    end
+    {:__block__, [], step_asts ++ [{:%{}, [], pairs}]}
   end
 
   # ============================================================================

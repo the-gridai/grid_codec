@@ -3,11 +3,13 @@ defmodule GridCodec.SQLTest do
 
   alias GridCodec.SQL
 
-  # Uses the test support codecs: GridCodec.TestSupport.{Side, Status, OrderEvent}
+  # Generate once, reuse across all tests that need it
+  @order_event_sql SQL.generate(GridCodec.TestSupport.OrderEvent)
+  @helpers_sql SQL.generate_helpers()
 
   describe "generate_helpers/0" do
     test "produces valid SQL with all helper functions" do
-      sql = SQL.generate_helpers()
+      sql = @helpers_sql
 
       assert sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec;"
       assert sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec_enums;"
@@ -26,112 +28,83 @@ defmodule GridCodec.SQLTest do
     end
 
     test "all helper functions are IMMUTABLE STRICT" do
-      sql = SQL.generate_helpers()
-
       function_count =
-        sql
+        @helpers_sql
         |> String.split("LANGUAGE sql IMMUTABLE STRICT")
         |> length()
 
-      # At least the core helpers (13+)
       assert function_count >= 13
     end
   end
 
   describe "generate/1 with enum types" do
     test "generates enum lookup tables" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "CREATE TABLE IF NOT EXISTS gridcodec_enums.side"
-      assert sql =~ "INSERT INTO gridcodec_enums.side"
-      assert sql =~ "'buy'"
-      assert sql =~ "'sell'"
+      assert @order_event_sql =~ "CREATE TABLE IF NOT EXISTS gridcodec_enums.side"
+      assert @order_event_sql =~ "INSERT INTO gridcodec_enums.side"
+      assert @order_event_sql =~ "'buy'"
+      assert @order_event_sql =~ "'sell'"
     end
 
     test "generates enum lookup tables for status" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "gridcodec_enums.status"
-      assert sql =~ "'open'"
-      assert sql =~ "'filled'"
-      assert sql =~ "'cancelled'"
+      assert @order_event_sql =~ "gridcodec_enums.status"
+      assert @order_event_sql =~ "'open'"
+      assert @order_event_sql =~ "'filled'"
+      assert @order_event_sql =~ "'cancelled'"
     end
   end
 
   describe "generate/1 decode function" do
     test "generates decode function with correct name" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "gridcodec.decode_orderevent"
-      assert sql =~ "RETURNS TABLE"
+      assert @order_event_sql =~ "gridcodec.decode_orderevent"
+      assert @order_event_sql =~ "RETURNS TABLE"
     end
 
     test "includes all fixed fields with correct types" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ ~s("order_id" uuid)
-      assert sql =~ ~s("side" text)
-      assert sql =~ ~s("status" text)
-      assert sql =~ ~s("price" numeric)
-      assert sql =~ ~s("quantity" bigint)
-      assert sql =~ ~s("timestamp" timestamptz)
+      assert @order_event_sql =~ ~s("order_id" uuid)
+      assert @order_event_sql =~ ~s("side" text)
+      assert @order_event_sql =~ ~s("status" text)
+      assert @order_event_sql =~ ~s("price" numeric)
+      assert @order_event_sql =~ ~s("quantity" bigint)
+      assert @order_event_sql =~ ~s("timestamp" timestamptz)
     end
 
     test "uses read_uuid_nullable for uuid fields" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "gridcodec.read_uuid_nullable(data,"
+      assert @order_event_sql =~ "gridcodec.read_uuid_nullable(data,"
     end
 
     test "uses enum lookup for enum fields" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "FROM gridcodec_enums.side e WHERE e.id = get_byte"
-      assert sql =~ "FROM gridcodec_enums.status e WHERE e.id = get_byte"
+      assert @order_event_sql =~ "FROM gridcodec_enums.side e WHERE e.id = get_byte"
+      assert @order_event_sql =~ "FROM gridcodec_enums.status e WHERE e.id = get_byte"
     end
 
     test "uses read_timestamp_us for timestamp fields" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "gridcodec.read_timestamp_us(data,"
+      assert @order_event_sql =~ "gridcodec.read_timestamp_us(data,"
     end
 
     test "null checks for u64 fields" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "18446744073709551615 THEN NULL"
+      assert @order_event_sql =~ "18446744073709551615 THEN NULL"
     end
 
     test "null checks for u32 fields" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "4294967295 THEN NULL"
+      assert @order_event_sql =~ "4294967295 THEN NULL"
     end
 
     test "decode function is IMMUTABLE STRICT" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "LANGUAGE sql IMMUTABLE STRICT"
+      assert @order_event_sql =~ "LANGUAGE sql IMMUTABLE STRICT"
     end
   end
 
   describe "generate/1 with codec metadata" do
     test "includes codec module in comment" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "GridCodec.TestSupport.OrderEvent"
+      assert @order_event_sql =~ "GridCodec.TestSupport.OrderEvent"
     end
 
     test "includes type name in comment" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ ~s("OrderEvent")
+      assert @order_event_sql =~ ~s("OrderEvent")
     end
 
     test "includes block_length in comment" do
-      sql = SQL.generate(GridCodec.TestSupport.OrderEvent)
-
-      assert sql =~ "block_length:"
+      assert @order_event_sql =~ "block_length:"
     end
   end
 
@@ -211,13 +184,13 @@ defmodule GridCodec.SQLTest do
     end
   end
 
+  @generate_all_sql SQL.generate_all()
+
   describe "generate_all/0" do
     test "includes helpers and at least one codec" do
-      sql = SQL.generate_all()
-
-      assert sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec;"
-      assert sql =~ "gridcodec.read_header"
-      assert sql =~ "gridcodec.decode_"
+      assert @generate_all_sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec;"
+      assert @generate_all_sql =~ "gridcodec.read_header"
+      assert @generate_all_sql =~ "gridcodec.decode_"
     end
   end
 

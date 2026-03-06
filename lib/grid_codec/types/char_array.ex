@@ -194,9 +194,21 @@ defmodule GridCodec.Types.CharArray do
       def coerce_ast(var) do
         quote do
           case unquote(var) do
-            nil -> {:ok, nil}
-            v when is_binary(v) -> {:ok, v}
-            v -> {:error, "expected string for char array, got: #{inspect(v)}"}
+            nil ->
+              {:ok, nil}
+
+            v when is_binary(v) ->
+              trimmed =
+                case :binary.match(v, <<0>>) do
+                  {0, _} -> ""
+                  {pos, _} -> binary_part(v, 0, pos)
+                  :nomatch -> v
+                end
+
+              {:ok, trimmed}
+
+            v ->
+              {:error, "expected string for char array, got: #{inspect(v)}"}
           end
         end
       end

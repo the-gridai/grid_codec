@@ -300,7 +300,8 @@ defmodule GridCodec.Types.Decimal do
           {:ok, v}
 
         {m, e} when is_integer(m) and is_integer(e) ->
-          {:ok, {m, e}}
+          {sign, coef} = if m < 0, do: {-1, -m}, else: {1, m}
+          {:ok, %unquote(dec_mod){sign: sign, coef: coef, exp: e}}
 
         v when is_integer(v) ->
           {:ok, unquote(dec_mod).new(v)}
