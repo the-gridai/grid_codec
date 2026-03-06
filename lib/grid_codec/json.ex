@@ -70,8 +70,9 @@ defmodule GridCodec.Json do
   @doc """
   Encodes a GridCodec binary to JSON.
 
-  Backward-compatible alias for `to_json/3`.
+  Deprecated: use `to_json/3` instead.
   """
+  @deprecated "Use to_json/3 instead"
   @spec encode(binary(), module(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def encode(binary, schema, opts \\ []) when is_binary(binary) and is_atom(schema) do
     to_json(binary, schema, opts)
@@ -103,11 +104,9 @@ defmodule GridCodec.Json do
   @doc """
   Encodes a GridCodec binary to JSON, raising on error.
 
-  ## Examples
-
-      json = GridCodec.Json.encode!(binary, MyApp.Order)
-      json = GridCodec.Json.encode!(binary, MyApp.Order, pretty: true)
+  Deprecated: use `to_json/3` with pattern matching instead.
   """
+  @deprecated "Use to_json/3 with pattern matching instead"
   @spec encode!(binary(), module(), keyword()) :: String.t()
   def encode!(binary, schema, opts \\ []) do
     case to_json(binary, schema, opts) do
@@ -119,10 +118,9 @@ defmodule GridCodec.Json do
   @doc """
   Decodes JSON to a GridCodec binary.
 
-  ## Examples
-
-      {:ok, binary} = GridCodec.Json.decode(json, MyApp.Order)
+  Deprecated: use `from_json/3` instead.
   """
+  @deprecated "Use from_json/3 instead"
   @spec decode(String.t(), module(), keyword()) :: {:ok, binary()} | {:error, term()}
   def decode(json, schema, opts \\ []) when is_binary(json) and is_atom(schema) do
     from_json(json, schema, opts)
@@ -147,10 +145,9 @@ defmodule GridCodec.Json do
   @doc """
   Decodes JSON to a GridCodec binary, raising on error.
 
-  ## Examples
-
-      binary = GridCodec.Json.decode!(json, MyApp.Order)
+  Deprecated: use `from_json/3` with pattern matching instead.
   """
+  @deprecated "Use from_json/3 with pattern matching instead"
   @spec decode!(String.t(), module(), keyword()) :: binary()
   def decode!(json, schema, opts \\ []) do
     case from_json(json, schema, opts) do
@@ -175,21 +172,17 @@ defmodule GridCodec.Json do
   end
 
   defp json_encode_map(map, opts) do
-    json = JSON.encode!(map)
-    {:ok, if(opts[:pretty], do: pretty_format(json), else: json)}
+    if opts[:pretty] do
+      {:ok, map |> do_pretty(0) |> IO.iodata_to_binary()}
+    else
+      {:ok, JSON.encode!(map)}
+    end
   rescue
     e -> {:error, {:json_encode_error, e}}
   end
 
   defp atomize_keys(map) when is_map(map) do
     Map.new(map, fn {k, v} -> {String.to_existing_atom(k), v} end)
-  end
-
-  defp pretty_format(json) do
-    json
-    |> JSON.decode!()
-    |> do_pretty(0)
-    |> IO.iodata_to_binary()
   end
 
   defp do_pretty(map, indent) when is_map(map) do

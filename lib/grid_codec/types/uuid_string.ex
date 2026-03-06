@@ -85,8 +85,7 @@ defmodule GridCodec.Types.UUIDString do
             unquote(mod).parse_uuid_string!(str)
 
           str when is_binary(str) and byte_size(str) == 32 ->
-            # Parse "550e8400e29b41d4a716446655440000" format (no dashes)
-            Base.decode16!(str, case: :mixed)
+            unquote(mod).parse_uuid_nodash!(str)
 
           other ->
             raise ArgumentError,
@@ -218,6 +217,60 @@ defmodule GridCodec.Types.UUIDString do
       unhex(e11)::4, unhex(e12)::4>>
   end
 
+  @doc """
+  Parses a 32-char hex UUID (no dashes) into a 16-byte binary.
+
+  Uses direct byte extraction and arithmetic instead of `Base.decode16!/2`
+  to avoid sub-binary allocation and generic parsing overhead.
+
+  ## Example
+
+      iex> GridCodec.Types.UUIDString.parse_uuid_nodash!("550e8400e29b41d4a716446655440000")
+      <<85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0>>
+  """
+  @spec parse_uuid_nodash!(String.t()) :: binary()
+  def parse_uuid_nodash!(<<
+        a1,
+        a2,
+        a3,
+        a4,
+        a5,
+        a6,
+        a7,
+        a8,
+        b1,
+        b2,
+        b3,
+        b4,
+        c1,
+        c2,
+        c3,
+        c4,
+        d1,
+        d2,
+        d3,
+        d4,
+        e1,
+        e2,
+        e3,
+        e4,
+        e5,
+        e6,
+        e7,
+        e8,
+        e9,
+        e10,
+        e11,
+        e12
+      >>) do
+    <<unhex(a1)::4, unhex(a2)::4, unhex(a3)::4, unhex(a4)::4, unhex(a5)::4, unhex(a6)::4,
+      unhex(a7)::4, unhex(a8)::4, unhex(b1)::4, unhex(b2)::4, unhex(b3)::4, unhex(b4)::4,
+      unhex(c1)::4, unhex(c2)::4, unhex(c3)::4, unhex(c4)::4, unhex(d1)::4, unhex(d2)::4,
+      unhex(d3)::4, unhex(d4)::4, unhex(e1)::4, unhex(e2)::4, unhex(e3)::4, unhex(e4)::4,
+      unhex(e5)::4, unhex(e6)::4, unhex(e7)::4, unhex(e8)::4, unhex(e9)::4, unhex(e10)::4,
+      unhex(e11)::4, unhex(e12)::4>>
+  end
+
   @compile {:inline, unhex: 1}
   defp unhex(c) when c >= ?0 and c <= ?9, do: c - ?0
   defp unhex(c) when c >= ?a and c <= ?f, do: c - ?a + 10
@@ -237,7 +290,10 @@ defmodule GridCodec.Types.UUIDString do
           {:ok, v}
 
         v when is_binary(v) and byte_size(v) == 32 ->
-          {:ok, GridCodec.Types.UUIDString.format_uuid(Base.decode16!(v, case: :mixed))}
+          {:ok,
+           GridCodec.Types.UUIDString.format_uuid(
+             GridCodec.Types.UUIDString.parse_uuid_nodash!(v)
+           )}
 
         v ->
           {:error, "expected UUID binary or string, got #{inspect(v)}"}

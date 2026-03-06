@@ -212,7 +212,7 @@ See `example_app/README.md` for details.
 
 ### Requirements
 
-- Elixir 1.17+ (1.19+ recommended for progressive type system warnings)
+- Elixir 1.18+ (1.19+ recommended for progressive type system warnings)
 - Erlang/OTP 26+ (28+ recommended)
 
 We use [asdf](https://asdf-vm.com/) for version management. After installing asdf:

@@ -260,7 +260,7 @@ defmodule GridCodec.Types.UUID do
           {:ok, GridCodec.Types.UUIDString.parse_uuid_string!(v)}
 
         v when is_binary(v) and byte_size(v) == 32 ->
-          {:ok, Base.decode16!(v, case: :mixed)}
+          {:ok, GridCodec.Types.UUIDString.parse_uuid_nodash!(v)}
 
         v ->
           {:error, "expected UUID binary or string, got #{inspect(v)}"}

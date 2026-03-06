@@ -68,61 +68,16 @@ defmodule GridCodec.Telemetry.Metrics do
       end
   """
   def prom_ex_metrics(opts \\ []) do
-    duration_buckets = Keyword.get(opts, :duration_buckets, @default_duration_buckets)
-    bytes_buckets = Keyword.get(opts, :bytes_buckets, @default_bytes_buckets)
-    prefix = Keyword.get(opts, :metric_prefix, :grid_codec)
-
+    metrics = metric_definitions(opts)
     event_mod = Module.concat(PromEx.MetricTypes, Event)
 
-    encode =
-      event_mod.build(
-        :grid_codec_encode_event_metrics,
-        [
-          Telemetry.Metrics.distribution(
-            "#{prefix}.encode.duration.milliseconds",
-            event_name: [:grid_codec, :encode],
-            measurement: :duration,
-            description: "GridCodec binary encoding time per codec type.",
-            reporter_options: [buckets: duration_buckets],
-            tags: [:type_name],
-            unit: {:native, :millisecond}
-          ),
-          Telemetry.Metrics.distribution(
-            "#{prefix}.encode.bytes",
-            event_name: [:grid_codec, :encode],
-            measurement: :bytes,
-            description: "GridCodec encoded binary size per codec type.",
-            reporter_options: [buckets: bytes_buckets],
-            tags: [:type_name],
-            unit: :byte
-          )
-        ]
-      )
+    {encode_metrics, decode_metrics} =
+      Enum.split_with(metrics, fn m ->
+        m.event_name == [:grid_codec, :encode]
+      end)
 
-    decode =
-      event_mod.build(
-        :grid_codec_decode_event_metrics,
-        [
-          Telemetry.Metrics.distribution(
-            "#{prefix}.decode.duration.milliseconds",
-            event_name: [:grid_codec, :decode],
-            measurement: :duration,
-            description: "GridCodec binary decoding time per codec type.",
-            reporter_options: [buckets: duration_buckets],
-            tags: [:type_name],
-            unit: {:native, :millisecond}
-          ),
-          Telemetry.Metrics.distribution(
-            "#{prefix}.decode.bytes",
-            event_name: [:grid_codec, :decode],
-            measurement: :bytes,
-            description: "GridCodec decoded binary size per codec type.",
-            reporter_options: [buckets: bytes_buckets],
-            tags: [:type_name],
-            unit: :byte
-          )
-        ]
-      )
+    encode = event_mod.build(:grid_codec_encode_event_metrics, encode_metrics)
+    decode = event_mod.build(:grid_codec_decode_event_metrics, decode_metrics)
 
     {encode, decode}
   end

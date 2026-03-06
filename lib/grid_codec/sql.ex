@@ -87,6 +87,33 @@ defmodule GridCodec.SQL do
     $$ LANGUAGE sql IMMUTABLE STRICT;
 
     -- Signed integer readers (little-endian, two's complement)
+    CREATE OR REPLACE FUNCTION gridcodec.read_i8(data bytea, pos int)
+    RETURNS smallint AS $$
+      SELECT CASE
+        WHEN get_byte(data, pos) >= 128
+        THEN (get_byte(data, pos) - 256)::smallint
+        ELSE get_byte(data, pos)::smallint
+      END;
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
+    CREATE OR REPLACE FUNCTION gridcodec.read_i16(data bytea, pos int)
+    RETURNS integer AS $$
+      SELECT CASE
+        WHEN gridcodec.read_u16(data, pos) >= 32768
+        THEN (gridcodec.read_u16(data, pos) - 65536)::integer
+        ELSE gridcodec.read_u16(data, pos)
+      END;
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
+    CREATE OR REPLACE FUNCTION gridcodec.read_i32(data bytea, pos int)
+    RETURNS bigint AS $$
+      SELECT CASE
+        WHEN gridcodec.read_u32(data, pos) >= 2147483648
+        THEN (gridcodec.read_u32(data, pos) - 4294967296)::bigint
+        ELSE gridcodec.read_u32(data, pos)
+      END;
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
     CREATE OR REPLACE FUNCTION gridcodec.read_i64(data bytea, pos int)
     RETURNS numeric AS $$
       SELECT CASE
@@ -457,20 +484,29 @@ defmodule GridCodec.SQL do
         table = enum_table_name(type)
         "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset}))"
 
-      type in [:u8, :i8] ->
+      type == :u8 ->
         "CASE WHEN get_byte(data, #{offset}) = 255 THEN NULL ELSE get_byte(data, #{offset}) END"
 
+      type == :i8 ->
+        "CASE WHEN gridcodec.read_i8(data, #{offset}) = -128 THEN NULL ELSE gridcodec.read_i8(data, #{offset}) END"
+
       type == :u16 ->
-        "gridcodec.read_u16(data, #{offset})"
+        "CASE WHEN gridcodec.read_u16(data, #{offset}) = 65535 THEN NULL ELSE gridcodec.read_u16(data, #{offset}) END"
+
+      type == :i16 ->
+        "CASE WHEN gridcodec.read_i16(data, #{offset}) = -32768 THEN NULL ELSE gridcodec.read_i16(data, #{offset}) END"
 
       type == :u32 ->
         "CASE WHEN gridcodec.read_u32(data, #{offset}) = 4294967295 THEN NULL ELSE gridcodec.read_u32(data, #{offset}) END"
+
+      type == :i32 ->
+        "CASE WHEN gridcodec.read_i32(data, #{offset}) = -2147483648 THEN NULL ELSE gridcodec.read_i32(data, #{offset}) END"
 
       type == :u64 ->
         "CASE WHEN gridcodec.read_u64(data, #{offset}) = 18446744073709551615 THEN NULL ELSE gridcodec.read_u64(data, #{offset}) END"
 
       type == :i64 ->
-        "gridcodec.read_i64(data, #{offset})"
+        "CASE WHEN gridcodec.read_i64(data, #{offset}) = -9223372036854775808 THEN NULL ELSE gridcodec.read_i64(data, #{offset}) END"
 
       type in [:uuid, :uuid_string] ->
         "gridcodec.read_uuid_nullable(data, #{offset})::text"
@@ -535,11 +571,12 @@ defmodule GridCodec.SQL do
 
       read =
         cond do
-          type in [:u8, :i8] -> "gridcodec.read_u8(data, #{offset})"
+          type == :u8 -> "gridcodec.read_u8(data, #{offset})"
+          type == :i8 -> "gridcodec.read_i8(data, #{offset})"
           type == :u16 -> "gridcodec.read_u16(data, #{offset})"
-          type == :i16 -> "gridcodec.read_u16(data, #{offset})"
+          type == :i16 -> "gridcodec.read_i16(data, #{offset})"
           type == :u32 -> "gridcodec.read_u32(data, #{offset})"
-          type == :i32 -> "gridcodec.read_u32(data, #{offset})"
+          type == :i32 -> "gridcodec.read_i32(data, #{offset})"
           type == :u64 -> "gridcodec.read_u64(data, #{offset})"
           type == :i64 -> "gridcodec.read_i64(data, #{offset})"
           type in [:uuid, :uuid_string] -> "gridcodec.read_uuid_nullable(data, #{offset})"
@@ -576,14 +613,26 @@ defmodule GridCodec.SQL do
       type == :u8 ->
         "get_byte(data, #{offset}) = 255"
 
+      type == :i8 ->
+        "gridcodec.read_i8(data, #{offset}) = -128"
+
       type == :u16 ->
         "gridcodec.read_u16(data, #{offset}) = 65535"
+
+      type == :i16 ->
+        "gridcodec.read_i16(data, #{offset}) = -32768"
 
       type == :u32 ->
         "gridcodec.read_u32(data, #{offset}) = 4294967295"
 
+      type == :i32 ->
+        "gridcodec.read_i32(data, #{offset}) = -2147483648"
+
       type == :u64 ->
         "gridcodec.read_u64(data, #{offset}) = 18446744073709551615"
+
+      type == :i64 ->
+        "gridcodec.read_i64(data, #{offset}) = -9223372036854775808"
 
       type in [
         :uuid,

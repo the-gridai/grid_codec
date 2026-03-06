@@ -91,6 +91,19 @@ defmodule GridCodec.Types.F64 do
   end
 
   @impl true
+  def decode_value_ast(var) do
+    quote do
+      unquote(__MODULE__).maybe_nil(unquote(var))
+    end
+  end
+
+  @doc false
+  # IEEE 754: NaN != NaN is the canonical NaN check
+  # credo:disable-for-next-line Credo.Check.Warning.OperationOnSameValues
+  def maybe_nil(v) when is_float(v) and v != v, do: nil
+  def maybe_nil(v), do: v
+
+  @impl true
   def getter_ast(offset, endian, payload_var) do
     case endian do
       :little ->

@@ -432,7 +432,7 @@ GridCodec generates encode/decode functions at compile time based on the struct 
 defmodule MyEvent do
   use GridCodec.Struct
 
-  gridcodec do
+  defcodec do
     field :id, :u64
     field :name, GridCodec.Types.String
   end

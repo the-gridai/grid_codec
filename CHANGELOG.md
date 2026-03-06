@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-03-06
+
+### Fixed
+- **SQL signed integer decoding** — `sql_read_expr` used unsigned readers (`read_u16`,
+  `read_u32`) for `:i16` and `:i32` types, producing incorrect positive values instead of
+  negative values. Added `gridcodec.read_i8`, `gridcodec.read_i16`, `gridcodec.read_i32`
+  helper functions with proper two's complement conversion. Also fixed `null_check_expr`
+  to include signed integer null sentinels and corrected `sql_json_value_expr` signed null
+  sentinel values.
+- **F32/F64 NaN null decode** — `decode_value_ast` was missing for `:f32` and `:f64`,
+  so IEEE 754 NaN (the null sentinel) was returned as-is instead of being converted to
+  `nil`. Added `maybe_nil/1` helper that detects NaN via the canonical `v != v` check.
+
+### Changed
+- **UUID parsing uses arithmetic conversion** — Replaced `Base.decode16!/2` with a new
+  `parse_uuid_nodash!/1` function that extracts individual bytes and converts hex chars
+  to nibbles via arithmetic, avoiding sub-binary allocation and generic parsing overhead.
+  Same approach already used by `parse_uuid_string!/1` for dashed UUIDs. Affects
+  `uuid_string` encode hot path and both `uuid`/`uuid_string` coercion paths.
+- **JSON pretty_format eliminates encode/decode round-trip** — `json_encode_map` now
+  calls `do_pretty/2` directly on the map instead of encoding to JSON, decoding back,
+  and then pretty-formatting.
+- **PromEx metrics deduplicated** — `prom_ex_metrics/1` now delegates to
+  `metric_definitions/1` instead of duplicating metric definitions.
+
+### Deprecated
+- **`GridCodec.Json.encode/2,3`** — Use `to_json/3` instead.
+- **`GridCodec.Json.encode!/2,3`** — Use `to_json/3` with pattern matching instead.
+- **`GridCodec.Json.decode/2,3`** — Use `from_json/3` instead.
+- **`GridCodec.Json.decode!/2,3`** — Use `from_json/3` with pattern matching instead.
+
+### Documentation
+- Fixed `AGENTS.md` example using `gridcodec do` (should be `defcodec do`)
+- Fixed `README.md` Elixir version requirement to match `mix.exs` (`1.18+`)
+
 ## [0.23.1] - 2026-03-06
 
 ### Added
