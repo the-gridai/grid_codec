@@ -165,7 +165,7 @@ defmodule GridCodec.Types.I16 do
     GridCodec.Types.Integer.gen_signed_validate_ast(var, field, mod, 16, :i16)
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.i16()
   end

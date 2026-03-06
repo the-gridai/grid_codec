@@ -273,7 +273,7 @@ defmodule GridCodec.Types.UUIDString do
     end
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
       # Generate as formatted string

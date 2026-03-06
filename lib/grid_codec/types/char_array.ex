@@ -246,7 +246,7 @@ defmodule GridCodec.Types.CharArray do
       end
 
       # Generator for property testing
-      if Code.ensure_loaded?(GridCodec.Generators) do
+      if Code.ensure_loaded?(StreamData) do
         @impl GridCodec.Type
         def generator do
           StreamData.bind(

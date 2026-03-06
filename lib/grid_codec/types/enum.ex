@@ -428,7 +428,7 @@ defmodule GridCodec.Types.Enum do
       defp compare_to_integer(v) when is_atom(v), do: to_integer(v)
       defp compare_to_integer(v) when is_integer(v), do: v
 
-      if Code.ensure_loaded?(GridCodec.Generators) do
+      if Code.ensure_loaded?(StreamData) do
         @impl GridCodec.Type
         def generator do
           atoms = unquote(Macro.escape(Enum.map(values, fn {k, _v} -> k end)))

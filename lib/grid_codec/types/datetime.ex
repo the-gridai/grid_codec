@@ -177,7 +177,7 @@ defmodule GridCodec.Types.DateTimeMicros do
     end
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
       import StreamData
@@ -374,7 +374,7 @@ defmodule GridCodec.Types.DateTimeNanos do
     end
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
       import StreamData

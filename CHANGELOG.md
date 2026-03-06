@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-03-06
+
+### Added
+- **Zero-surprise test suite** — 97 new tests (35 property-based, 62 unit) exercising
+  every type invariant from first principles: roundtrip identity, `new/1` idempotence,
+  encode determinism, `get/2` consistency, `new_binary` equivalence, multi-pass pipeline
+  stability, content_hash reproducibility, concurrent thread safety, and decode resilience
+  to garbage/truncated input. Covers integers, floats, strings, UUIDs, timestamps,
+  datetimes, decimals, booleans, enums, bitsets, and char arrays.
+
+### Fixed
+- **CI compilation order bug** — Type modules guarded `generator/0` with
+  `Code.ensure_loaded?(GridCodec.Generators)` which failed on fresh CI builds when
+  the type file compiled before `generators.ex`. Changed to
+  `Code.ensure_loaded?(StreamData)` across all 26 occurrences in 21 type files,
+  eliminating the compilation order dependency.
+
 ## [0.23.0] - 2026-03-05
 
 ### Added

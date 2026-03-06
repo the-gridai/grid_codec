@@ -117,7 +117,7 @@ defmodule GridCodec.Types.U8 do
     GridCodec.Types.Integer.gen_unsigned_validate_ast(var, field, mod, 8, :u8)
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.u8()
   end

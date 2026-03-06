@@ -122,7 +122,7 @@ defmodule GridCodec.Types.I8 do
     GridCodec.Types.Integer.gen_signed_validate_ast(var, field, mod, 8, :i8)
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.i8()
   end

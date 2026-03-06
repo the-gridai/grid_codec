@@ -216,7 +216,7 @@ defmodule GridCodec.Types.String do
     nil
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string16()
   end
@@ -284,7 +284,7 @@ defmodule GridCodec.Types.String8 do
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string8()
   end
@@ -334,7 +334,7 @@ defmodule GridCodec.Types.String16 do
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string16()
   end
@@ -386,7 +386,7 @@ defmodule GridCodec.Types.String32 do
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string32()
   end

@@ -173,7 +173,7 @@ defmodule GridCodec.Types.I32 do
     GridCodec.Types.Integer.gen_signed_validate_ast(var, field, mod, 32, :i32)
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.i32()
   end

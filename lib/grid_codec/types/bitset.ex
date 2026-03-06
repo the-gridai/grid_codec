@@ -502,7 +502,7 @@ defmodule GridCodec.Types.Bitset do
       unquote_splicing(predicates)
 
       # Generator for property testing
-      if Code.ensure_loaded?(GridCodec.Generators) do
+      if Code.ensure_loaded?(StreamData) do
         @impl GridCodec.Type
         def generator do
           StreamData.map(

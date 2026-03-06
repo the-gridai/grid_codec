@@ -184,7 +184,7 @@ defmodule GridCodec.Types.U64 do
     GridCodec.Types.Integer.gen_unsigned_validate_ast(var, field, mod, 64, :u64)
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.u64()
   end

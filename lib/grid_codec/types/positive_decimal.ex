@@ -274,7 +274,7 @@ defmodule GridCodec.Types.PositiveDecimal do
     end
   end
 
-  if Code.ensure_loaded?(GridCodec.Generators) do
+  if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
       import StreamData
