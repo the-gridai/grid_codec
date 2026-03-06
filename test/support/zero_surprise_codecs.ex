@@ -1,6 +1,7 @@
 # credo:disable-for-this-file Credo.Check.Readability.ModuleDoc
 
 defmodule GridCodec.ZSEdge.TestEnum do
+  @dialyzer :no_match
   use GridCodec.Types.Enum, encoding: :u8
 
   defenum do
@@ -11,6 +12,7 @@ defmodule GridCodec.ZSEdge.TestEnum do
 end
 
 defmodule GridCodec.ZSEdge.TestBitset do
+  @dialyzer :no_match
   use GridCodec.Types.Bitset, size: :u8
 
   flag(:admin, 0)
@@ -20,6 +22,7 @@ defmodule GridCodec.ZSEdge.TestBitset do
 end
 
 defmodule GridCodec.ZSEdge.CharArray8 do
+  @dialyzer :no_match
   use GridCodec.Types.CharArray, length: 8
 end
 
