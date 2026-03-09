@@ -21,23 +21,40 @@ defmodule GridCodec.Schema.Parser do
         sell = 2
       }
       
+      struct PlaceOrder (template_id: 1010) {
+        order_id: uuid_string
+        price: u64
+      }
+      
+      struct CancelOrder (template_id: 1011) {
+        order_id: uuid_string
+        reason: u8
+      }
+      
       struct Order (template_id: 1001) {
         id: uuid_string
         user_id: u64
         side: Side
-        price: Price
-        quantity: u32
+        price: decimal(scale: 8), wire_format: i64
+        quantity: u32, default: 0
+        exchange: string8, presence: constant, value: "NYSE"
+        notes?: string16
         
         group fills {
           price: u64
           qty: u32
+        }
+        
+        batch commands {
+          any_of: [PlaceOrder, CancelOrder]
+          strategy: padded_union
         }
       }
       
       # Override version for specific struct
       struct Trade (template_id: 1002, version: 2) {
         trade_id: uuid_string
-        price: u64
+        price: u64, since: 2
       }
   """
 
@@ -69,20 +86,57 @@ defmodule GridCodec.Schema.Parser do
               template_id: nil,
               version: nil,
               fields: [],
-              groups: []
+              groups: [],
+              batches: []
+  end
+
+  defmodule BatchDef do
+    @moduledoc "Parsed batch definition"
+    defstruct name: nil,
+              any_of: [],
+              strategy: :padded_union
+
+    @type t :: %__MODULE__{
+            name: atom() | nil,
+            any_of: [atom()],
+            strategy: atom()
+          }
   end
 
   defmodule Field do
     @moduledoc "Parsed field structure"
     defstruct name: nil,
               type: nil,
-              optional: false
+              type_params: [],
+              optional: false,
+              wire_format: nil,
+              since: nil,
+              default: nil,
+              presence: nil,
+              value: nil
+
+    @type t :: %__MODULE__{
+            name: atom() | nil,
+            type: atom() | nil,
+            type_params: keyword(),
+            optional: boolean(),
+            wire_format: atom() | nil,
+            since: integer() | nil,
+            default: term(),
+            presence: atom() | nil,
+            value: term()
+          }
   end
 
   defmodule Group do
     @moduledoc "Parsed group structure"
     defstruct name: nil,
               fields: []
+
+    @type t :: %__MODULE__{
+            name: atom() | nil,
+            fields: [Field.t()]
+          }
   end
 
   defmodule CompositeType do
@@ -137,8 +191,8 @@ defmodule GridCodec.Schema.Parser do
 
   defp tokenize(content) do
     content
-    # Remove comments
     |> String.replace(~r/#[^\n]*/, "")
+    |> String.replace(~r/([\[\]\(\),])/, " \\1 ")
     |> String.split(~r/\s+/, trim: true)
     |> tokenize_stream([])
   end
@@ -167,6 +221,30 @@ defmodule GridCodec.Schema.Parser do
 
       token == "," ->
         tokenize_stream(rest, [:comma | acc])
+
+      token == "[" ->
+        tokenize_stream(rest, [:lbracket | acc])
+
+      token == "]" ->
+        tokenize_stream(rest, [:rbracket | acc])
+
+      String.ends_with?(token, "]") ->
+        word = String.trim_trailing(token, "]")
+
+        if word == "" do
+          tokenize_stream(rest, [:rbracket | acc])
+        else
+          tokenize_stream(rest, [:rbracket, {:word, word} | acc])
+        end
+
+      String.starts_with?(token, "[") ->
+        word = String.trim_leading(token, "[")
+
+        if word == "" do
+          tokenize_stream(rest, [:lbracket | acc])
+        else
+          tokenize_stream(rest, [{:word, word}, :lbracket | acc])
+        end
 
       String.ends_with?(token, "{") ->
         word = String.trim_trailing(token, "{")
@@ -267,7 +345,8 @@ defmodule GridCodec.Schema.Parser do
   end
 
   defp valid_identifier?(word) do
-    Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_?]*$/, word)
+    String.starts_with?(word, "\"") or
+      Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_?]*$/, word)
   end
 
   defp looks_like_integer?(word) do
@@ -341,13 +420,14 @@ defmodule GridCodec.Schema.Parser do
     case parse_struct_attrs(rest) do
       {:ok, attrs, rest2} ->
         case parse_struct_block(rest2) do
-          {:ok, fields, groups, remaining} ->
+          {:ok, fields, groups, batches, remaining} ->
             struct_def = %StructDef{
               name: String.to_atom(name),
               template_id: attrs[:template_id],
               version: attrs[:version],
               fields: fields,
-              groups: groups
+              groups: groups,
+              batches: batches
             }
 
             schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
@@ -370,7 +450,7 @@ defmodule GridCodec.Schema.Parser do
     case Integer.parse(tid_str) do
       {tid, ""} ->
         case parse_struct_block(rest) do
-          {:ok, fields, groups, remaining} ->
+          {:ok, fields, groups, _batches, remaining} ->
             struct_def = %StructDef{
               name: String.to_atom(name),
               template_id: tid,
@@ -507,38 +587,42 @@ defmodule GridCodec.Schema.Parser do
     {:error, {:invalid_enum_block, tokens}}
   end
 
-  # Parse struct { fields... groups... }
+  # Parse struct { fields... groups... batches... }
   defp parse_struct_block([:lbrace | rest]) do
-    parse_struct_body(rest, [], [])
+    parse_struct_body(rest, [], [], [])
   end
 
   defp parse_struct_block(tokens) do
     {:error, {:expected_brace, tokens}}
   end
 
-  defp parse_struct_body([:rbrace | rest], fields, groups) do
-    {:ok, Enum.reverse(fields), Enum.reverse(groups), rest}
+  defp parse_struct_body([:rbrace | rest], fields, groups, batches) do
+    {:ok, Enum.reverse(fields), Enum.reverse(groups), Enum.reverse(batches), rest}
   end
 
-  defp parse_struct_body([{:word, "group"}, {:word, name}, :lbrace | rest], fields, groups) do
+  defp parse_struct_body(
+         [{:word, "group"}, {:word, name}, :lbrace | rest],
+         fields,
+         groups,
+         batches
+       ) do
     case parse_fields_block(rest, []) do
       {:ok, group_fields, remaining} ->
         group = %Group{name: String.to_atom(name), fields: group_fields}
-        parse_struct_body(remaining, fields, [group | groups])
+        parse_struct_body(remaining, fields, [group | groups], batches)
 
       {:error, _} = err ->
         err
     end
   end
 
-  defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups) do
-    # Handle "group name {" where { is separate
+  defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups, batches) do
     case rest do
       [:lbrace | rest2] ->
         case parse_fields_block(rest2, []) do
           {:ok, group_fields, remaining} ->
             group = %Group{name: String.to_atom(name), fields: group_fields}
-            parse_struct_body(remaining, fields, [group | groups])
+            parse_struct_body(remaining, fields, [group | groups], batches)
 
           {:error, _} = err ->
             err
@@ -549,22 +633,121 @@ defmodule GridCodec.Schema.Parser do
     end
   end
 
-  defp parse_struct_body([{:word, name}, :colon, {:word, type} | rest], fields, groups) do
-    {field_name, optional} = parse_field_name(name)
-    field = %Field{name: field_name, type: String.to_atom(type), optional: optional}
-    parse_struct_body(rest, [field | fields], groups)
+  defp parse_struct_body(
+         [{:word, "batch"}, {:word, name}, :lbrace | rest],
+         fields,
+         groups,
+         batches
+       ) do
+    case parse_batch_block(rest) do
+      {:ok, %BatchDef{} = batch_def, remaining} ->
+        batch = %BatchDef{batch_def | name: String.to_atom(name)}
+        parse_struct_body(remaining, fields, groups, [batch | batches])
+
+      {:error, _} = err ->
+        err
+    end
   end
 
-  defp parse_struct_body([{:word, name}, {:word, type} | rest], fields, groups) do
-    # Handle "name: type" where colon attached to name
-    {field_name, optional} = parse_field_name(name)
-    field = %Field{name: field_name, type: String.to_atom(type), optional: optional}
-    parse_struct_body(rest, [field | fields], groups)
+  defp parse_struct_body([{:word, "batch"}, {:word, name} | rest], fields, groups, batches) do
+    case rest do
+      [:lbrace | rest2] ->
+        case parse_batch_block(rest2) do
+          {:ok, %BatchDef{} = batch_def, remaining} ->
+            batch = %BatchDef{batch_def | name: String.to_atom(name)}
+            parse_struct_body(remaining, fields, groups, [batch | batches])
+
+          {:error, _} = err ->
+            err
+        end
+
+      _ ->
+        {:error, {:expected_brace_after_batch, name}}
+    end
   end
 
-  defp parse_struct_body(tokens, _fields, _groups) do
+  defp parse_struct_body([{:word, name}, :colon, {:word, type} | rest], fields, groups, batches) do
+    {field_name, optional} = parse_field_name(name)
+
+    case parse_field_with_extras(type, rest) do
+      {:ok, field, remaining} ->
+        field = %{field | name: field_name, optional: optional}
+        parse_struct_body(remaining, [field | fields], groups, batches)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_struct_body([{:word, name}, {:word, type} | rest], fields, groups, batches) do
+    {field_name, optional} = parse_field_name(name)
+
+    case parse_field_with_extras(type, rest) do
+      {:ok, field, remaining} ->
+        field = %{field | name: field_name, optional: optional}
+        parse_struct_body(remaining, [field | fields], groups, batches)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_struct_body(tokens, _fields, _groups, _batches) do
     {:error, {:invalid_struct_body, tokens}}
   end
+
+  # Parse batch body: any_of: [Type1, Type2], strategy: padded_union
+  defp parse_batch_block(tokens) do
+    parse_batch_attrs(tokens, %BatchDef{})
+  end
+
+  defp parse_batch_attrs([:rbrace | rest], batch) do
+    {:ok, batch, rest}
+  end
+
+  defp parse_batch_attrs([{:word, "any_of"}, :colon, :lbracket | rest], batch) do
+    case parse_list(rest, []) do
+      {:ok, items, remaining} ->
+        parse_batch_attrs(remaining, %{batch | any_of: Enum.map(items, &String.to_atom/1)})
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_batch_attrs([{:word, "any_of"}, :lbracket | rest], batch) do
+    case parse_list(rest, []) do
+      {:ok, items, remaining} ->
+        parse_batch_attrs(remaining, %{batch | any_of: Enum.map(items, &String.to_atom/1)})
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_batch_attrs([{:word, "strategy"}, :colon, {:word, val} | rest], batch) do
+    parse_batch_attrs(rest, %{batch | strategy: String.to_atom(val)})
+  end
+
+  defp parse_batch_attrs([{:word, "strategy"}, {:word, val} | rest], batch) do
+    parse_batch_attrs(rest, %{batch | strategy: String.to_atom(val)})
+  end
+
+  defp parse_batch_attrs(tokens, _batch) do
+    {:error, {:invalid_batch_block, tokens}}
+  end
+
+  defp parse_list([:rbracket | rest], acc), do: {:ok, Enum.reverse(acc), rest}
+
+  defp parse_list([{:word, item}, :comma | rest], acc) do
+    parse_list(rest, [item | acc])
+  end
+
+  defp parse_list([{:word, item} | rest], acc) do
+    parse_list(rest, [item | acc])
+  end
+
+  defp parse_list(tokens, _acc), do: {:error, {:invalid_list, tokens}}
 
   # Parse fields block for types and groups
   defp parse_fields_block([:rbrace | rest], acc) do
@@ -573,14 +756,28 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_fields_block([{:word, name}, :colon, {:word, type} | rest], acc) do
     {field_name, optional} = parse_field_name(name)
-    field = %Field{name: field_name, type: String.to_atom(type), optional: optional}
-    parse_fields_block(rest, [field | acc])
+
+    case parse_field_with_extras(type, rest) do
+      {:ok, field, remaining} ->
+        field = %{field | name: field_name, optional: optional}
+        parse_fields_block(remaining, [field | acc])
+
+      {:error, _} = err ->
+        err
+    end
   end
 
   defp parse_fields_block([{:word, name}, {:word, type} | rest], acc) do
     {field_name, optional} = parse_field_name(name)
-    field = %Field{name: field_name, type: String.to_atom(type), optional: optional}
-    parse_fields_block(rest, [field | acc])
+
+    case parse_field_with_extras(type, rest) do
+      {:ok, field, remaining} ->
+        field = %{field | name: field_name, optional: optional}
+        parse_fields_block(remaining, [field | acc])
+
+      {:error, _} = err ->
+        err
+    end
   end
 
   defp parse_fields_block(tokens, _acc) do
@@ -596,11 +793,86 @@ defmodule GridCodec.Schema.Parser do
     end
   end
 
-  # Helper to parse values (integers, atoms, strings)
+  # ============================================================================
+  # Field extras: parameterized types and field options
+  # ============================================================================
+
+  @known_field_opts ~w(wire_format since default presence value)a
+
+  defp parse_field_with_extras(type_word, rest) do
+    type = String.to_atom(type_word)
+
+    case maybe_parse_type_params(rest) do
+      {:ok, type_params, rest2} ->
+        {field_opts, rest3} = maybe_parse_field_opts(rest2)
+        opts = Map.new(field_opts)
+
+        field = %Field{
+          type: type,
+          type_params: type_params,
+          wire_format: opts[:wire_format],
+          since: opts[:since],
+          default: opts[:default],
+          presence: opts[:presence],
+          value: opts[:value]
+        }
+
+        {:ok, field, rest3}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp maybe_parse_type_params([:lparen | rest]), do: parse_type_params(rest, [])
+  defp maybe_parse_type_params(tokens), do: {:ok, [], tokens}
+
+  defp parse_type_params([:rparen | rest], acc), do: {:ok, Enum.reverse(acc), rest}
+
+  defp parse_type_params([{:word, key}, :colon, {:word, val} | rest], acc) do
+    parse_type_params_continue(rest, [{String.to_atom(key), parse_value(val)} | acc])
+  end
+
+  defp parse_type_params(tokens, _acc), do: {:error, {:invalid_type_params, tokens}}
+
+  defp parse_type_params_continue([:comma | rest], acc), do: parse_type_params(rest, acc)
+  defp parse_type_params_continue([:rparen | rest], acc), do: {:ok, Enum.reverse(acc), rest}
+  defp parse_type_params_continue(tokens, _acc), do: {:error, {:invalid_type_params, tokens}}
+
+  defp maybe_parse_field_opts([:comma, {:word, key}, :colon, {:word, val} | rest]) do
+    key_atom = String.to_atom(key)
+
+    if key_atom in @known_field_opts do
+      parse_field_opts(rest, [{key_atom, parse_value(val)}])
+    else
+      {[], [:comma, {:word, key}, :colon, {:word, val} | rest]}
+    end
+  end
+
+  defp maybe_parse_field_opts(tokens), do: {[], tokens}
+
+  defp parse_field_opts([:comma, {:word, key}, :colon, {:word, val} | rest], acc) do
+    key_atom = String.to_atom(key)
+
+    if key_atom in @known_field_opts do
+      parse_field_opts(rest, [{key_atom, parse_value(val)} | acc])
+    else
+      {Enum.reverse(acc), [:comma, {:word, key}, :colon, {:word, val} | rest]}
+    end
+  end
+
+  defp parse_field_opts(tokens, acc), do: {Enum.reverse(acc), tokens}
+
+  # Helper to parse values (integers, atoms, quoted strings)
   defp parse_value(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} -> int
-      _ -> String.to_atom(value)
+    if byte_size(value) >= 2 and String.starts_with?(value, "\"") and
+         String.ends_with?(value, "\"") do
+      String.slice(value, 1..-2//1)
+    else
+      case Integer.parse(value) do
+        {int, ""} -> int
+        _ -> String.to_atom(value)
+      end
     end
   end
 

@@ -115,9 +115,28 @@ defmodule GridCodec.Struct.Compiler do
     # Build schema metadata
     field_names = Enum.map(fields, fn {name, _, _} -> name end)
 
+    batch_meta =
+      Enum.map(batches, fn {name, any_of_modules, batch_opts} ->
+        {name, any_of_modules, Keyword.get(batch_opts, :strategy, :padded_union)}
+      end)
+
+    group_field_meta =
+      processed_groups
+      |> Enum.map(fn {gname, _block, gopts} ->
+        resolved = Keyword.get(gopts, :__resolved_fields__, [])
+
+        gfields =
+          Enum.map(resolved, fn {fname, type_atom, _module, _fopts} -> {fname, type_atom} end)
+
+        {gname, gfields}
+      end)
+      |> Map.new()
+
     schema = %{
       fields: fields,
       groups: groups,
+      batches: batch_meta,
+      group_fields: group_field_meta,
       version: version,
       template_id: template_id,
       schema_id: schema_id,
