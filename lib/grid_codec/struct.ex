@@ -232,26 +232,14 @@ defmodule GridCodec.Struct do
   end
 
   defp generate_from_struct_def(schema, struct_def, opts) do
-    # Build field definitions from parsed struct
-    field_defs =
-      Enum.map(struct_def.fields, fn field ->
-        field_opts = if field.optional, do: [presence: :optional], else: []
-        {field.name, field.type, field_opts}
-      end)
+    field_defs = Enum.map(struct_def.fields, &grid_field_to_def/1)
 
-    # Build group definitions
     group_defs =
       Enum.map(struct_def.groups, fn group ->
-        group_fields =
-          Enum.map(group.fields, fn field ->
-            field_opts = if field.optional, do: [presence: :optional], else: []
-            {field.name, field.type, field_opts}
-          end)
-
+        group_fields = Enum.map(group.fields, &grid_field_to_def/1)
         {group.name, group_fields, []}
       end)
 
-    # Merge schema-level options with user opts
     # Struct-level version overrides schema-level version
     version = struct_def.version || schema.version || 1
 
@@ -266,28 +254,51 @@ defmodule GridCodec.Struct do
 
     quote do
       import GridCodec.Struct, only: [defcodec: 1]
-      import GridCodec, only: [field: 2, field: 3, group: 2, group: 3]
+      import GridCodec, only: [field: 2, field: 3, group: 2, group: 3, batch: 2]
 
       @gridcodec_opts unquote(Macro.escape(merged_opts))
       @gridcodec_is_struct true
 
       Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
+      Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
 
-      # Register fields from .grid file
       for {name, type, field_opts} <- unquote(Macro.escape(field_defs)) do
         @gridcodec_fields {name, type, field_opts}
       end
 
-      # Register groups from .grid file
       for {name, fields, group_opts} <- unquote(Macro.escape(group_defs)) do
         @gridcodec_groups {name, fields, group_opts}
       end
 
-      # Trigger compilation
       @before_compile GridCodec.Struct.Compiler
     end
   end
+
+  defp grid_field_to_def(field) do
+    type_spec =
+      if field.type_params != [] do
+        {field.type, field.type_params}
+      else
+        field.type
+      end
+
+    field_opts =
+      []
+      |> maybe_put(:presence, field.presence)
+      |> maybe_put(:wire_format, field.wire_format)
+      |> maybe_put(:since, field.since)
+      |> maybe_put(:default, field.default)
+      |> maybe_put(:value, field.value)
+
+    field_opts =
+      if field.optional, do: Keyword.put_new(field_opts, :presence, :optional), else: field_opts
+
+    {field.name, type_spec, field_opts}
+  end
+
+  defp maybe_put(kw, _key, nil), do: kw
+  defp maybe_put(kw, key, val), do: Keyword.put(kw, key, val)
 
   @doc """
   Defines the codec schema and generates both `defstruct` and codec functions.

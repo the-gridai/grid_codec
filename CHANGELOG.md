@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-03-09
+
+### Added
+- **Breaking change detection** — New `mix grid_codec.breaking` task compares `.grid`
+  schema files against a baseline (git ref or file path) and reports wire-incompatible
+  and source-incompatible changes. Inspired by [Buf](https://buf.build/docs/breaking/).
+  Includes 21 WIRE rules (binary compatibility) and 8 SOURCE rules (API compatibility).
+  Configurable via `.grid_codec.exs` with support for rule exclusions and category filters.
+- **`.grid` schema export** — New `mix grid_codec.export` task generates declarative
+  `.grid` schema files from compiled `defcodec` modules. Supports all field options
+  (`wire_format`, `since`, `default`, `presence`, `value`), parameterized types
+  (`decimal(scale: 8)`), groups, batches, and enums.
+- **`.grid` schema parser** — Extended `GridCodec.Schema.Parser` to support batch/any_of
+  syntax, parameterized type parameters, and all field options. Full round-trip fidelity:
+  parse → format → re-parse produces equivalent schemas.
+- **`--check` mode for `mix gridcodec.sql`** — Verifies the generated SQL file is up to
+  date without writing to disk. Exits non-zero if stale or missing. Intended for CI and
+  pre-push hooks.
+- **`--check` mode for `mix grid_codec.export`** — Same check-without-write pattern for
+  `.grid` schema files. Reports each stale or missing file individually.
+- **CI breaking change job** — New `breaking` job in GitHub Actions runs
+  `mix grid_codec.breaking` on pull requests with full git history.
+- **Schema metadata in `__schema__/0`** — `batches` and `group_fields` are now included
+  in the compile-time schema map, enabling the formatter and export task to produce
+  complete `.grid` files.
+
 ## [0.23.2] - 2026-03-06
 
 ### Fixed

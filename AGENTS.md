@@ -454,6 +454,9 @@ This generates:
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
+- `GridCodec.Schema.Parser` - Parse `.grid` schema files into structured AST
+- `GridCodec.Schema.Formatter` - Export runtime `__schema__/0` metadata to `.grid` format
+- `GridCodec.Breaking.*` - Breaking change detection (Checker, Differ, Rules.Wire, Rules.Source, Config)
 
 ### Batch Strategies
 
@@ -505,4 +508,29 @@ field :price, {:decimal, scale: 8}, wire_format: :i64
 The type argument is the **domain type** (what the field IS). The `wire_format:`
 option overrides the binary encoding. The compiler uses the wire type for
 size/alignment/binary patterns and the domain type for value conversion.
+
+### Schema Evolution & Breaking Change Detection
+
+GridCodec includes a schema evolution system inspired by [Buf](https://buf.build/docs/breaking/).
+
+**`.grid` files** are a declarative schema format used for tracking schema changes:
+
+```bash
+# Export current schemas from compiled codecs
+cd example_app && mix grid_codec.export --output-dir priv/schemas
+
+# Detect breaking changes against git baseline
+cd example_app && mix grid_codec.breaking --against HEAD~1
+```
+
+**Rule categories:**
+- **WIRE** (21 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes
+- **SOURCE** (8 rules) — API compatibility: struct removal, field renames, default changes, required field additions
+
+**Configuration** via `.grid_codec.exs`:
+```elixir
+%{against: "HEAD~1", except: [:SOURCE_FIELD_DEFAULT_CHANGED], category: :wire}
+```
+
+**CI integration:** The `breaking` job in `.github/workflows/ci.yml` runs `mix grid_codec.breaking` on pull requests with `fetch-depth: 0` for git history access.
 

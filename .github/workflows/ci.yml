@@ -119,4 +119,38 @@ jobs:
       - name: Run Dialyzer
         run: mix dialyzer --format github
 
+  breaking:
+    name: Breaking Change Detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            example_app/deps
+            example_app/_build
+          key: ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('example_app/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
+
+      - name: Install dependencies
+        run: cd example_app && mix deps.get
+
+      - name: Compile
+        run: cd example_app && mix compile
+
+      - name: Check for breaking changes
+        run: cd example_app && mix grid_codec.breaking
