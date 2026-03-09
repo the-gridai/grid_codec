@@ -17,6 +17,16 @@ defmodule Mix.Tasks.GridCodec.Export do
       # Export only a specific schema_id
       mix grid_codec.export --schema-id 100
 
+  ## Check Mode
+
+  Use `--check` to verify `.grid` files are up to date without writing:
+
+      mix grid_codec.export --check
+      mix grid_codec.export --check --output-dir priv/schemas
+
+  Exits with a non-zero status if any file is stale or missing.
+  Intended for CI and pre-push hooks.
+
   ## Output
 
   Each schema produces a file named `{schema_name}.grid` (or `schema_{id}.grid`
@@ -30,7 +40,8 @@ defmodule Mix.Tasks.GridCodec.Export do
 
   @switches [
     output_dir: :string,
-    schema_id: :integer
+    schema_id: :integer,
+    check: :boolean
   ]
 
   @impl Mix.Task
@@ -41,6 +52,7 @@ defmodule Mix.Tasks.GridCodec.Export do
 
     output_dir = Keyword.get(opts, :output_dir, "priv/schemas")
     schema_id_filter = Keyword.get(opts, :schema_id)
+    check_mode = Keyword.get(opts, :check, false)
 
     codecs = collect_codecs()
 
@@ -59,18 +71,67 @@ defmodule Mix.Tasks.GridCodec.Export do
       return_ok()
     end
 
-    File.mkdir_p!(output_dir)
+    schemas = build_schemas(grouped, output_dir)
 
-    Enum.each(grouped, fn {schema_id, entries} ->
+    if check_mode do
+      check(schemas)
+    else
+      write(schemas)
+    end
+  end
+
+  defp build_schemas(grouped, output_dir) do
+    grouped
+    |> Enum.map(fn {schema_id, entries} ->
       {schema_name, schema_version} = infer_schema_meta(entries)
       content = Formatter.format(schema_name, schema_id, schema_version, entries)
       filename = safe_filename(schema_name) <> ".grid"
       path = Path.join(output_dir, filename)
+      {path, content, length(entries)}
+    end)
+    |> Map.new(fn {path, content, count} -> {path, {path, content, count}} end)
+    |> Map.values()
+    |> Enum.sort_by(fn {path, _, _} -> path end)
+  end
 
+  defp write(schemas) do
+    Enum.each(schemas, fn {path, content, count} ->
+      File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
-      count = length(entries)
       Mix.shell().info("Wrote #{path} (#{count} struct(s))")
     end)
+  end
+
+  defp check(schemas) do
+    stale =
+      Enum.reduce(schemas, [], fn {path, expected, _count}, acc ->
+        case File.read(path) do
+          {:ok, current} when current == expected -> acc
+          {:ok, _stale} -> [{:stale, path} | acc]
+          {:error, :enoent} -> [{:missing, path} | acc]
+        end
+      end)
+
+    if stale == [] do
+      total = Enum.reduce(schemas, 0, fn {_, _, c}, acc -> acc + c end)
+      file_count = length(schemas)
+
+      Mix.shell().info(
+        "GridCodec .grid files are up to date (#{total} struct(s) in #{file_count} file(s))"
+      )
+    else
+      Enum.each(Enum.reverse(stale), fn
+        {:stale, path} ->
+          Mix.shell().error("Out of date: #{path}")
+
+        {:missing, path} ->
+          Mix.shell().error("Missing: #{path}")
+      end)
+
+      Mix.shell().error("\nRun `mix grid_codec.export` and commit the result.")
+
+      exit({:shutdown, 1})
+    end
   end
 
   defp return_ok, do: :ok
