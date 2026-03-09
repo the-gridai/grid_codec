@@ -11,9 +11,13 @@ defmodule GridCodec.Breaking.Checker do
   alias GridCodec.Schema.Parser
   alias GridCodec.Schema.Parser.Schema
 
+  @type import_resolver :: (String.t() -> {:ok, String.t()} | {:error, term()})
+
   @type check_opts :: %{
           optional(:category) => :wire | :source,
-          optional(:except) => [atom()]
+          optional(:except) => [atom()],
+          optional(:old_resolver) => import_resolver(),
+          optional(:new_resolver) => import_resolver()
         }
 
   @doc """
@@ -46,14 +50,77 @@ defmodule GridCodec.Breaking.Checker do
 
   @doc """
   High-level entrypoint: parses two `.grid` file contents and checks for breaking changes.
+
+  Accepts an optional `import_resolver` function for resolving `import` directives.
+  The resolver receives an import path and returns `{:ok, content}` or `{:error, reason}`.
   """
   @spec check_contents(String.t(), String.t(), String.t(), check_opts()) ::
           {:ok, [Issue.t()]} | {:error, term()}
   def check_contents(old_content, new_content, path, opts \\ %{}) do
-    with {:ok, old_schema} <- Parser.parse(old_content),
-         {:ok, new_schema} <- Parser.parse(new_content) do
+    with {:ok, old_schema} <- parse_with_imports(old_content, path, opts[:old_resolver]),
+         {:ok, new_schema} <- parse_with_imports(new_content, path, opts[:new_resolver]) do
       {:ok, check(old_schema, new_schema, path, opts)}
     end
+  end
+
+  defp parse_with_imports(content, _path, nil) do
+    Parser.parse(content)
+  end
+
+  defp parse_with_imports(content, path, resolver) when is_function(resolver, 1) do
+    with {:ok, schema} <- Parser.parse(content) do
+      resolve_schema_imports(schema, Path.dirname(path), resolver, %{path => true})
+    end
+  end
+
+  defp resolve_schema_imports(%Schema{imports: []} = schema, _base, _resolver, _visited) do
+    {:ok, schema}
+  end
+
+  defp resolve_schema_imports(%Schema{imports: imports} = schema, base, resolver, visited) do
+    Enum.reduce_while(imports, {:ok, schema}, fn import_path, {:ok, acc} ->
+      full_path = Path.join(base, import_path)
+
+      if Map.has_key?(visited, full_path) do
+        {:halt, {:error, {:circular_import, full_path}}}
+      else
+        case resolver.(full_path) do
+          {:ok, imported_content} ->
+            visited = Map.put(visited, full_path, true)
+
+            case Parser.parse(imported_content) do
+              {:ok, imported} ->
+                with {:ok, resolved} <-
+                       resolve_schema_imports(
+                         imported,
+                         Path.dirname(full_path),
+                         resolver,
+                         visited
+                       ) do
+                  merged = %{
+                    acc
+                    | types: Map.merge(acc.types, resolved.types),
+                      enums: Map.merge(acc.enums, resolved.enums),
+                      structs: Map.merge(acc.structs, resolved.structs)
+                  }
+
+                  {:cont, {:ok, merged}}
+                else
+                  err -> {:halt, err}
+                end
+
+              err ->
+                {:halt, err}
+            end
+
+          {:error, :enoent} ->
+            {:cont, {:ok, acc}}
+
+          {:error, _} = err ->
+            {:halt, err}
+        end
+      end
+    end)
   end
 
   @doc """

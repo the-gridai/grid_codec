@@ -319,4 +319,162 @@ defmodule GridCodec.Schema.ParserTest do
       assert {:error, {:invalid_identifier, "bad-name"}} = Parser.parse(content)
     end
   end
+
+  describe "import directive" do
+    test "parses import directives" do
+      content = """
+      schema Trading {
+        id: 100
+        version: 1
+      }
+
+      import "order_created.grid"
+      import "trade_executed.grid"
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.imports == ["order_created.grid", "trade_executed.grid"]
+      assert schema.id == 100
+    end
+
+    test "parses import with nested path" do
+      content = """
+      schema { id: 1 }
+      import "other_schema/events/order_created.grid"
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.imports == ["other_schema/events/order_created.grid"]
+    end
+
+    test "import coexists with inline definitions" do
+      content = """
+      schema { id: 1 }
+
+      enum Side : u8 {
+        buy = 0
+        sell = 1
+      }
+
+      import "order.grid"
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.imports == ["order.grid"]
+      assert Map.has_key?(schema.enums, :Side)
+    end
+  end
+
+  describe "files without schema block" do
+    test "parses standalone struct" do
+      content = """
+      struct Order (template_id: 1001) {
+        id: uuid_string
+        price: u64
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.id == nil
+      assert schema.name == nil
+      assert Map.has_key?(schema.structs, :Order)
+    end
+
+    test "parses standalone enum" do
+      content = """
+      enum Side : u8 {
+        buy = 0
+        sell = 1
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.id == nil
+      assert Map.has_key?(schema.enums, :Side)
+    end
+  end
+
+  describe "parse_file_with_imports/2" do
+    @tmp_dir Path.join(System.tmp_dir!(), "grid_parser_import_test")
+
+    setup do
+      dir = Path.join(@tmp_dir, "#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "resolves imports from files on disk", %{dir: dir} do
+      File.write!(Path.join(dir, "order.grid"), """
+      struct Order (template_id: 1) {
+        id: u64
+      }
+      """)
+
+      File.write!(Path.join(dir, "schema.grid"), """
+      schema Test {
+        id: 1
+        version: 1
+      }
+      import "order.grid"
+      """)
+
+      assert {:ok, schema} = Parser.parse_file_with_imports(Path.join(dir, "schema.grid"))
+      assert schema.id == 1
+      assert Map.has_key?(schema.structs, :Order)
+    end
+
+    test "resolves nested imports", %{dir: dir} do
+      File.mkdir_p!(Path.join(dir, "types"))
+
+      File.write!(Path.join(dir, "types/side.grid"), """
+      enum Side : u8 {
+        buy = 0
+        sell = 1
+      }
+      """)
+
+      File.write!(Path.join(dir, "order.grid"), """
+      struct Order (template_id: 1) {
+        id: u64
+      }
+      """)
+
+      File.write!(Path.join(dir, "schema.grid"), """
+      schema Test {
+        id: 1
+        version: 1
+      }
+      import "order.grid"
+      import "types/side.grid"
+      """)
+
+      assert {:ok, schema} = Parser.parse_file_with_imports(Path.join(dir, "schema.grid"))
+      assert Map.has_key?(schema.structs, :Order)
+      assert Map.has_key?(schema.enums, :Side)
+    end
+
+    test "detects circular imports", %{dir: dir} do
+      File.write!(Path.join(dir, "a.grid"), """
+      import "b.grid"
+      """)
+
+      File.write!(Path.join(dir, "b.grid"), """
+      import "a.grid"
+      """)
+
+      assert {:error, {:circular_import, _}} =
+               Parser.parse_file_with_imports(Path.join(dir, "a.grid"))
+    end
+
+    test "missing import file returns error", %{dir: dir} do
+      File.write!(Path.join(dir, "schema.grid"), """
+      schema Test { id: 1 }
+      import "nonexistent.grid"
+      """)
+
+      assert {:error, {:file_error, _, :enoent}} =
+               Parser.parse_file_with_imports(Path.join(dir, "schema.grid"))
+    end
+  end
 end

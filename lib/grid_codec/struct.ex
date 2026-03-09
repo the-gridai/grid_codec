@@ -200,8 +200,7 @@ defmodule GridCodec.Struct do
   end
 
   defp generate_from_grid_file(grid_file, message_name, opts) do
-    # Parse the file at compile time
-    case GridCodec.Schema.Parser.parse_file(grid_file) do
+    case GridCodec.Schema.Parser.parse_file_with_imports(grid_file) do
       {:ok, schema} ->
         generate_from_schema(schema, message_name, opts)
 

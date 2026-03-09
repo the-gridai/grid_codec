@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-03-09
+
+### Added
+- **Structured `.grid` export** — `mix grid_codec.export` now generates a directory per
+  `schema_id`, each containing a `schema.grid` master file with `import` directives plus
+  individual files for each struct and enum. File paths are derived from the struct's
+  `name:` option (e.g., `"Namespace.EventName"` → `namespace/event_name.grid`). Structs
+  are sorted alphabetically by name.
+- **`import` directive** — The `.grid` parser now supports `import "path"` directives.
+  `parse_file_with_imports/2` resolves imports recursively with cycle detection. Breaking
+  change detection and the `grid_file:` compiler option resolve imports automatically.
+- **Configurable schema directory names** — Schema directories are configurable via
+  application config: `config :my_app, :grid_codec, schemas: %{100 => "events"}`.
+  Unconfigured schema_ids default to `schema_{id}`.
+- **Formatter API** — New public functions: `format_master/4` (master file with imports),
+  `format_struct_file/2` (standalone struct file), `format_enum_file/1` (standalone enum
+  file), `build_type_aliases/2`, `struct_name/1`.
+
+### Changed
+- `.grid` export now produces directories instead of flat files. Old flat format is still
+  fully supported by the parser and breaking change detection for backward compatibility.
+- Struct ordering in generated `.grid` files changed from `template_id` to alphabetical
+  by name.
+- The `Schema` parser struct now includes an `imports` field (`[String.t()]`).
+
 ## [0.24.0] - 2026-03-09
 
 ### Added

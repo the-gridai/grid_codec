@@ -454,8 +454,8 @@ This generates:
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
-- `GridCodec.Schema.Parser` - Parse `.grid` schema files into structured AST
-- `GridCodec.Schema.Formatter` - Export runtime `__schema__/0` metadata to `.grid` format
+- `GridCodec.Schema.Parser` - Parse `.grid` schema files with `import` resolution (`parse_file_with_imports/2`)
+- `GridCodec.Schema.Formatter` - Generate `.grid` files: `format_master/4`, `format_struct_file/2`, `format_enum_file/1`
 - `GridCodec.Breaking.*` - Breaking change detection (Checker, Differ, Rules.Wire, Rules.Source, Config)
 
 ### Batch Strategies
@@ -513,15 +513,38 @@ size/alignment/binary patterns and the domain type for value conversion.
 
 GridCodec includes a schema evolution system inspired by [Buf](https://buf.build/docs/breaking/).
 
-**`.grid` files** are a declarative schema format used for tracking schema changes:
+**`.grid` files** are a declarative schema format. The export generates a directory per
+`schema_id`, each containing a `schema.grid` master file plus individual struct/enum files:
 
 ```bash
-# Export current schemas from compiled codecs
+# Export schemas (creates events/schema.grid, events/order_created.grid, etc.)
 cd example_app && mix grid_codec.export --output-dir priv/schemas
 
+# Verify schemas are up to date (CI mode)
+mix grid_codec.export --check
+
 # Detect breaking changes against git baseline
-cd example_app && mix grid_codec.breaking --against HEAD~1
+mix grid_codec.breaking --against HEAD~1
 ```
+
+**Directory structure:**
+```
+priv/schemas/
+  events/
+    schema.grid              # master: schema block + import directives
+    order_created.grid       # individual struct file
+    order_side.grid          # individual enum file
+```
+
+**Schema directory names** are configured via application config:
+```elixir
+config :my_app, :grid_codec, schemas: %{100 => "events"}
+```
+Unconfigured schema_ids default to `schema_{id}`. File paths are derived from the
+struct's `name:` option (e.g., `"Namespace.EventName"` → `namespace/event_name.grid`).
+
+**`import` directives** are resolved automatically by the parser (`parse_file_with_imports/2`),
+the breaking change checker, and the `grid_file:` compiler option.
 
 **Rule categories:**
 - **WIRE** (21 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes

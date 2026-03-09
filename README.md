@@ -48,7 +48,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.24.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.25.0"}
   ]
 end
 ```
@@ -196,6 +196,10 @@ GridCodec includes a schema evolution system for tracking and validating schema 
 
 ### Export schemas
 
+The export generates a directory per `schema_id`, each with a `schema.grid` master
+file (containing the schema block and `import` directives) plus individual files for
+each struct and enum:
+
 ```bash
 # Generate .grid files from compiled defcodec modules
 mix grid_codec.export
@@ -203,6 +207,27 @@ mix grid_codec.export
 # Verify .grid files are up to date (CI / pre-push)
 mix grid_codec.export --check
 ```
+
+Output structure:
+
+```
+priv/schemas/
+  events/
+    schema.grid              # master — schema block + imports
+    order_created.grid       # individual struct
+    order_side.grid          # individual enum
+```
+
+Configure schema directory names in your application config:
+
+```elixir
+# config/config.exs
+config :my_app, :grid_codec,
+  schemas: %{100 => "events", 99 => "bench"}
+```
+
+Unconfigured schema_ids default to `schema_{id}`. File paths are derived from the
+struct's `name:` option (e.g., `"Namespace.EventName"` becomes `namespace/event_name.grid`).
 
 ### Detect breaking changes
 
@@ -230,13 +255,17 @@ Configure with `.grid_codec.exs`:
 ]
 ```
 
-Rules: 21 WIRE (binary compatibility) + 8 SOURCE (API compatibility). See the [Schema evolution guide](docs/schema-evolution.md) for details.
+The breaking change tool resolves `import` directives automatically, so it works with
+both the new directory structure and legacy flat files. Rules: 21 WIRE (binary
+compatibility) + 8 SOURCE (API compatibility). See the [Schema evolution guide](docs/schema-evolution.md) for details.
 
 ### Compile from `.grid` files
 
+Point `grid_file:` at a master `schema.grid` — imports are resolved automatically:
+
 ```elixir
 defmodule MyApp.Events.OrderCreated do
-  use GridCodec.Struct, grid_file: "priv/schemas/trading.grid", struct: "OrderCreated"
+  use GridCodec.Struct, grid_file: "priv/schemas/events/schema.grid", struct: "OrderCreated"
 end
 ```
 
@@ -303,7 +332,8 @@ Key modules:
 - `GridCodec.BinaryInspector` – Binary diagnostics (header/layout/value inspection)
 - `GridCodec.Json` – JSON interchange adapters (`to_map/from_map/to_json/from_json`)
 - `GridCodec.SQL` – PostgreSQL decode function generation
-- `GridCodec.Schema.Parser` – `.grid` schema file parser
+- `GridCodec.Schema.Parser` – `.grid` schema file parser (with `import` resolution)
+- `GridCodec.Schema.Formatter` – `.grid` file generation (master, struct, and enum files)
 - `GridCodec.Breaking.Checker` – Breaking change detection engine
 - `GridCodec.Telemetry.Metrics` – Pre-built metric definitions (Telemetry.Metrics + PromEx)
 

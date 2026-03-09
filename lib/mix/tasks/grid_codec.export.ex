@@ -4,7 +4,8 @@ defmodule Mix.Tasks.GridCodec.Export do
   Generates `.grid` schema files from compiled `defcodec` modules.
 
   Scans all compiled GridCodec struct modules, groups them by `schema_id`,
-  and writes one `.grid` file per schema.
+  and writes a directory per schema containing a `schema.grid` master file
+  plus individual files for each struct and enum.
 
   ## Usage
 
@@ -27,11 +28,25 @@ defmodule Mix.Tasks.GridCodec.Export do
   Exits with a non-zero status if any file is stale or missing.
   Intended for CI and pre-push hooks.
 
-  ## Output
+  ## Output Structure
 
-  Each schema produces a file named `{schema_name}.grid` (or `schema_{id}.grid`
-  if no name is configured). The file contains all struct, enum, and group
-  definitions in that schema.
+  Each schema_id gets a directory (named via application config or
+  defaulting to `schema_{id}`). Inside:
+
+      priv/schemas/
+        events/
+          schema.grid              # master — schema block + imports
+          order_created.grid       # individual struct
+          order_side.grid          # individual enum
+
+  ## Configuration
+
+  Configure schema directory names in your application config:
+
+      config :my_app, :grid_codec,
+        schemas: %{100 => "events", 99 => "bench"}
+
+  Unconfigured schema_ids fall back to `schema_{id}`.
   """
 
   use Mix.Task
@@ -71,56 +86,115 @@ defmodule Mix.Tasks.GridCodec.Export do
       return_ok()
     end
 
-    schemas = build_schemas(grouped, output_dir)
+    schema_names = load_schema_names()
+    files = build_files(grouped, output_dir, schema_names)
 
     if check_mode do
-      check(schemas)
+      check(files)
     else
-      write(schemas)
+      write(files)
     end
   end
 
-  defp build_schemas(grouped, output_dir) do
-    raw =
-      Enum.map(grouped, fn {schema_id, entries} ->
-        {schema_name, schema_version} = infer_schema_meta(entries)
-        content = Formatter.format(schema_name, schema_id, schema_version, entries)
-        filename = safe_filename(schema_name)
-        {schema_id, filename, content, length(entries)}
+  # ============================================================================
+  # File generation
+  # ============================================================================
+
+  defp build_files(grouped, output_dir, schema_names) do
+    Enum.flat_map(grouped, fn {schema_id, entries} ->
+      build_schema_files(schema_id, entries, output_dir, schema_names)
+    end)
+    |> Enum.sort_by(fn {path, _content} -> path end)
+  end
+
+  defp build_schema_files(schema_id, entries, output_dir, schema_names) do
+    dir_name = schema_dir_name(schema_id, schema_names)
+    schema_dir = Path.join(output_dir, dir_name)
+    schema_version = entries |> Enum.map(fn {_mod, s} -> s.version end) |> Enum.max()
+
+    enums = Formatter.detect_enums(entries)
+    type_aliases = Formatter.build_type_aliases(entries, enums)
+
+    struct_files =
+      entries
+      |> Enum.sort_by(fn {_mod, schema} -> Formatter.struct_name(schema) end)
+      |> Enum.map(fn {_mod, schema} ->
+        rel_path = type_to_relative_path(schema.type)
+        content = Formatter.format_struct_file(schema, type_aliases)
+        {Path.join(schema_dir, rel_path), content}
       end)
 
-    filenames = Enum.map(raw, fn {_, f, _, _} -> f end)
-    has_collisions = length(filenames) != length(Enum.uniq(filenames))
+    enum_files =
+      enums
+      |> Enum.sort_by(fn {_mod, info} -> info.short_name end)
+      |> Enum.map(fn {_mod, info} ->
+        rel_path = name_to_relative_path(info.short_name)
+        content = Formatter.format_enum_file(info)
+        {Path.join(schema_dir, rel_path), content}
+      end)
 
-    raw
-    |> Enum.map(fn {schema_id, filename, content, count} ->
-      final_filename =
-        if has_collisions and duplicate?(filename, filenames) do
-          "#{filename}_#{schema_id}.grid"
-        else
-          "#{filename}.grid"
-        end
+    import_paths =
+      (struct_files ++ enum_files)
+      |> Enum.map(fn {full_path, _} -> Path.relative_to(full_path, schema_dir) end)
+      |> Enum.sort()
 
-      {Path.join(output_dir, final_filename), content, count}
-    end)
-    |> Enum.sort_by(fn {path, _, _} -> path end)
+    master_content =
+      Formatter.format_master(dir_name, schema_id, schema_version, import_paths)
+
+    master_file = {Path.join(schema_dir, "schema.grid"), master_content}
+
+    [master_file | struct_files ++ enum_files]
   end
 
-  defp duplicate?(filename, all_filenames) do
-    Enum.count(all_filenames, &(&1 == filename)) > 1
+  # ============================================================================
+  # Path derivation
+  # ============================================================================
+
+  @doc false
+  def type_to_relative_path(type_name) when is_binary(type_name) do
+    type_name
+    |> String.split(".")
+    |> Enum.map(&Macro.underscore/1)
+    |> Path.join()
+    |> Kernel.<>(".grid")
   end
 
-  defp write(schemas) do
-    Enum.each(schemas, fn {path, content, count} ->
+  defp name_to_relative_path(short_name) when is_binary(short_name) do
+    Macro.underscore(short_name) <> ".grid"
+  end
+
+  # ============================================================================
+  # Config
+  # ============================================================================
+
+  defp load_schema_names do
+    app = Mix.Project.config()[:app]
+    config = Application.get_env(app, :grid_codec, [])
+    Keyword.get(config, :schemas, %{})
+  end
+
+  defp schema_dir_name(schema_id, schema_names) do
+    Map.get(schema_names, schema_id, "schema_#{schema_id}")
+  end
+
+  # ============================================================================
+  # Write / Check
+  # ============================================================================
+
+  defp write(files) do
+    Enum.each(files, fn {path, content} ->
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
-      Mix.shell().info("Wrote #{path} (#{count} struct(s))")
+      Mix.shell().info("Wrote #{path}")
     end)
+
+    struct_count = Enum.count(files, fn {p, _} -> not String.ends_with?(p, "schema.grid") end)
+    Mix.shell().info("Exported #{struct_count} definition(s) in #{schema_count(files)} schema(s)")
   end
 
-  defp check(schemas) do
+  defp check(files) do
     stale =
-      Enum.reduce(schemas, [], fn {path, expected, _count}, acc ->
+      Enum.reduce(files, [], fn {path, expected}, acc ->
         case File.read(path) do
           {:ok, current} when current == expected -> acc
           {:ok, _stale} -> [{:stale, path} | acc]
@@ -129,11 +203,10 @@ defmodule Mix.Tasks.GridCodec.Export do
       end)
 
     if stale == [] do
-      total = Enum.reduce(schemas, 0, fn {_, _, c}, acc -> acc + c end)
-      file_count = length(schemas)
+      file_count = length(files)
 
       Mix.shell().info(
-        "GridCodec .grid files are up to date (#{total} struct(s) in #{file_count} file(s))"
+        "GridCodec .grid files are up to date (#{file_count} file(s) in #{schema_count(files)} schema(s))"
       )
     else
       Enum.each(Enum.reverse(stale), fn
@@ -150,7 +223,16 @@ defmodule Mix.Tasks.GridCodec.Export do
     end
   end
 
+  defp schema_count(files) do
+    files
+    |> Enum.count(fn {p, _} -> Path.basename(p) == "schema.grid" end)
+  end
+
   defp return_ok, do: :ok
+
+  # ============================================================================
+  # Codec discovery
+  # ============================================================================
 
   defp collect_codecs do
     build_path = Mix.Project.build_path()
@@ -171,27 +253,5 @@ defmodule Mix.Tasks.GridCodec.Export do
 
   defp maybe_filter_schema_id(codecs, id) do
     Enum.filter(codecs, fn {_mod, schema} -> schema.schema_id == id end)
-  end
-
-  defp infer_schema_meta(entries) do
-    versions = entries |> Enum.map(fn {_mod, s} -> s.version end) |> Enum.max()
-
-    name =
-      entries
-      |> Enum.map(fn {mod, _s} -> mod |> Module.split() |> Enum.take(2) |> Enum.join(".") end)
-      |> Enum.frequencies()
-      |> Enum.max_by(fn {_name, count} -> count end)
-      |> elem(0)
-      |> String.replace(".", "")
-
-    {name, versions}
-  end
-
-  defp safe_filename(name) do
-    name
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]/, "_")
-    |> String.replace(~r/_+/, "_")
-    |> String.trim_trailing("_")
   end
 end

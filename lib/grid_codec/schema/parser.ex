@@ -68,7 +68,8 @@ defmodule GridCodec.Schema.Parser do
               version: 1,
               types: %{},
               enums: %{},
-              structs: %{}
+              structs: %{},
+              imports: []
 
     @type t :: %__MODULE__{
             name: atom() | nil,
@@ -76,7 +77,8 @@ defmodule GridCodec.Schema.Parser do
             version: integer(),
             types: map(),
             enums: map(),
-            structs: map()
+            structs: map(),
+            imports: [String.t()]
           }
   end
 
@@ -166,6 +168,60 @@ defmodule GridCodec.Schema.Parser do
       {:ok, content} -> parse(content, opts)
       {:error, reason} -> {:error, {:file_error, path, reason}}
     end
+  end
+
+  @doc """
+  Parses a `.grid` file, resolving any `import` directives recursively.
+
+  Returns a single merged `Schema` with all definitions from imported files.
+  Detects circular imports via a visited-path set.
+  """
+  @spec parse_file_with_imports(String.t(), keyword()) :: {:ok, Schema.t()} | {:error, term()}
+  def parse_file_with_imports(path, opts \\ []) do
+    resolve_with_imports(path, %{}, opts)
+  end
+
+  defp resolve_with_imports(path, visited, opts) do
+    abs_path = Path.expand(path)
+
+    if Map.has_key?(visited, abs_path) do
+      {:error, {:circular_import, path}}
+    else
+      visited = Map.put(visited, abs_path, true)
+
+      with {:ok, schema} <- parse_file(path, opts) do
+        base_dir = Path.dirname(abs_path)
+        resolve_imports(schema, base_dir, visited, opts)
+      end
+    end
+  end
+
+  defp resolve_imports(%Schema{imports: []} = schema, _base_dir, _visited, _opts) do
+    {:ok, schema}
+  end
+
+  defp resolve_imports(%Schema{imports: imports} = schema, base_dir, visited, opts) do
+    Enum.reduce_while(imports, {:ok, %{schema | imports: imports}}, fn import_path, {:ok, acc} ->
+      full_path = Path.join(base_dir, import_path)
+
+      case resolve_with_imports(full_path, visited, opts) do
+        {:ok, imported} ->
+          merged = merge_schemas(acc, imported)
+          {:cont, {:ok, merged}}
+
+        {:error, _} = err ->
+          {:halt, err}
+      end
+    end)
+  end
+
+  defp merge_schemas(%Schema{} = base, %Schema{} = imported) do
+    %{
+      base
+      | types: Map.merge(base.types, imported.types),
+        enums: Map.merge(base.enums, imported.enums),
+        structs: Map.merge(base.structs, imported.structs)
+    }
   end
 
   @doc """
@@ -468,6 +524,17 @@ defmodule GridCodec.Schema.Parser do
 
       _ ->
         {:error, {:invalid_template_id, tid_str}}
+    end
+  end
+
+  defp parse_top_level([{:word, "import"}, {:word, path_str} | rest], schema) do
+    path = parse_value(path_str)
+
+    if is_binary(path) do
+      schema = %{schema | imports: schema.imports ++ [path]}
+      parse_top_level(rest, schema)
+    else
+      {:error, {:invalid_import_path, path_str}}
     end
   end
 

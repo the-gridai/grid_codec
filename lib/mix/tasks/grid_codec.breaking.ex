@@ -125,8 +125,31 @@ defmodule Mix.Tasks.GridCodec.Breaking do
 
   defp check_file(file_path, against, check_opts) do
     with {:ok, new_content} <- File.read(file_path),
+         true <- master_file?(new_content),
          {:ok, old_content} <- resolve_baseline(file_path, against) do
-      Checker.check_contents(old_content, new_content, file_path, check_opts)
+      opts_with_resolvers =
+        check_opts
+        |> Map.put(:new_resolver, &File.read/1)
+        |> Map.put(:old_resolver, git_import_resolver(against))
+
+      Checker.check_contents(old_content, new_content, file_path, opts_with_resolvers)
+    else
+      false -> {:ok, []}
+      error -> error
+    end
+  end
+
+  defp master_file?(content) do
+    String.contains?(content, "schema ")
+  end
+
+  defp git_import_resolver(against) do
+    fn full_path ->
+      case Checker.baseline_from_git(against, full_path) do
+        {:ok, content} -> {:ok, content}
+        :new_file -> {:error, :enoent}
+        error -> error
+      end
     end
   end
 
