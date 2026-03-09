@@ -253,7 +253,7 @@ defmodule GridCodec.Schema.ParserTest do
       assert schema.structs[:Trade].version == 2
     end
 
-    test "legacy message syntax still works" do
+    test "legacy message syntax is rejected" do
       content = """
       schema { id: 1 }
       message Order (1001) {
@@ -261,9 +261,7 @@ defmodule GridCodec.Schema.ParserTest do
       }
       """
 
-      assert {:ok, schema} = Parser.parse(content)
-      assert Map.has_key?(schema.structs, :Order)
-      assert schema.structs[:Order].template_id == 1001
+      assert {:error, {:unexpected_token, {:word, "message"}}} = Parser.parse(content)
     end
   end
 
@@ -475,6 +473,209 @@ defmodule GridCodec.Schema.ParserTest do
 
       assert {:error, {:file_error, _, :enoent}} =
                Parser.parse_file_with_imports(Path.join(dir, "schema.grid"))
+    end
+  end
+
+  describe "@syntax directive" do
+    test "parses @syntax 1" do
+      content = """
+      @syntax 1
+
+      schema Trading {
+        id: 100
+        version: 1
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.syntax == 1
+      assert schema.id == 100
+    end
+
+    test "defaults syntax to current when absent" do
+      content = """
+      schema { id: 1 }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.syntax == Parser.current_syntax()
+    end
+
+    test "rejects unsupported syntax version" do
+      content = """
+      @syntax 999
+
+      schema { id: 1 }
+      """
+
+      assert {:error, {:unsupported_syntax, 999, _current}} = Parser.parse(content)
+    end
+
+    test "rejects invalid syntax version" do
+      content = """
+      @syntax abc
+
+      schema { id: 1 }
+      """
+
+      assert {:error, {:invalid_syntax_version, "abc"}} = Parser.parse(content)
+    end
+
+    test "rejects unknown directive" do
+      content = """
+      @unknown 1
+
+      schema { id: 1 }
+      """
+
+      assert {:error, {:unknown_directive, "unknown"}} = Parser.parse(content)
+    end
+
+    test "@syntax works with standalone struct" do
+      content = """
+      @syntax 1
+
+      struct Order (template_id: 1001) {
+        id: uuid_string
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.syntax == 1
+      assert Map.has_key?(schema.structs, :Order)
+    end
+
+    test "@syntax works with imports" do
+      content = """
+      @syntax 1
+
+      schema Test { id: 1 }
+      import "other.grid"
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.syntax == 1
+      assert schema.imports == ["other.grid"]
+    end
+
+    test "current_syntax/0 returns expected version" do
+      assert Parser.current_syntax() == 1
+    end
+  end
+
+  describe "EBNF edge cases" do
+    test "rejects ? in the middle of an identifier" do
+      content = """
+      struct Order (template_id: 1001) {
+        f?oo: u64
+      }
+      """
+
+      assert {:error, {:invalid_identifier, "f?oo"}} = Parser.parse(content)
+    end
+
+    test "allows trailing ? on field names (optional marker)" do
+      content = """
+      struct Order (template_id: 1001) {
+        notes?: string16
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.name == :notes
+      assert field.optional == true
+    end
+
+    test "allows underscore-leading identifiers" do
+      content = """
+      struct Order (template_id: 1001) {
+        _internal: u64
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.name == :_internal
+    end
+
+    test "field named 'group' works with colon syntax" do
+      content = """
+      struct Order (template_id: 1001) {
+        group: u64
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.name == :group
+      assert field.type == :u64
+      assert schema.structs[:Order].groups == []
+    end
+
+    test "batch with empty any_of list is rejected" do
+      content = """
+      struct Order (template_id: 1001) {
+        id: u64
+
+        batch commands {
+          any_of: []
+          strategy: padded_union
+        }
+      }
+      """
+
+      assert {:error, {:empty_any_of}} = Parser.parse(content)
+    end
+
+    test "struct attributes without commas are rejected" do
+      content = """
+      struct Order (template_id: 1001 version: 2) {
+        id: u64
+      }
+      """
+
+      assert {:error, {:invalid_struct_attrs, _}} = Parser.parse(content)
+    end
+
+    test "negative integer value in field default" do
+      content = """
+      struct Order (template_id: 1001) {
+        offset: i32, default: -1
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.default == -1
+    end
+
+    test "multiple type parameters" do
+      content = """
+      struct Order (template_id: 1001) {
+        price: decimal(scale: 8), wire_format: i64
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.type == :decimal
+      assert field.type_params == [scale: 8]
+      assert field.wire_format == :i64
+    end
+
+    test "all field options together" do
+      content = """
+      struct Order (template_id: 1001) {
+        exchange: string8, presence: constant, value: "NYSE", since: 2
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      [field] = schema.structs[:Order].fields
+      assert field.presence == :constant
+      assert field.value == "NYSE"
+      assert field.since == 2
     end
   end
 end

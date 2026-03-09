@@ -132,12 +132,6 @@ defmodule GridCodec.Struct do
 
   @doc false
   defmacro __using__(opts \\ []) do
-    if Keyword.has_key?(opts, :types) do
-      raise ArgumentError,
-            "The :types option has been removed. Use direct module references in fields instead, " <>
-              "for example: field :side, MyApp.Types.Side"
-    end
-
     grid_file = Keyword.get(opts, :grid_file)
     grid_schema = Keyword.get(opts, :grid_schema)
     message_name = Keyword.get(opts, :message)
@@ -215,8 +209,7 @@ defmodule GridCodec.Struct do
   end
 
   defp generate_from_schema(schema, struct_name, opts) do
-    # Support both .structs (new) and .messages (legacy)
-    structs = Map.get(schema, :structs) || Map.get(schema, :messages) || %{}
+    structs = Map.get(schema, :structs) || %{}
     struct_def = Map.get(structs, struct_name)
 
     if struct_def do
@@ -231,15 +224,15 @@ defmodule GridCodec.Struct do
   end
 
   defp generate_from_struct_def(schema, struct_def, opts) do
-    field_defs = Enum.map(struct_def.fields, &grid_field_to_def/1)
+    custom_types = build_custom_types(schema, opts)
+    field_defs = Enum.map(struct_def.fields, &grid_field_to_def(&1, custom_types))
 
     group_defs =
       Enum.map(struct_def.groups, fn group ->
-        group_fields = Enum.map(group.fields, &grid_field_to_def/1)
+        group_fields = Enum.map(group.fields, &grid_field_to_def(&1, custom_types))
         {group.name, group_fields, []}
       end)
 
-    # Struct-level version overrides schema-level version
     version = struct_def.version || schema.version || 1
 
     merged_opts =
@@ -250,6 +243,7 @@ defmodule GridCodec.Struct do
       |> Keyword.delete(:grid_file)
       |> Keyword.delete(:grid_schema)
       |> Keyword.delete(:message)
+      |> Keyword.delete(:types)
 
     quote do
       import GridCodec.Struct, only: [defcodec: 1]
@@ -274,12 +268,43 @@ defmodule GridCodec.Struct do
     end
   end
 
-  defp grid_field_to_def(field) do
+  defp build_custom_types(schema, opts) do
+    explicit = Keyword.get(opts, :types, %{})
+
+    auto_resolved =
+      schema.enums
+      |> Enum.reduce(%{}, fn {name, _enum_def}, acc ->
+        if Map.has_key?(explicit, name) do
+          acc
+        else
+          case auto_resolve_enum(name) do
+            {:ok, module} -> Map.put(acc, name, module)
+            :error -> acc
+          end
+        end
+      end)
+
+    Map.merge(auto_resolved, explicit)
+  end
+
+  defp auto_resolve_enum(name) do
+    name_str = Atom.to_string(name)
+
+    if Code.ensure_loaded?(GridCodec.Registry) and
+         function_exported?(GridCodec.Registry, :lookup_enum_by_name, 1) do
+      GridCodec.Registry.lookup_enum_by_name(name_str)
+    else
+      :error
+    end
+  end
+
+  defp grid_field_to_def(field, custom_types) do
     type_spec =
       if field.type_params != [] do
-        {field.type, field.type_params}
+        resolved = Map.get(custom_types, field.type, field.type)
+        {resolved, field.type_params}
       else
-        field.type
+        Map.get(custom_types, field.type, field.type)
       end
 
     field_opts =

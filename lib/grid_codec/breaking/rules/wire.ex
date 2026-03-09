@@ -13,9 +13,36 @@ defmodule GridCodec.Breaking.Rules.Wire do
   @spec check(Differ.schema_diff(), String.t()) :: [Issue.t()]
   def check(schema_diff, path) do
     []
+    |> check_syntax_version(schema_diff, path)
     |> check_structs(schema_diff, path)
     |> check_enums(schema_diff, path)
     |> Enum.reverse()
+  end
+
+  # ============================================================================
+  # Syntax version
+  # ============================================================================
+
+  defp check_syntax_version(issues, %{schema: %{old: old, new: new}}, path) do
+    old_syntax = old.syntax
+    new_syntax = new.syntax
+
+    if old_syntax != nil and new_syntax != nil and old_syntax != new_syntax do
+      [
+        %Issue{
+          rule: :WIRE_SYNTAX_VERSION_CHANGED,
+          category: :wire,
+          message:
+            "Schema @syntax version changed from #{old_syntax} to #{new_syntax}. " <>
+              "Consumers on older parsers may fail to read the file.",
+          path: path,
+          location: %{}
+        }
+        | issues
+      ]
+    else
+      issues
+    end
   end
 
   # ============================================================================

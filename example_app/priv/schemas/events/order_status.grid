@@ -3,7 +3,9 @@
 
 @syntax 1
 
-enum OrderSide : u8 {
-  buy = 0
-  sell = 1
+enum OrderStatus : u8 {
+  open = 0
+  filled = 1
+  cancelled = 2
+  expired = 3
 }

@@ -287,6 +287,46 @@ defmodule GridCodec.Registry do
   end
 
   @doc """
+  Looks up an enum module by its short name (last module segment).
+
+  Searches all loaded modules that implement the `GridCodec.Types.Enum`
+  behaviour (export `values/0` and `encoding/0`).
+
+  Used by the `grid_file:` compiler path to auto-resolve `.grid` type
+  names to Elixir modules.
+
+  ## Examples
+
+      {:ok, MyApp.Types.OrderSide} = GridCodec.Registry.lookup_enum_by_name("OrderSide")
+      :error = GridCodec.Registry.lookup_enum_by_name("NonExistent")
+  """
+  @spec lookup_enum_by_name(String.t()) :: {:ok, module()} | :error
+  def lookup_enum_by_name(name) when is_binary(name) do
+    result =
+      :code.all_loaded()
+      |> Enum.find_value(fn {mod, _} ->
+        if is_enum_module?(mod) and short_module_name(mod) == name do
+          mod
+        end
+      end)
+
+    case result do
+      nil -> :error
+      mod -> {:ok, mod}
+    end
+  end
+
+  defp is_enum_module?(mod) do
+    Code.ensure_loaded?(mod) and
+      function_exported?(mod, :values, 0) and
+      function_exported?(mod, :encoding, 0)
+  end
+
+  defp short_module_name(mod) do
+    mod |> Module.split() |> List.last()
+  end
+
+  @doc """
   Encode a struct to binary.
 
   The struct must be a registered GridCodec struct.

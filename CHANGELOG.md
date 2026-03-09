@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-03-09
+
+### Added
+- **`.grid` format versioning (`@syntax 1`)** — Every generated `.grid` file now starts
+  with an `@syntax N` directive declaring the format version. The parser validates the
+  version and rejects files with unsupported syntax. Files without `@syntax` are assumed
+  to use the latest version. The generator accepts `--syntax N` CLI flag and
+  `config :app, :grid_codec, syntax: N` for targeting specific versions.
+- **Formal `.grid` specification** — Complete format spec for syntax 1 added to
+  `GridCodec.Schema.Parser` moduledoc, covering directives, blocks, types, field options,
+  imports, comments, and type resolution rules.
+- **Self-contained individual files** — Each struct `.grid` file now imports the enum types
+  it references, making it independently parseable without the master file's import tree.
+- **Cross-schema type imports** — When a struct in schema A references an enum defined in
+  schema B, the export task generates correct cross-schema import paths. Enum files are
+  generated in their home schema (lowest schema_id) and imported by reference from others.
+- **Global type alias resolution** — `Formatter.build_type_aliases/2` and
+  `Formatter.detect_all_enums/1` now operate across all schema groups, ensuring consistent
+  type names in multi-schema exports.
+- **Compiler `types:` option** — `use GridCodec.Struct, types: %{OrderSide: MyApp.OrderSide}`
+  enables explicit mapping of `.grid` type names to Elixir modules when compiling from
+  `.grid` files via `grid_file:`.
+- **Auto-resolve enum types** — `GridCodec.Registry.lookup_enum_by_name/1` provides
+  automatic resolution of `.grid` enum names to loaded Elixir enum modules, used as a
+  fallback when no explicit `types:` mapping is provided.
+- **`WIRE_SYNTAX_VERSION_CHANGED` breaking rule** — Breaking change detection now flags
+  `@syntax` version changes between baseline and current schemas.
+- **EBNF grammar** — Formal EBNF grammar (22 productions) added to `Parser` moduledoc,
+  covering all `.grid` syntax constructs from lexical elements to top-level definitions.
+- **VS Code / Cursor syntax highlighting** — TextMate grammar for `.grid` files in
+  `editors/vscode-grid/` with full keyword, type, enum, and field highlighting.
+- **Codec correctness proof suite** — `codec_proofs_test.exs` with 39 tests proving
+  size consistency (P3), garbage rejection (P6+), type isolation (P7), formatter/parser
+  agreement (P8), byte-level idempotence (P9), exhaustive finite-domain proofs (P10),
+  and parser EBNF compliance (P11).
+
+### Changed
+- Formatter functions (`format/5`, `format_master/5`, `format_struct_file/3`,
+  `format_enum_file/2`) now accept an `opts` keyword list with `:syntax` for version
+  targeting and `:imports` for individual file dependencies.
+
+### Removed
+- **Legacy `message` keyword** — The deprecated `message` keyword is no longer accepted
+  by the parser. Use `struct` instead.
+- **Lenient struct attribute parsing** — Commas between struct attributes (e.g.,
+  `template_id: 1, version: 2`) are now required.
+- **Empty `any_of` lists** — `any_of: []` in batch blocks is now rejected as invalid.
+
+### Fixed
+- **`valid_identifier?` regex** — `?` is now restricted to trailing position only;
+  `f?oo` is rejected while `filled?` is accepted.
+
 ## [0.25.0] - 2026-03-09
 
 ### Added

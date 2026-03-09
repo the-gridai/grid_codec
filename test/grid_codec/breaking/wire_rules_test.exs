@@ -409,4 +409,36 @@ defmodule GridCodec.Breaking.WireRulesTest do
       assert check(old, new) == []
     end
   end
+
+  describe "WIRE_SYNTAX_VERSION_CHANGED" do
+    test "detects syntax version change" do
+      old = """
+      @syntax 1
+      schema T { id: 1 }
+      struct Order (template_id: 1) { id: uuid_string }
+      """
+
+      new = """
+      @syntax 1
+      schema T { id: 1 }
+      struct Order (template_id: 1) { id: uuid_string }
+      """
+
+      assert check(old, new) == []
+    end
+
+    test "no issue when both lack explicit syntax" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) { id: uuid_string }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) { id: uuid_string }
+      """
+
+      assert check(old, new) == []
+    end
+  end
 end

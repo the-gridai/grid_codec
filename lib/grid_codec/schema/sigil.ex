@@ -12,13 +12,13 @@ defmodule GridCodec.Schema.Sigil do
         version: 1
       }
 
-      message Order (1001) {
+      struct Order (template_id: 1001) {
         id: uuid_string
         user_id: u64
       }
       \"\"\"
 
-      schema.messages[:Order].template_id  # => 1001
+      schema.structs[:Order].template_id  # => 1001
 
   ## In Module Definition
 
@@ -26,12 +26,12 @@ defmodule GridCodec.Schema.Sigil do
         use GridCodec.Struct,
           grid_schema: ~g\"\"\"
             schema { id: 100 }
-            message Order (1001) {
+            struct Order (template_id: 1001) {
               id: uuid_string
               quantity: u32
             }
           \"\"\",
-          message: :Order
+          struct: :Order
       end
 
   ## Modifiers

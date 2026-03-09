@@ -454,9 +454,10 @@ This generates:
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
-- `GridCodec.Schema.Parser` - Parse `.grid` schema files with `import` resolution (`parse_file_with_imports/2`)
-- `GridCodec.Schema.Formatter` - Generate `.grid` files: `format_master/4`, `format_struct_file/2`, `format_enum_file/1`
+- `GridCodec.Schema.Parser` - Parse `.grid` schema files with `import` resolution (`parse_file_with_imports/2`), `@syntax` validation, `current_syntax/0`
+- `GridCodec.Schema.Formatter` - Generate `.grid` files: `format/5`, `format_master/5`, `format_struct_file/3`, `format_enum_file/2` (all accept `opts` with `:syntax`, `:imports`); `current_syntax/0`, `detect_all_enums/1`, `referenced_enums/2`
 - `GridCodec.Breaking.*` - Breaking change detection (Checker, Differ, Rules.Wire, Rules.Source, Config)
+- `GridCodec.Registry` - Runtime codec lookup, dispatch, `lookup_enum_by_name/1` for `.grid` type auto-resolution
 
 ### Batch Strategies
 
@@ -513,12 +514,20 @@ size/alignment/binary patterns and the domain type for value conversion.
 
 GridCodec includes a schema evolution system inspired by [Buf](https://buf.build/docs/breaking/).
 
-**`.grid` files** are a declarative schema format. The export generates a directory per
-`schema_id`, each containing a `schema.grid` master file plus individual struct/enum files:
+**`.grid` files** are a versioned, language-neutral schema format. Every file starts with
+`@syntax N` declaring the format version (currently syntax 1). The formal specification
+lives in `GridCodec.Schema.Parser`'s `@moduledoc`.
+
+The export generates a directory per `schema_id`, each containing a `schema.grid` master
+file plus individual struct/enum files. Individual struct files import their own enum
+dependencies, making each file self-contained.
 
 ```bash
 # Export schemas (creates events/schema.grid, events/order_created.grid, etc.)
 cd example_app && mix grid_codec.export --output-dir priv/schemas
+
+# Target a specific syntax version
+mix grid_codec.export --syntax 1
 
 # Verify schemas are up to date (CI mode)
 mix grid_codec.export --check
@@ -531,23 +540,42 @@ mix grid_codec.breaking --against HEAD~1
 ```
 priv/schemas/
   events/
-    schema.grid              # master: schema block + import directives
-    order_created.grid       # individual struct file
-    order_side.grid          # individual enum file
+    schema.grid              # master: @syntax + schema block + import directives
+    order_created.grid       # struct file (imports order_side.grid)
+    order_side.grid          # enum file
+    trade_settled.grid       # struct importing enums from same + other schemas
+  bench_sizes/
+    schema.grid              # imports ../events/order_side.grid (cross-schema)
+    tagged_metric.grid       # struct importing cross-schema enum
 ```
 
-**Schema directory names** are configured via application config:
+**Schema directory names and syntax version** are configured via application config:
 ```elixir
-config :my_app, :grid_codec, schemas: %{100 => "events"}
+config :my_app, :grid_codec,
+  schemas: %{100 => "events", 200 => "bench_sizes"},
+  syntax: 1
 ```
 Unconfigured schema_ids default to `schema_{id}`. File paths are derived from the
 struct's `name:` option (e.g., `"Namespace.EventName"` → `namespace/event_name.grid`).
+Syntax version precedence: `--syntax` CLI flag > config > `Formatter.current_syntax()`.
 
 **`import` directives** are resolved automatically by the parser (`parse_file_with_imports/2`),
-the breaking change checker, and the `grid_file:` compiler option.
+the breaking change checker, and the `grid_file:` compiler option. Cross-schema imports
+use relative paths (e.g., `../events/order_side.grid`).
+
+**Compiling from `.grid` files with custom types:**
+```elixir
+use GridCodec.Struct,
+  grid_file: "priv/schemas/events/order.grid",
+  message: :Order,
+  types: %{OrderSide: MyApp.Types.OrderSide}
+```
+The `types:` option maps `.grid` type names to Elixir modules. When omitted,
+`GridCodec.Registry.lookup_enum_by_name/1` auto-resolves enum modules by matching
+their last module segment.
 
 **Rule categories:**
-- **WIRE** (21 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes
+- **WIRE** (22 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes, syntax version changes (`WIRE_SYNTAX_VERSION_CHANGED`)
 - **SOURCE** (8 rules) — API compatibility: struct removal, field renames, default changes, required field additions
 
 **Configuration** via `.grid_codec.exs`:

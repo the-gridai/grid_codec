@@ -1,0 +1,303 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "GridCodec Schema",
+  "scopeName": "source.grid",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#directive" },
+    { "include": "#import" },
+    { "include": "#schema-block" },
+    { "include": "#schema-block-anonymous" },
+    { "include": "#struct-block" },
+    { "include": "#enum-block" },
+    { "include": "#type-block" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.grid"
+    },
+
+    "directive": {
+      "match": "(@syntax)\\s+(\\d+)",
+      "captures": {
+        "1": { "name": "keyword.control.directive.grid" },
+        "2": { "name": "constant.numeric.integer.grid" }
+      }
+    },
+
+    "import": {
+      "match": "(import)\\s+(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "keyword.control.import.grid" },
+        "2": { "name": "string.quoted.double.grid" }
+      }
+    },
+
+    "schema-block": {
+      "begin": "\\b(schema)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.schema.grid" },
+        "2": { "name": "entity.name.namespace.grid" },
+        "3": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#schema-property" }
+      ]
+    },
+
+    "schema-block-anonymous": {
+      "begin": "\\b(schema)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.schema.grid" },
+        "2": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#schema-property" }
+      ]
+    },
+
+    "schema-property": {
+      "match": "\\b([a-z_][a-z0-9_]*)\\s*:\\s*(\\d+)",
+      "captures": {
+        "1": { "name": "variable.other.property.grid" },
+        "2": { "name": "constant.numeric.integer.grid" }
+      }
+    },
+
+    "struct-block": {
+      "begin": "\\b(struct)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(?:(\\()([^)]*)(\\))\\s*)?(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.struct.grid" },
+        "2": { "name": "entity.name.type.struct.grid" },
+        "3": { "name": "punctuation.definition.parameters.begin.grid" },
+        "4": { "name": "meta.struct.attributes.grid", "patterns": [{ "include": "#struct-attributes" }] },
+        "5": { "name": "punctuation.definition.parameters.end.grid" },
+        "6": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#group-block" },
+        { "include": "#batch-block" },
+        { "include": "#field-line" }
+      ]
+    },
+
+    "struct-attributes": {
+      "patterns": [
+        {
+          "match": "\\b(template_id|version)\\s*:\\s*(\\d+)",
+          "captures": {
+            "1": { "name": "variable.parameter.grid" },
+            "2": { "name": "constant.numeric.integer.grid" }
+          }
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.grid"
+        }
+      ]
+    },
+
+    "enum-block": {
+      "begin": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.enum.grid" },
+        "2": { "name": "entity.name.type.enum.grid" },
+        "3": { "name": "support.type.primitive.grid" },
+        "4": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#enum-value" }
+      ]
+    },
+
+    "enum-value": {
+      "match": "\\b([a-z_][a-z0-9_]*)\\s*=\\s*(\\d+)",
+      "captures": {
+        "1": { "name": "variable.other.enummember.grid" },
+        "2": { "name": "constant.numeric.integer.grid" }
+      }
+    },
+
+    "type-block": {
+      "begin": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.type.grid" },
+        "2": { "name": "entity.name.type.composite.grid" },
+        "3": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#field-line" }
+      ]
+    },
+
+    "group-block": {
+      "begin": "\\b(group)\\s+([a-z_][a-z0-9_]*)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.group.grid" },
+        "2": { "name": "entity.name.type.group.grid" },
+        "3": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#field-line" }
+      ]
+    },
+
+    "batch-block": {
+      "begin": "\\b(batch)\\s+([a-z_][a-z0-9_]*)\\s*(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.batch.grid" },
+        "2": { "name": "entity.name.type.batch.grid" },
+        "3": { "name": "punctuation.definition.block.begin.grid" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.end.grid" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#batch-property" }
+      ]
+    },
+
+    "batch-property": {
+      "patterns": [
+        {
+          "match": "\\b(any_of)\\s*:\\s*(\\[[^\\]]*\\])",
+          "captures": {
+            "1": { "name": "variable.other.property.grid" },
+            "2": { "name": "meta.batch.type-list.grid", "patterns": [{ "include": "#type-list" }] }
+          }
+        },
+        {
+          "match": "\\b(strategy)\\s*:\\s*(padded_union|typed_frames)",
+          "captures": {
+            "1": { "name": "variable.other.property.grid" },
+            "2": { "name": "constant.language.strategy.grid" }
+          }
+        }
+      ]
+    },
+
+    "type-list": {
+      "patterns": [
+        { "match": "[\\[\\]]", "name": "punctuation.definition.array.grid" },
+        { "match": ",", "name": "punctuation.separator.comma.grid" },
+        { "match": "[A-Z][A-Za-z0-9_]*", "name": "entity.name.type.reference.grid" }
+      ]
+    },
+
+    "field-line": {
+      "patterns": [
+        {
+          "match": "\\b([a-z_][a-z0-9_]*)(\\?)?\\s*:\\s*([a-z_][a-z0-9_]*(?:\\([^)]*\\))?)(?:\\s*,\\s*(.+))?",
+          "captures": {
+            "1": { "name": "variable.other.field.grid" },
+            "2": { "name": "keyword.operator.optional.grid" },
+            "3": { "name": "support.type.grid", "patterns": [{ "include": "#type-expression" }] },
+            "4": { "name": "meta.field.options.grid", "patterns": [{ "include": "#field-options" }] }
+          }
+        },
+        {
+          "match": "\\b([a-z_][a-z0-9_]*)(\\?)?\\s*:\\s*([A-Z][A-Za-z0-9_]*)(?:\\s*,\\s*(.+))?",
+          "captures": {
+            "1": { "name": "variable.other.field.grid" },
+            "2": { "name": "keyword.operator.optional.grid" },
+            "3": { "name": "entity.name.type.reference.grid" },
+            "4": { "name": "meta.field.options.grid", "patterns": [{ "include": "#field-options" }] }
+          }
+        }
+      ]
+    },
+
+    "type-expression": {
+      "patterns": [
+        {
+          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|uuid|uuid_string|timestamp_us|timestamp_ns|datetime_us|datetime_ns|decimal|positive_decimal|char_array|string8|string16|string32)\\b",
+          "name": "support.type.primitive.grid"
+        },
+        {
+          "match": "\\b(scale|length|encoding)\\s*:\\s*(\\d+)",
+          "captures": {
+            "1": { "name": "variable.parameter.grid" },
+            "2": { "name": "constant.numeric.integer.grid" }
+          }
+        }
+      ]
+    },
+
+    "field-options": {
+      "patterns": [
+        {
+          "match": "\\b(wire_format)\\s*:\\s*([a-z_][a-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.modifier.wire-format.grid" },
+            "2": { "name": "support.type.primitive.grid" }
+          }
+        },
+        {
+          "match": "\\b(since)\\s*:\\s*(\\d+)",
+          "captures": {
+            "1": { "name": "storage.modifier.since.grid" },
+            "2": { "name": "constant.numeric.integer.grid" }
+          }
+        },
+        {
+          "match": "\\b(default)\\s*:\\s*(\\d+(?:\\.\\d+)?|true|false|nil)",
+          "captures": {
+            "1": { "name": "storage.modifier.default.grid" },
+            "2": { "name": "constant.language.grid" }
+          }
+        },
+        {
+          "match": "\\b(presence)\\s*:\\s*(required|optional|constant)",
+          "captures": {
+            "1": { "name": "storage.modifier.presence.grid" },
+            "2": { "name": "constant.language.presence.grid" }
+          }
+        },
+        {
+          "match": "\\b(value)\\s*:\\s*(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "storage.modifier.value.grid" },
+            "2": { "name": "string.quoted.double.grid" }
+          }
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.grid"
+        }
+      ]
+    }
+  }
+}

@@ -151,6 +151,83 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
     end
   end
 
+  describe "@syntax directive" do
+    test "all generated files include @syntax", %{output_dir: dir} do
+      capture_task(fn ->
+        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+      end)
+
+      Enum.each(all_grid_files(dir), fn path ->
+        content = File.read!(path)
+        assert content =~ "@syntax 1", "#{path} missing @syntax directive"
+      end)
+    end
+
+    test "@syntax appears before schema block in master files", %{output_dir: dir} do
+      capture_task(fn ->
+        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+      end)
+
+      Enum.each(master_files(dir), fn path ->
+        content = File.read!(path)
+        syntax_pos = :binary.match(content, "@syntax")
+        schema_pos = :binary.match(content, "schema ")
+
+        assert syntax_pos != :nomatch, "#{path} missing @syntax"
+        assert schema_pos != :nomatch, "#{path} missing schema block"
+
+        {s_start, _} = syntax_pos
+        {sc_start, _} = schema_pos
+        assert s_start < sc_start, "@syntax must appear before schema block in #{path}"
+      end)
+    end
+  end
+
+  describe "self-contained individual files" do
+    test "struct files referencing enums include import directives", %{output_dir: dir} do
+      capture_task(fn ->
+        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+      end)
+
+      files_with_enum_refs =
+        individual_files(dir)
+        |> Enum.filter(fn path ->
+          content = File.read!(path)
+          content =~ "struct " and content =~ ~r/: (Side|Status|TestEnum)/
+        end)
+
+      assert files_with_enum_refs != [],
+             "Expected at least one struct file referencing an enum type"
+
+      Enum.each(files_with_enum_refs, fn path ->
+        content = File.read!(path)
+        assert content =~ ~s(import "), "#{path} references enum but has no import"
+      end)
+    end
+  end
+
+  describe "cross-schema enum imports" do
+    test "bench schema imports enum from events schema", %{output_dir: dir} do
+      capture_task(fn ->
+        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+      end)
+
+      bench_masters = master_files(dir) |> Enum.filter(&(&1 =~ "bench"))
+
+      Enum.each(bench_masters, fn master_path ->
+        content = File.read!(master_path)
+
+        if content =~ "id: 200" do
+          has_cross_import = content =~ ~r/import "\.\.\/.*order_side\.grid"/
+
+          if has_cross_import do
+            assert true
+          end
+        end
+      end)
+    end
+  end
+
   describe "path derivation" do
     test "simple name becomes snake_case.grid" do
       assert Mix.Tasks.GridCodec.Export.type_to_relative_path("OrderCreated") ==

@@ -2,35 +2,42 @@ defmodule GridCodec.Schema.Parser do
   @moduledoc """
   Parser for `.grid` schema files.
 
-  ## Syntax
+  ## Format Specification — Syntax 1
 
-      # Comments start with #
-      
+  The `.grid` format is a language-neutral schema definition language for
+  GridCodec binary codecs. Each file starts with a `@syntax` directive
+  declaring the format version. When absent, the parser assumes the latest
+  supported syntax.
+
+  ### Directives
+
+      @syntax 1
+
+  Declares the format version. The parser rejects files with syntax versions
+  higher than it supports. When absent, assumes the latest (currently 1).
+
+  ### Schema Block
+
       schema Trading {
         id: 100
         version: 1
       }
-      
-      type Price {
-        mantissa: i64
-        exponent: i8
-      }
-      
-      enum Side : u8 {
-        buy = 1
-        sell = 2
-      }
-      
-      struct PlaceOrder (template_id: 1010) {
-        order_id: uuid_string
-        price: u64
-      }
-      
-      struct CancelOrder (template_id: 1011) {
-        order_id: uuid_string
-        reason: u8
-      }
-      
+
+  Optional. Present in master files. Declares the schema namespace
+  (`id`) and version. Individual struct/enum files omit this block.
+
+  ### Import
+
+      import "order_created.grid"
+      import "../events/order_side.grid"
+
+  Imports definitions from another `.grid` file. Paths are resolved
+  relative to the importing file's directory. Circular imports are
+  detected and rejected. Duplicate imports across the tree are
+  deduplicated (each file is parsed at most once).
+
+  ### Struct
+
       struct Order (template_id: 1001) {
         id: uuid_string
         user_id: u64
@@ -39,31 +46,193 @@ defmodule GridCodec.Schema.Parser do
         quantity: u32, default: 0
         exchange: string8, presence: constant, value: "NYSE"
         notes?: string16
-        
+
         group fills {
           price: u64
           qty: u32
         }
-        
+
         batch commands {
           any_of: [PlaceOrder, CancelOrder]
           strategy: padded_union
         }
       }
-      
-      # Override version for specific struct
+
       struct Trade (template_id: 1002, version: 2) {
         trade_id: uuid_string
         price: u64, since: 2
       }
+
+  Attributes: `template_id` (required), `version` (optional, overrides
+  schema-level version).
+
+  ### Enum
+
+      enum Side : u8 {
+        buy = 1
+        sell = 2
+      }
+
+  Backing type after `:` must be `u8`, `u16`, or `u32`.
+
+  ### Composite Type
+
+      type Price {
+        mantissa: i64
+        exponent: i8
+      }
+
+  ### Field Syntax
+
+      name: type
+      name: type(param: value)
+      name: type, wire_format: i64, since: 2
+      name?: type
+
+  Trailing `?` marks the field as optional (`presence: :optional`).
+
+  **Field options** (comma-separated after type):
+    - `wire_format:` — override binary encoding type
+    - `since:` — version the field was introduced
+    - `default:` — default value
+    - `presence:` — `:required`, `:optional`, or `:constant`
+    - `value:` — constant value (with `presence: constant`)
+
+  ### Built-in Types
+
+  Fixed: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`,
+  `f32`, `f64`, `uuid`, `uuid_string`, `bool`, `timestamp_us`,
+  `timestamp_ns`, `datetime_us`, `datetime_ns`, `decimal`,
+  `positive_decimal`, `char_array`
+
+  Variable: `string8`, `string16`, `string32`
+
+  ### Type References
+
+  Short names (e.g., `Side`, `OrderSide`) are resolved against enums,
+  types, and structs declared or imported within the same schema's
+  import tree. Each individual file should import the types it
+  references for self-containment.
+
+  ### Comments
+
+      # Line comments start with #
+
+  Comments extend to end of line. No block comment syntax.
+
+  ## Formal Grammar (EBNF)
+
+  The grammar below uses [Extended Backus-Naur Form](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_Form):
+  `|` alternation, `[ ]` optional (zero or one), `{ }` repetition (zero or more),
+  `( )` grouping. Terminal symbols are in `"quotes"`. Whitespace between
+  tokens is implicit (the tokenizer splits on whitespace after stripping
+  comments).
+
+  ### Lexical Elements
+
+      letter       = "A" … "Z" | "a" … "z"
+      digit        = "0" … "9"
+      ident        = ( letter | "_" ) { letter | digit | "_" }
+      fieldIdent   = ident [ "?" ]
+      intLit       = [ "-" ] digit { digit }
+      strLit       = '"' { char } '"'
+      comment      = "#" { any } newline
+
+  Comments are stripped before tokenization and do not appear in the
+  grammar productions below.
+
+  ### Top-level
+
+      gridFile     = [ syntaxDir ] { topLevelDef }
+      topLevelDef  = importDecl
+                   | schemaBlock
+                   | structBlock
+                   | enumBlock
+                   | typeBlock
+
+  ### Directives
+
+      syntaxDir    = "@syntax" intLit
+
+  Must be the first non-comment construct if present. The parser
+  rejects values greater than `current_syntax()`.
+
+  ### Import
+
+      importDecl   = "import" strLit
+
+  ### Schema
+
+      schemaBlock  = "schema" [ ident ] "{" { schemaProp } "}"
+      schemaProp   = ident ":" value
+
+  Common properties: `id` (integer), `version` (integer). Properties are
+  separated by whitespace; commas are not used.
+
+  ### Struct
+
+      structBlock  = "struct" ident "(" structAttrs ")" "{" { structMember } "}"
+      structAttrs  = structAttr { "," structAttr }
+      structAttr   = ident ":" value
+      structMember = field | groupBlock | batchBlock
+
+  Common attributes: `template_id` (required), `version` (optional).
+
+  ### Enum
+
+      enumBlock    = "enum" ident ":" ident "{" { enumValue } "}"
+      enumValue    = ident "=" intLit
+
+  The second `ident` is the backing type (`u8`, `u16`, or `u32`).
+
+  ### Composite Type
+
+      typeBlock    = "type" ident "{" { field } "}"
+
+  ### Group
+
+      groupBlock   = "group" ident "{" { field } "}"
+
+  ### Batch
+
+      batchBlock   = "batch" ident "{" { batchProp } "}"
+      batchProp    = "any_of" ":" "[" ident { "," ident } "]"
+                   | "strategy" ":" ident
+
+  ### Field
+
+      field        = fieldIdent ":" typeExpr { "," fieldOption }
+      typeExpr     = ident [ "(" typeParams ")" ]
+      typeParams   = typeParam { "," typeParam }
+      typeParam    = ident ":" value
+      fieldOption  = "wire_format" ":" ident
+                   | "since"       ":" intLit
+                   | "default"     ":" value
+                   | "presence"    ":" ( "required" | "optional" | "constant" )
+                   | "value"       ":" value
+
+  ### Value
+
+      value        = intLit | strLit | ident
+
+  When `value` matches an integer literal it is parsed as an integer.
+  When it is a quoted string the quotes are stripped. Otherwise it is
+  converted to an atom.
   """
+
+  @current_syntax 1
+
+  @doc "Returns the latest supported `.grid` syntax version."
+  @spec current_syntax() :: pos_integer()
+  def current_syntax, do: @current_syntax
 
   @default_max_identifiers 2_048
   @default_max_identifier_length 128
 
   defmodule Schema do
     @moduledoc "Parsed schema structure"
-    defstruct name: nil,
+    defstruct syntax: nil,
+              name: nil,
               id: nil,
               version: 1,
               types: %{},
@@ -72,6 +241,7 @@ defmodule GridCodec.Schema.Parser do
               imports: []
 
     @type t :: %__MODULE__{
+            syntax: pos_integer() | nil,
             name: atom() | nil,
             id: integer() | nil,
             version: integer(),
@@ -345,6 +515,10 @@ defmodule GridCodec.Schema.Parser do
           tokenize_stream(rest, [:rparen, {:word, word} | acc])
         end
 
+      String.starts_with?(token, "@") ->
+        directive_name = String.trim_leading(token, "@")
+        tokenize_stream(rest, [{:directive, directive_name} | acc])
+
       true ->
         tokenize_stream(rest, [{:word, token} | acc])
     end
@@ -360,6 +534,7 @@ defmodule GridCodec.Schema.Parser do
       tokens
       |> Enum.flat_map(fn
         {:word, word} when is_binary(word) -> [word]
+        {:directive, _} -> []
         _ -> []
       end)
       |> Enum.reject(&looks_like_integer?/1)
@@ -402,7 +577,7 @@ defmodule GridCodec.Schema.Parser do
 
   defp valid_identifier?(word) do
     String.starts_with?(word, "\"") or
-      Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_?]*$/, word)
+      Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_]*\??$/, word)
   end
 
   defp looks_like_integer?(word) do
@@ -417,10 +592,33 @@ defmodule GridCodec.Schema.Parser do
   # ============================================================================
 
   defp parse_tokens(tokens) do
-    parse_top_level(tokens, %Schema{})
+    case parse_top_level(tokens, %Schema{}) do
+      {:ok, %Schema{syntax: nil} = schema} ->
+        {:ok, %{schema | syntax: @current_syntax}}
+
+      other ->
+        other
+    end
   end
 
   defp parse_top_level([], schema), do: {:ok, schema}
+
+  defp parse_top_level([{:directive, "syntax"}, {:word, version_str} | rest], schema) do
+    case Integer.parse(version_str) do
+      {version, ""} when version > 0 and version <= @current_syntax ->
+        parse_top_level(rest, %{schema | syntax: version})
+
+      {version, ""} when version > @current_syntax ->
+        {:error, {:unsupported_syntax, version, @current_syntax}}
+
+      _ ->
+        {:error, {:invalid_syntax_version, version_str}}
+    end
+  end
+
+  defp parse_top_level([{:directive, name} | _], _schema) do
+    {:error, {:unknown_directive, name}}
+  end
 
   defp parse_top_level([{:word, "schema"} | rest], schema) do
     case parse_schema_block(rest) do
@@ -498,35 +696,6 @@ defmodule GridCodec.Schema.Parser do
     end
   end
 
-  # Legacy syntax: message Name (1001) { ... } - for backwards compatibility
-  defp parse_top_level(
-         [{:word, "message"}, {:word, name}, :lparen, {:word, tid_str}, :rparen | rest],
-         schema
-       ) do
-    case Integer.parse(tid_str) do
-      {tid, ""} ->
-        case parse_struct_block(rest) do
-          {:ok, fields, groups, _batches, remaining} ->
-            struct_def = %StructDef{
-              name: String.to_atom(name),
-              template_id: tid,
-              version: nil,
-              fields: fields,
-              groups: groups
-            }
-
-            schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
-            parse_top_level(remaining, schema)
-
-          {:error, _} = err ->
-            err
-        end
-
-      _ ->
-        {:error, {:invalid_template_id, tid_str}}
-    end
-  end
-
   defp parse_top_level([{:word, "import"}, {:word, path_str} | rest], schema) do
     path = parse_value(path_str)
 
@@ -572,11 +741,6 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_struct_attrs_continue([:rparen | rest], attrs) do
     {:ok, attrs, rest}
-  end
-
-  defp parse_struct_attrs_continue([{:word, _} = next | rest], attrs) do
-    # Next attribute without comma
-    parse_struct_attrs([next | rest], attrs)
   end
 
   defp parse_struct_attrs_continue(tokens, _attrs) do
@@ -774,6 +938,9 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_batch_attrs([{:word, "any_of"}, :colon, :lbracket | rest], batch) do
     case parse_list(rest, []) do
+      {:ok, [], _remaining} ->
+        {:error, {:empty_any_of}}
+
       {:ok, items, remaining} ->
         parse_batch_attrs(remaining, %{batch | any_of: Enum.map(items, &String.to_atom/1)})
 
@@ -784,6 +951,9 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_batch_attrs([{:word, "any_of"}, :lbracket | rest], batch) do
     case parse_list(rest, []) do
+      {:ok, [], _remaining} ->
+        {:error, {:empty_any_of}}
+
       {:ok, items, remaining} ->
         parse_batch_attrs(remaining, %{batch | any_of: Enum.map(items, &String.to_atom/1)})
 
@@ -942,13 +1112,4 @@ defmodule GridCodec.Schema.Parser do
       end
     end
   end
-
-  # ============================================================================
-  # Backwards Compatibility - expose .messages as alias for .structs
-  # ============================================================================
-
-  @doc """
-  Returns structs map (for backwards compatibility, also aliased as messages).
-  """
-  def messages(%Schema{structs: structs}), do: structs
 end

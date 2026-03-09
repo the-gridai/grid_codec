@@ -3,13 +3,11 @@
 
 @syntax 1
 
-import "order_side.grid"
+import "../../../events/order_side.grid"
 
-struct TradeExecuted (template_id: 2) {
-  trade_id: uuid
-  order_id: uuid
+struct TaggedMetric (template_id: 103) {
+  metric_id: u64
   side: OrderSide
-  price: u64
-  quantity: u32
+  value: u64
   timestamp: timestamp_us
 }
