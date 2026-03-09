@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-03-09
+
+### Added
+- **Extended Coq formal verification** — 55 machine-checked theorems (up from 37),
+  adding heterogeneous field width struct roundtrip, schema evolution forward
+  compatibility, signed integer two's complement roundtrip, bool tri-state exhaustive
+  proof, and batch concatenation isolation.
+
+### Fixed
+- **Compile warning** — `GridCodec.Registry.lookup_enum_by_name/1` no longer triggers
+  "undefined or private" warning at compile time (uses `apply/3` for late binding).
+
 ## [0.26.0] - 2026-03-09
 
 ### Added

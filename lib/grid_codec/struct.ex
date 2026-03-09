@@ -292,7 +292,8 @@ defmodule GridCodec.Struct do
 
     if Code.ensure_loaded?(GridCodec.Registry) and
          function_exported?(GridCodec.Registry, :lookup_enum_by_name, 1) do
-      GridCodec.Registry.lookup_enum_by_name(name_str)
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(GridCodec.Registry, :lookup_enum_by_name, [name_str])
     else
       :error
     end
