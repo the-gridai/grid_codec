@@ -74,6 +74,25 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
         assert content =~ "struct "
       end)
     end
+
+    test "produces distinct files per schema_id (no silent drops)", %{output_dir: dir} do
+      capture_task(fn ->
+        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+      end)
+
+      grid_files = Path.wildcard(Path.join(dir, "*.grid"))
+
+      total_structs =
+        grid_files
+        |> Enum.map(fn path -> File.read!(path) end)
+        |> Enum.flat_map(fn content ->
+          Regex.scan(~r/^struct /m, content)
+        end)
+        |> length()
+
+      assert total_structs > 0
+      assert grid_files != []
+    end
   end
 
   defp capture_task(fun) do

@@ -81,17 +81,33 @@ defmodule Mix.Tasks.GridCodec.Export do
   end
 
   defp build_schemas(grouped, output_dir) do
-    grouped
-    |> Enum.map(fn {schema_id, entries} ->
-      {schema_name, schema_version} = infer_schema_meta(entries)
-      content = Formatter.format(schema_name, schema_id, schema_version, entries)
-      filename = safe_filename(schema_name) <> ".grid"
-      path = Path.join(output_dir, filename)
-      {path, content, length(entries)}
+    raw =
+      Enum.map(grouped, fn {schema_id, entries} ->
+        {schema_name, schema_version} = infer_schema_meta(entries)
+        content = Formatter.format(schema_name, schema_id, schema_version, entries)
+        filename = safe_filename(schema_name)
+        {schema_id, filename, content, length(entries)}
+      end)
+
+    filenames = Enum.map(raw, fn {_, f, _, _} -> f end)
+    has_collisions = length(filenames) != length(Enum.uniq(filenames))
+
+    raw
+    |> Enum.map(fn {schema_id, filename, content, count} ->
+      final_filename =
+        if has_collisions and duplicate?(filename, filenames) do
+          "#{filename}_#{schema_id}.grid"
+        else
+          "#{filename}.grid"
+        end
+
+      {Path.join(output_dir, final_filename), content, count}
     end)
-    |> Map.new(fn {path, content, count} -> {path, {path, content, count}} end)
-    |> Map.values()
     |> Enum.sort_by(fn {path, _, _} -> path end)
+  end
+
+  defp duplicate?(filename, all_filenames) do
+    Enum.count(all_filenames, &(&1 == filename)) > 1
   end
 
   defp write(schemas) do
