@@ -216,6 +216,22 @@ defmodule GridCodec.Types.String do
     nil
   end
 
+  @impl true
+  def coerce_ast(var), do: gen_coerce_ast(var)
+
+  @doc false
+  def gen_coerce_ast(var) do
+    quote do
+      case unquote(var) do
+        nil -> {:ok, nil}
+        v when is_binary(v) -> {:ok, v}
+        v when is_atom(v) -> {:ok, Atom.to_string(v)}
+        v when is_number(v) -> {:ok, to_string(v)}
+        v -> {:error, "expected string, got #{inspect(v)}"}
+      end
+    end
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string16()
@@ -284,6 +300,9 @@ defmodule GridCodec.Types.String8 do
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
 
+  @impl true
+  def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string8()
@@ -333,6 +352,9 @@ defmodule GridCodec.Types.String16 do
 
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
+
+  @impl true
+  def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
 
   if Code.ensure_loaded?(StreamData) do
     @impl true
@@ -385,6 +407,9 @@ defmodule GridCodec.Types.String32 do
 
   @impl true
   def getter_ast(_offset, _endian, _payload_var), do: nil
+
+  @impl true
+  def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
 
   if Code.ensure_loaded?(StreamData) do
     @impl true

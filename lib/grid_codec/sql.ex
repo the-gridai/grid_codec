@@ -163,6 +163,23 @@ defmodule GridCodec.SQL do
       END;
     $$ LANGUAGE sql IMMUTABLE STRICT;
 
+    -- PrefixedId reader: 1 byte tag + 16 byte UUID → tag:uuid text
+    -- Null: tag=0 and uuid=all-zeros
+    CREATE OR REPLACE FUNCTION gridcodec.read_prefixed_id(data bytea, pos int)
+    RETURNS text AS $$
+      SELECT CASE
+        WHEN get_byte(data, pos) = 0
+         AND substring(data FROM pos + 2 FOR 16) = '\\x00000000000000000000000000000000'::bytea
+        THEN NULL
+        ELSE encode(substring(data FROM pos + 2 FOR 16), 'hex')::uuid::text
+      END;
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
+    CREATE OR REPLACE FUNCTION gridcodec.read_prefixed_id_tag(data bytea, pos int)
+    RETURNS smallint AS $$
+      SELECT get_byte(data, pos)::smallint;
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
     -- Bool reader: 0=false, 1=true, 255=null
     CREATE OR REPLACE FUNCTION gridcodec.read_bool(data bytea, pos int)
     RETURNS boolean AS $$
@@ -276,6 +293,19 @@ defmodule GridCodec.SQL do
 
   defp enum_type?({_type, _opts}), do: false
   defp enum_type?(_), do: false
+
+  defp prefixed_id_type?(type) when is_atom(type) do
+    case Code.ensure_compiled(type) do
+      {:module, _} -> function_exported?(type, :__prefixed_id_meta__, 0)
+      _ -> false
+    end
+  end
+
+  defp prefixed_id_type?(_), do: false
+
+  defp prefixed_id_prefix(type) do
+    type.__prefixed_id_meta__().prefix
+  end
 
   defp generate_enum_table(enum_module) do
     table_name = enum_table_name(enum_module)
@@ -511,6 +541,15 @@ defmodule GridCodec.SQL do
       type in [:uuid, :uuid_string] ->
         "gridcodec.read_uuid_nullable(data, #{offset})::text"
 
+      prefixed_id_type?(type) ->
+        prefix = prefixed_id_prefix(type)
+
+        "CASE WHEN get_byte(data, #{offset}) = 0" <>
+          " AND substring(data FROM #{offset + 2} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
+          " THEN NULL" <>
+          " ELSE '#{prefix}' || encode(substring(data FROM #{offset + 2} FOR 16), 'hex')::uuid::text" <>
+          " END"
+
       type == :bool ->
         "gridcodec.read_bool(data, #{offset})"
 
@@ -553,6 +592,7 @@ defmodule GridCodec.SQL do
       type in [:timestamp_us, :timestamp_ns, :datetime_us, :datetime_ns] -> "timestamptz"
       type in [:string, :string8, :string16, :string32] -> "text"
       enum_type?(type) -> "text"
+      prefixed_id_type?(type) -> "text"
       true -> "text"
     end
   end
@@ -562,36 +602,76 @@ defmodule GridCodec.SQL do
   defp sql_column_type({_type, _opts}), do: "text"
 
   defp sql_read_expr(name, type, type_mod, offset) do
-    if enum_type?(type) do
-      table = enum_table_name(type)
+    cond do
+      prefixed_id_type?(type) ->
+        prefix = prefixed_id_prefix(type)
 
-      "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset})) AS \"#{name}\""
-    else
-      null_expr = null_check_expr(type, type_mod, offset)
+        "CASE WHEN get_byte(data, #{offset}) = 0" <>
+          " AND substring(data FROM #{offset + 2} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
+          " THEN NULL" <>
+          " ELSE '#{prefix}' || encode(substring(data FROM #{offset + 2} FOR 16), 'hex')::uuid::text" <>
+          " END AS \"#{name}\""
 
-      read =
-        cond do
-          type == :u8 -> "gridcodec.read_u8(data, #{offset})"
-          type == :i8 -> "gridcodec.read_i8(data, #{offset})"
-          type == :u16 -> "gridcodec.read_u16(data, #{offset})"
-          type == :i16 -> "gridcodec.read_i16(data, #{offset})"
-          type == :u32 -> "gridcodec.read_u32(data, #{offset})"
-          type == :i32 -> "gridcodec.read_i32(data, #{offset})"
-          type == :u64 -> "gridcodec.read_u64(data, #{offset})"
-          type == :i64 -> "gridcodec.read_i64(data, #{offset})"
-          type in [:uuid, :uuid_string] -> "gridcodec.read_uuid_nullable(data, #{offset})"
-          type == :bool -> "gridcodec.read_bool(data, #{offset})"
-          type == :decimal -> "gridcodec.read_decimal(data, #{offset})"
-          match?({:decimal, _}, type) -> "gridcodec.read_i64(data, #{offset})"
-          match?({:positive_decimal, _}, type) -> "gridcodec.read_u64(data, #{offset})"
-          type in [:timestamp_us, :datetime_us] -> "gridcodec.read_timestamp_us(data, #{offset})"
-          true -> "'unsupported:#{inspect(type)}'::text"
+      enum_type?(type) ->
+        table = enum_table_name(type)
+
+        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset})) AS \"#{name}\""
+
+      true ->
+        null_expr = null_check_expr(type, type_mod, offset)
+
+        read =
+          cond do
+            type == :u8 ->
+              "gridcodec.read_u8(data, #{offset})"
+
+            type == :i8 ->
+              "gridcodec.read_i8(data, #{offset})"
+
+            type == :u16 ->
+              "gridcodec.read_u16(data, #{offset})"
+
+            type == :i16 ->
+              "gridcodec.read_i16(data, #{offset})"
+
+            type == :u32 ->
+              "gridcodec.read_u32(data, #{offset})"
+
+            type == :i32 ->
+              "gridcodec.read_i32(data, #{offset})"
+
+            type == :u64 ->
+              "gridcodec.read_u64(data, #{offset})"
+
+            type == :i64 ->
+              "gridcodec.read_i64(data, #{offset})"
+
+            type in [:uuid, :uuid_string] ->
+              "gridcodec.read_uuid_nullable(data, #{offset})"
+
+            type == :bool ->
+              "gridcodec.read_bool(data, #{offset})"
+
+            type == :decimal ->
+              "gridcodec.read_decimal(data, #{offset})"
+
+            match?({:decimal, _}, type) ->
+              "gridcodec.read_i64(data, #{offset})"
+
+            match?({:positive_decimal, _}, type) ->
+              "gridcodec.read_u64(data, #{offset})"
+
+            type in [:timestamp_us, :datetime_us] ->
+              "gridcodec.read_timestamp_us(data, #{offset})"
+
+            true ->
+              "'unsupported:#{inspect(type)}'::text"
+          end
+
+        case null_expr do
+          nil -> "#{read} AS \"#{name}\""
+          check -> "CASE WHEN #{check} THEN NULL ELSE #{read} END AS \"#{name}\""
         end
-
-      case null_expr do
-        nil -> "#{read} AS \"#{name}\""
-        check -> "CASE WHEN #{check} THEN NULL ELSE #{read} END AS \"#{name}\""
-      end
     end
   end
 
@@ -645,6 +725,10 @@ defmodule GridCodec.SQL do
         :datetime_ns
       ] ->
         nil
+
+      prefixed_id_type?(type) ->
+        "get_byte(data, #{offset}) = 0" <>
+          " AND substring(data FROM #{offset + 2} FOR 16) = '\\x00000000000000000000000000000000'::bytea"
 
       true ->
         nil

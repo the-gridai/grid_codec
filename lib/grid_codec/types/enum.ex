@@ -151,6 +151,7 @@ defmodule GridCodec.Types.Enum do
   end
 
   @doc false
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defmacro __before_compile__(env) do
     values = Module.get_attribute(env.module, :enum_values) |> Enum.reverse()
     encoding = Module.get_attribute(env.module, :enum_encoding)
@@ -284,6 +285,15 @@ defmodule GridCodec.Types.Enum do
             )
           )
 
+        atom_clauses =
+          unquote(
+            Macro.escape(
+              for {atom_name, _int_val} <- values do
+                {:->, [], [[atom_name], {:ok, atom_name}]}
+              end
+            )
+          )
+
         int_to_atom_clauses =
           unquote(
             Macro.escape(
@@ -292,17 +302,6 @@ defmodule GridCodec.Types.Enum do
               end
             )
           )
-
-        atom_clause =
-          {:->, [],
-           [[{:when, [], [{:v, [], nil}, {:is_atom, [], [{:v, [], nil}]}]}], {:ok, {:v, [], nil}}]}
-
-        int_clause =
-          {:->, [],
-           [
-             [{:when, [], [{:v, [], nil}, {:is_integer, [], [{:v, [], nil}]}]}],
-             {:ok, {:v, [], nil}}
-           ]}
 
         nil_clause = {:->, [], [[nil], {:ok, nil}]}
 
@@ -313,16 +312,41 @@ defmodule GridCodec.Types.Enum do
              {:error,
               {{:., [], [Kernel, :<>]}, [],
                [
-                 "expected atom, string, or integer for enum, got: ",
+                 "invalid enum value: ",
                  {{:., [], [Kernel, :inspect]}, [], [{:v, [], nil}]}
                ]}}
            ]}
 
         all =
           [nil_clause | string_clauses] ++
-            [atom_clause] ++ int_to_atom_clauses ++ [int_clause, error_clause]
+            atom_clauses ++ int_to_atom_clauses ++ [error_clause]
 
         {:case, [], [var, [do: all]]}
+      end
+
+      @impl GridCodec.Type
+      def validate_ast(var, field_name, codec_module) do
+        known_atoms = unquote(Macro.escape(Enum.map(values, fn {k, _} -> k end)))
+        encoding_type = unquote(encoding)
+
+        quote do
+          case unquote(var) do
+            nil ->
+              :ok
+
+            v when is_atom(v) and v in unquote(known_atoms) ->
+              :ok
+
+            v ->
+              raise GridCodec.ValidationError.out_of_range(
+                      unquote(codec_module),
+                      unquote(field_name),
+                      unquote(encoding_type),
+                      v,
+                      "one of #{inspect(unquote(known_atoms))} or nil"
+                    )
+          end
+        end
       end
 
       @impl GridCodec.Type

@@ -290,10 +290,14 @@ defmodule GridCodec.Types.UUIDString do
           {:ok, v}
 
         v when is_binary(v) and byte_size(v) == 32 ->
-          {:ok,
-           GridCodec.Types.UUIDString.format_uuid(
-             GridCodec.Types.UUIDString.parse_uuid_nodash!(v)
-           )}
+          try do
+            {:ok,
+             GridCodec.Types.UUIDString.format_uuid(
+               GridCodec.Types.UUIDString.parse_uuid_nodash!(v)
+             )}
+          rescue
+            _ -> {:error, "invalid UUID format: #{inspect(v)}"}
+          end
 
         v ->
           {:error, "expected UUID binary or string, got #{inspect(v)}"}

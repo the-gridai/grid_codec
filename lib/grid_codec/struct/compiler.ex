@@ -3253,13 +3253,15 @@ defmodule GridCodec.Struct.Compiler do
             {:error, e}
 
           e in ArgumentError ->
+            msg = Exception.message(e)
+
             {:error,
              GridCodec.ValidationError.cast_error(
                unquote(module),
-               :unknown,
+               GridCodec.ValidationError.field_from_argument_error(msg),
                :encode,
                nil,
-               Exception.message(e)
+               msg
              )}
         end
 
@@ -3291,13 +3293,15 @@ defmodule GridCodec.Struct.Compiler do
             {:error, e}
 
           e in ArgumentError ->
+            msg = Exception.message(e)
+
             {:error,
              GridCodec.ValidationError.cast_error(
                unquote(module),
-               :unknown,
+               GridCodec.ValidationError.field_from_argument_error(msg),
                :encode,
                nil,
-               Exception.message(e)
+               msg
              )}
         end
       end
@@ -3326,13 +3330,15 @@ defmodule GridCodec.Struct.Compiler do
             {:error, e}
 
           e in ArgumentError ->
+            msg = Exception.message(e)
+
             {:error,
              GridCodec.ValidationError.cast_error(
                unquote(module),
-               :unknown,
+               GridCodec.ValidationError.field_from_argument_error(msg),
                :encode,
                nil,
-               Exception.message(e)
+               msg
              )}
         end
 
@@ -3353,13 +3359,15 @@ defmodule GridCodec.Struct.Compiler do
             {:error, e}
 
           e in ArgumentError ->
+            msg = Exception.message(e)
+
             {:error,
              GridCodec.ValidationError.cast_error(
                unquote(module),
-               :unknown,
+               GridCodec.ValidationError.field_from_argument_error(msg),
                :encode,
                nil,
-               Exception.message(e)
+               msg
              )}
         end
       end

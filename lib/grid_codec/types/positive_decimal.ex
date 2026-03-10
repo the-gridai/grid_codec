@@ -232,7 +232,7 @@ defmodule GridCodec.Types.PositiveDecimal do
           try do
             {:ok, unquote(dec_mod).new(v)}
           rescue
-            _ -> {:error, "cannot parse decimal from #{inspect(v)}"}
+            Decimal.Error -> {:error, "cannot parse decimal from #{inspect(v)}"}
           end
 
         v ->

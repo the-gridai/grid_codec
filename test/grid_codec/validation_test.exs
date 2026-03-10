@@ -140,7 +140,7 @@ defmodule GridCodec.ValidationTest do
     end
 
     test "returns {:error, %ValidationError{}} for invalid data" do
-      assert {:error, %GridCodec.ValidationError{code: :out_of_range} = error} =
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = error} =
                ValidatedCodec.new(count: 5_000_000_000)
 
       assert error.details.field == :count
@@ -177,9 +177,12 @@ defmodule GridCodec.ValidationTest do
       assert {:ok, %UnvalidatedCodec{count: 100}} = UnvalidatedCodec.new(count: 100)
     end
 
-    test "returns {:ok, struct} even with bad data (no validation)" do
-      assert {:ok, %UnvalidatedCodec{count: 5_000_000_000}} =
+    test "coercion rejects out-of-range values even without validation" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = error} =
                UnvalidatedCodec.new(count: 5_000_000_000)
+
+      assert error.details.field == :count
+      assert error.details.description =~ "out of range"
     end
   end
 
@@ -200,7 +203,7 @@ defmodule GridCodec.ValidationTest do
     test "validates updated fields" do
       {:ok, struct} = ValidatedCodec.new(count: 42)
 
-      {:error, %GridCodec.ValidationError{code: :out_of_range}} =
+      {:error, %GridCodec.ValidationError{code: :cast_error}} =
         ValidatedCodec.update(struct, count: 5_000_000_000)
     end
 
@@ -233,6 +236,189 @@ defmodule GridCodec.ValidationTest do
       {:ok, binary} = UnvalidatedCodec.encode(struct)
       assert {:ok, decoded} = UnvalidatedCodec.decode(binary)
       assert decoded.count == 100
+    end
+  end
+
+  # ======================================================================
+  # Coercion hardening tests
+  # ======================================================================
+
+  describe "integer coercion range checks" do
+    test "u32 rejects negative values via coercion" do
+      assert {:error, %GridCodec.ValidationError{} = e} = UnvalidatedCodec.new(count: -1)
+      assert e.details.field == :count
+      assert e.details.description =~ "out of range"
+    end
+
+    test "u32 rejects overflow" do
+      assert {:error, %GridCodec.ValidationError{} = e} =
+               UnvalidatedCodec.new(count: 4_294_967_296)
+
+      assert e.details.field == :count
+    end
+
+    test "u32 accepts boundary values" do
+      assert {:ok, %UnvalidatedCodec{count: 0}} = UnvalidatedCodec.new(count: 0)
+
+      assert {:ok, %UnvalidatedCodec{count: 4_294_967_294}} =
+               UnvalidatedCodec.new(count: 4_294_967_294)
+    end
+
+    test "i8 rejects out-of-range values" do
+      assert {:error, %GridCodec.ValidationError{} = e} =
+               ValidatedCodec.new(count: 42, score: 200, active: true)
+
+      assert e.details.field == :score
+      assert e.details.description =~ "out of range"
+    end
+
+    test "i8 accepts boundary values" do
+      assert {:ok, _} = ValidatedCodec.new(count: 42, score: -127, active: true)
+      assert {:ok, _} = ValidatedCodec.new(count: 42, score: 127, active: true)
+    end
+
+    test "string-parsed integers also range-checked" do
+      assert {:error, %GridCodec.ValidationError{} = e} =
+               UnvalidatedCodec.new(count: "5000000000")
+
+      assert e.details.field == :count
+      assert e.details.description =~ "out of range"
+    end
+
+    test "string-parsed integers within range accepted" do
+      assert {:ok, %UnvalidatedCodec{count: 42}} = UnvalidatedCodec.new(count: "42")
+    end
+  end
+
+  describe "enum coercion hardening" do
+    defmodule EnumTestCodec do
+      use GridCodec.Struct,
+        template_id: 866,
+        schema_id: 60,
+        version: 1,
+        validate: false
+
+      defcodec do
+        field :side, GridCodec.TestSupport.Side
+      end
+    end
+
+    test "accepts known atom values" do
+      assert {:ok, %EnumTestCodec{side: :buy}} = EnumTestCodec.new(side: :buy)
+      assert {:ok, %EnumTestCodec{side: :sell}} = EnumTestCodec.new(side: :sell)
+    end
+
+    test "accepts known string values" do
+      assert {:ok, %EnumTestCodec{side: :buy}} = EnumTestCodec.new(side: "buy")
+      assert {:ok, %EnumTestCodec{side: :sell}} = EnumTestCodec.new(side: "sell")
+    end
+
+    test "accepts known integer values" do
+      assert {:ok, %EnumTestCodec{side: :buy}} = EnumTestCodec.new(side: 0)
+      assert {:ok, %EnumTestCodec{side: :sell}} = EnumTestCodec.new(side: 1)
+    end
+
+    test "rejects unknown integer values" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               EnumTestCodec.new(side: 99)
+
+      assert e.details.field == :side
+      assert e.details.description =~ "invalid enum value"
+    end
+
+    test "rejects unknown atom values" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               EnumTestCodec.new(side: :nonexistent)
+
+      assert e.details.field == :side
+      assert e.details.description =~ "invalid enum value"
+    end
+
+    test "rejects unknown string values" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               EnumTestCodec.new(side: "unknown")
+
+      assert e.details.field == :side
+      assert e.details.description =~ "invalid enum value"
+    end
+
+    test "accepts nil" do
+      assert {:ok, %EnumTestCodec{side: nil}} = EnumTestCodec.new(side: nil)
+    end
+  end
+
+  describe "UUID coercion safety" do
+    test "malformed 36-char string returns error instead of raising" do
+      bad_uuid = "GGGGGGGG-GGGG-GGGG-GGGG-GGGGGGGGGGGG"
+
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               ValidatedCodec.new(count: 1, id: bad_uuid)
+
+      assert e.details.field == :id
+      assert e.details.description =~ "invalid UUID"
+    end
+
+    test "malformed 32-char string returns error instead of raising" do
+      bad_uuid = "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               ValidatedCodec.new(count: 1, id: bad_uuid)
+
+      assert e.details.field == :id
+      assert e.details.description =~ "invalid UUID"
+    end
+
+    test "valid UUID strings still work" do
+      good_uuid = "550e8400-e29b-41d4-a716-446655440000"
+      assert {:ok, codec} = ValidatedCodec.new(count: 1, id: good_uuid)
+      assert is_binary(codec.id) and byte_size(codec.id) == 16
+    end
+  end
+
+  describe "string coercion" do
+    defmodule StringTestCodec do
+      use GridCodec.Struct,
+        template_id: 867,
+        schema_id: 60,
+        version: 1,
+        validate: false
+
+      defcodec do
+        field :name, :string16
+      end
+    end
+
+    test "coerces atoms to strings" do
+      assert {:ok, %StringTestCodec{name: "hello"}} = StringTestCodec.new(name: :hello)
+    end
+
+    test "coerces numbers to strings" do
+      assert {:ok, %StringTestCodec{name: "42"}} = StringTestCodec.new(name: 42)
+      assert {:ok, %StringTestCodec{name: "3.14"}} = StringTestCodec.new(name: 3.14)
+    end
+
+    test "passes through binaries" do
+      assert {:ok, %StringTestCodec{name: "hello"}} = StringTestCodec.new(name: "hello")
+    end
+
+    test "rejects non-stringable values" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error} = e} =
+               StringTestCodec.new(name: %{key: "value"})
+
+      assert e.details.field == :name
+      assert e.details.description =~ "expected string"
+    end
+
+    test "nil passes through" do
+      assert {:ok, %StringTestCodec{name: nil}} = StringTestCodec.new(name: nil)
+    end
+  end
+
+  describe "encode error field name preservation" do
+    test "encode error includes field name instead of :unknown" do
+      struct = %UnvalidatedCodec{count: 5_000_000_000}
+      assert {:error, %GridCodec.ValidationError{} = e} = UnvalidatedCodec.encode(struct)
+      assert e.details.field == :count
     end
   end
 end

@@ -89,6 +89,14 @@ defmodule GridCodec.ValidationError do
   end
 
   @doc false
+  def field_from_argument_error(message) when is_binary(message) do
+    case Regex.run(~r/field :([\w]+)/, message) do
+      [_, field_str] -> String.to_atom(field_str)
+      _ -> :unknown
+    end
+  end
+
+  @doc false
   def invalid_format(module, field, type, value, format_desc) do
     %__MODULE__{
       code: :invalid_format,

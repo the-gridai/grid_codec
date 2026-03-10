@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-03-10
+
+### Added
+- **`PrefixedId` composite type** — new parameterized type for self-describing entity
+  identifiers on the wire (17 bytes: u8 tag + 16-byte UUID). Define types with
+  `use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01`. Includes full coercion
+  (auto-prefixes plain UUIDs), O(1) getter, DB-level tag byte queries, SQL generation,
+  and helpers (`generate/0`, `from_uuid/1`, `to_uuid/1`, `valid?/1`).
+- **String coercion** — String types (`:string8`, `:string16`, `:string32`) now coerce
+  atoms and numbers via `to_string/1` instead of rejecting them.
+
+### Changed
+- **Integer coercion rejects out-of-range values** — `new/1` now returns
+  `{:error, %ValidationError{}}` for values outside the type's range (e.g., 300 for `:u8`)
+  regardless of `validate:` setting. Previously, out-of-range values were silently accepted
+  and only failed at `encode/1`.
+- **Enum coercion rejects unknown values** — `new/1` now rejects unknown integer/atom
+  values for enum fields. Only known variants (by atom, string, or integer) are accepted.
+  Enum types also implement `validate_ast/3`.
+- **Encode errors preserve field name** — `ArgumentError` during encode now extracts the
+  field name from the error message instead of reporting `field: :unknown`.
+
+### Fixed
+- **UUID coercion no longer raises** — Malformed UUID strings (36-char or 32-char with
+  invalid hex) now return `{:error, reason}` instead of raising `FunctionClauseError`.
+- **Decimal rescue narrowed** — `Decimal.new/1` parse failures now rescue only
+  `Decimal.Error` instead of catching all exceptions.
+
 ## [0.26.1] - 2026-03-09
 
 ### Added
