@@ -48,7 +48,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.29.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.29.2"}
   ]
 end
 ```
@@ -97,6 +97,47 @@ uuid = MyApp.Events.UserCreated.get(binary, :user_id, copy: true)
 {:ok, framed} = GridCodec.encode(user)
 {:ok, decoded} = GridCodec.decode(framed)
 ```
+
+## Struct Identity
+
+GridCodec uses different identifiers for different concerns:
+
+- `module` identifies the struct in Elixir code, for example `MyApp.Events.UserCreated`.
+- `{schema_id, template_id}` identifies the wire format in framed binaries and is
+  what `GridCodec.decode/1` dispatches on.
+- `name` identifies the logical event type for `GridCodec.Registry.lookup_by_type/1`
+  and integrations like EventStore.
+
+Important rules:
+
+- `template_id` is only unique within a `schema_id`.
+- The pair `{schema_id, template_id}` must be unique for wire dispatch.
+- `version` is not part of identity; it describes schema evolution for an
+  existing wire type.
+- `name` is separate from wire identity and should be unique if you use
+  type-name lookup.
+
+If you omit `name`, GridCodec defaults it to the full module path, which avoids
+accidental collisions. If you omit `template_id`, GridCodec derives one from the
+module name hash; that is convenient for development but less stable than setting
+an explicit ID.
+
+### Guarantees And Duplicate Handling
+
+- Re-defining the same Elixir module follows normal Elixir behavior: you get a
+  warning, and the new module definition replaces the old one.
+- Duplicate `name` values are rejected by GridCodec's compile-time checks when
+  possible, and the consolidated registry build also rejects them.
+- Duplicate `{schema_id, template_id}` pairs are rejected by `GridCodec.Dispatch`
+  and by the consolidated registry generation step.
+- Different `version` values do not make duplicate `{schema_id, template_id}`
+  pairs valid. Version is checked after dispatch, not as part of the dispatch key.
+
+One caveat: the fallback runtime registry used outside the consolidated compiler
+path is weaker than the compiled path. If duplicate wire IDs somehow exist in
+the loaded code set, fallback dispatch currently collapses them into one runtime
+entry instead of treating version as part of identity. That should be considered
+unsupported state, not a supported upgrade strategy.
 
 ## Field Types
 
@@ -210,6 +251,18 @@ entries = GridCodec.Group.to_list(decoded.fills)
 ## Schema Evolution
 
 GridCodec includes a schema evolution system for tracking and validating schema changes.
+
+The recommended model for evolving an existing message type is:
+
+- keep the same `{schema_id, template_id}`
+- bump `version`
+- add new fields with `since: <version>`
+- use `mix grid_codec.breaking` to catch incompatible changes
+
+`version` is compatibility metadata, not part of the dispatch identity. For
+breaking changes like removing a field or changing its type, prefer adding a new
+field and migrating callers, or introducing a new message type when the wire
+shape must change incompatibly.
 
 ### Export schemas
 

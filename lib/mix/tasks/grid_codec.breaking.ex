@@ -46,6 +46,9 @@ defmodule Mix.Tasks.GridCodec.Breaking do
 
   - `:wire` - Binary wire format compatibility only
   - `:source` - Wire + Elixir API compatibility (default)
+
+  See `docs/schema-evolution.md` for the recommended evolution workflow and the
+  full rule reference for both categories.
   """
 
   use Mix.Task

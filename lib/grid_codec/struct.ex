@@ -60,7 +60,7 @@ defmodule GridCodec.Struct do
 
   ## Options
 
-  - `:template_id` - Unique message type identifier (default: hash of module name)
+  - `:template_id` - Message type identifier within a schema (default: hash of module name)
   - `:schema_id` - Schema namespace identifier (default: 0)
   - `:schema` - Schema name (string) that resolves to a numeric `:schema_id` from app config
     at compile time. Requires a `schemas:` entry in the app's `:grid_codec` config.
@@ -149,6 +149,62 @@ defmodule GridCodec.Struct do
       require MyApp.Trade
       price = MyApp.Trade.get(binary, :price)
 
+  ## Identity And Uniqueness
+
+  GridCodec structs have three distinct identifiers, each with a different job:
+
+  - `module` - The Elixir module, such as `MyApp.Events.OrderCreated`. This is
+    how code refers to the struct at compile time and runtime.
+  - `{schema_id, template_id}` - The wire identity used by framed binaries and
+    `GridCodec.decode/1` dispatch. This pair must be unique across all codecs
+    that share a dispatch registry. `template_id` alone is only unique within a
+    `schema_id`.
+  - `name` / `__type__/0` - The logical type name used by
+    `GridCodec.Registry.lookup_by_type/1` and integrations like EventStore.
+    This is separate from wire dispatch and must be unique only if you rely on
+    type-name lookup.
+
+  `version` is not part of identity. It describes schema evolution for a given
+  wire type and is validated during decode, but dispatch still starts from the
+  `{schema_id, template_id}` pair.
+
+  In practice:
+
+  - Two codecs may share the same `template_id` if their `schema_id`s differ.
+  - Two codecs must not share the same `{schema_id, template_id}` pair.
+  - Two codecs must not share the same `name` if you want reliable
+    `lookup_by_type/1` behavior.
+
+  ## Guarantees And Collisions
+
+  GridCodec provides different levels of protection depending on which identity
+  is colliding:
+
+  - `module` redefinition follows normal Elixir semantics. If you define the
+    same module twice, Elixir warns and the later definition replaces the
+    earlier one in the code server. GridCodec does not add a second layer of
+    protection here.
+  - `name` / `__type__/0` collisions are rejected at compile time when a codec
+    module is defined while another loaded GridCodec struct already claims the
+    same type name. The `:grid_codec` Mix compiler also rejects duplicate type
+    names across compiled codecs before generating the consolidated registry.
+  - `{schema_id, template_id}` collisions are rejected by `GridCodec.Dispatch`
+    and by the consolidated `GridCodec.Registry` generation step. In those
+    paths, compilation fails because wire dispatch would otherwise be ambiguous.
+
+  `version` does not make `{schema_id, template_id}` unique. Two codecs with
+  the same `schema_id` and `template_id` but different versions still collide,
+  because dispatch first selects a codec by `{schema_id, template_id}` and only
+  then checks version compatibility.
+
+  One caveat: the fallback runtime `GridCodec.Registry` used outside the
+  consolidated compiler path is weaker than the compile-time guarantees above.
+  If duplicate `{schema_id, template_id}` pairs somehow exist in the loaded code
+  set, the fallback registry collapses them into one runtime map entry rather
+  than raising immediately. In other words, duplicate wire IDs in the fallback
+  path should be treated as undefined behavior, not as a supported versioning
+  mechanism.
+
   ## Template ID
 
   If not specified, `template_id` defaults to a hash of the module name:
@@ -158,6 +214,8 @@ defmodule GridCodec.Struct do
       use GridCodec.Struct  # auto-generates template_id
 
   For production use, explicit template_ids are recommended for stability.
+  The auto-generated value is convenient for local development, but renaming the
+  module changes the derived ID.
   """
 
   @doc false

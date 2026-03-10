@@ -2,8 +2,77 @@ defmodule GridCodec.Breaking.Rules.Wire do
   @moduledoc """
   WIRE category breaking change rules.
 
-  These detect changes that break binary wire compatibility -- an old reader
-  would fail to decode messages produced by the new schema.
+  These detect changes that break binary wire compatibility: an old reader
+  would fail to decode messages produced by the new schema, or the `.grid`
+  schema itself would no longer be safely consumable by older tooling.
+
+  Use this category to answer: "Can the old wire readers keep consuming data
+  written by the new schema?"
+
+  ## Versioning Model
+
+  For an existing message type:
+
+  - keep the same `{schema_id, template_id}`
+  - bump `version`
+  - add new fields with `since: <version>`
+
+  Changes like field removal, type changes, field reordering, enum integer
+  reassignment, and batch tag reordering are wire-breaking and should usually be
+  modeled as a new message type instead of an in-place edit.
+
+  ## Rules
+
+  ### Schema and struct identity
+
+  | Rule | Meaning |
+  |------|---------|
+  | `WIRE_SYNTAX_VERSION_CHANGED` | `.grid` `@syntax` changed |
+  | `WIRE_STRUCT_REMOVED` | Struct definition removed |
+  | `WIRE_TEMPLATE_ID_CHANGED` | Existing struct changed `template_id` |
+
+  ### Fields
+
+  | Rule | Meaning |
+  |------|---------|
+  | `WIRE_FIELD_REMOVED` | Field removed from struct |
+  | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
+  | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed |
+  | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed |
+  | `WIRE_FIELD_PRESENCE_CHANGED` | Presence mode changed |
+  | `WIRE_FIELD_CONSTANT_VALUE_CHANGED` | Constant field value changed |
+  | `WIRE_FIELD_TYPE_PARAMS_CHANGED` | Parameterized type options changed |
+  | `WIRE_FIELD_TYPE_CHANGED` | Field type changed incompatibly |
+
+  ### Groups and batches
+
+  | Rule | Meaning |
+  |------|---------|
+  | `WIRE_GROUP_REMOVED` | Group removed |
+  | `WIRE_GROUP_FIELD_REMOVED` | Field removed from group entry |
+  | `WIRE_GROUP_FIELD_TYPE_CHANGED` | Group field type changed |
+  | `WIRE_GROUP_FIELD_REORDERED` | Group field layout changed incompatibly |
+  | `WIRE_BATCH_REMOVED` | Batch removed |
+  | `WIRE_BATCH_STRATEGY_CHANGED` | Batch encoding strategy changed |
+  | `WIRE_BATCH_TYPE_REMOVED` | Type removed from batch `any_of` |
+  | `WIRE_BATCH_TYPE_REORDERED` | Batch `any_of` order changed, reassigning tags |
+
+  ### Enums and custom types
+
+  | Rule | Meaning |
+  |------|---------|
+  | `WIRE_ENUM_UNDERLYING_CHANGED` | Enum backing integer type changed |
+  | `WIRE_ENUM_VALUE_REMOVED` | Enum value removed |
+  | `WIRE_ENUM_VALUE_CHANGED` | Enum integer changed |
+  | `WIRE_PREFIXED_ID_TAG_CHANGED` | `PrefixedId` tag byte changed |
+  | `WIRE_CHAR_ARRAY_LENGTH_CHANGED` | `CharArray` length changed |
+  | `WIRE_BITSET_UNDERLYING_CHANGED` | Bitset backing type changed |
+  | `WIRE_BITSET_FLAG_REMOVED` | Bitset flag removed |
+  | `WIRE_BITSET_FLAG_VALUE_CHANGED` | Bitset bit position changed |
+
+  See `docs/schema-evolution.md` for the practical guidance that goes with
+  these rules, including what to do when you want to remove a field or change a
+  field type.
   """
 
   alias GridCodec.Breaking.{Issue, Differ, WireSizes}

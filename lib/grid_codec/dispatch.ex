@@ -37,6 +37,8 @@ defmodule GridCodec.Dispatch do
   - No two codecs have the same `{schema_id, template_id}` pair
 
   If conflicts are detected, compilation fails with a clear error message.
+  This rule is independent of `version`: different versions of the same wire ID
+  still conflict because dispatch keys do not include version.
 
   ## Wire Format
 

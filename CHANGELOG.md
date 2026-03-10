@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-03-11
+
+### Fixed
+- **ExDoc changelog references** — corrected stale API references in `CHANGELOG.md`
+  so `mix docs` builds cleanly without unresolved function warnings.
+
+### Documentation
+- **Schema evolution guidance** — documented the recommended compatibility model:
+  keep `{schema_id, template_id}` stable for an existing wire message, bump
+  `version`, use `since` for additive fields, and treat field removal/type
+  changes as breaking migrations.
+- **Breaking rule reference** — added rule inventories and practical guidance for
+  `mix grid_codec.breaking` in `docs/schema-evolution.md`,
+  `GridCodec.Breaking.Rules.Wire`, and `GridCodec.Breaking.Rules.Source`.
+- **Identity and collision semantics** — clarified module identity, type-name
+  lookup, duplicate handling, and the difference between consolidated and
+  fallback registry behavior in `README.md`, `GridCodec.Struct`, and
+  `GridCodec.Registry`.
+
 ## [0.29.1] - 2026-03-11
 
 ### Fixed
@@ -27,7 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SOURCE_PREFIXED_ID_PREFIX_CHANGED` detect changes to custom type declarations.
 - **`__char_array_meta__/0` and `__bitset_meta__/0`** introspection functions on custom type modules,
   matching the existing `__prefixed_id_meta__/0` pattern.
-- **`Registry.lookup_custom_type_by_name/1`** for auto-resolving custom types from `.grid` files.
+- **`GridCodec.Registry.lookup_custom_type_by_name/1`** for auto-resolving custom
+  types from `.grid` files.
 - **`Formatter.detect_custom_types/1` and `detect_all_custom_types/1`** for discovering custom
   type modules referenced by codec fields.
 - **`WireSizes.resolve/2`** extended for `prefixed_id` (17 bytes), `char_array` (length),
@@ -384,8 +404,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   calculations in external tooling.
 - **`defmatch` generated functions** no longer inject `@doc false`, allowing
   user-provided `@doc` annotations to flow through to ExDoc.
-- **ExDoc warnings** — fixed stale function references (`GridCodec.new/1`,
-  `GridCodec.new_binary/1`) and broken `consumer-integration.md` links.
+- **ExDoc warnings** — fixed stale top-level references for `new/1` and
+  `new_binary/1` in the docs, plus broken `consumer-integration.md` links.
 
 ### Documentation
 - **[Binary filtering guide](docs/binary-filtering.md)** — new guide covering

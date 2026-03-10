@@ -2,8 +2,30 @@ defmodule GridCodec.Breaking.Rules.Source do
   @moduledoc """
   SOURCE category breaking change rules.
 
-  These detect changes that break Elixir API compatibility -- callers need
-  code changes even though the wire format may be unchanged.
+  These detect changes that break Elixir/API compatibility: callers need code
+  changes even though the wire format may still be decodable.
+
+  Use this category to answer: "Will downstream Elixir code need updating even
+  if the wire format is still usable?"
+
+  ## Rules
+
+  | Rule | Meaning |
+  |------|---------|
+  | `SOURCE_SCHEMA_ID_CHANGED` | Schema namespace changed |
+  | `SOURCE_STRUCT_RENAMED` | Struct renamed while keeping the same wire identity |
+  | `SOURCE_FIELD_RENAMED` | Field renamed with same position and type |
+  | `SOURCE_FIELD_DEFAULT_CHANGED` | Default value changed |
+  | `SOURCE_FIELD_MADE_REQUIRED` | Field became required |
+  | `SOURCE_ENUM_RENAMED` | Enum renamed with same underlying representation |
+  | `SOURCE_ENUM_VALUE_RENAMED` | Enum atom renamed while keeping the same integer |
+  | `SOURCE_TYPE_RENAMED` | Composite/custom type renamed |
+  | `SOURCE_PREFIXED_ID_PREFIX_CHANGED` | `PrefixedId` string prefix changed |
+
+  `SOURCE_PREFIXED_ID_PREFIX_CHANGED` is emitted during custom-type comparison,
+  even though that check currently lives outside this module's `check/2`
+  function. It is still part of the source-compatibility rule set reported by
+  `mix grid_codec.breaking`.
   """
 
   alias GridCodec.Breaking.{Issue, Differ}
