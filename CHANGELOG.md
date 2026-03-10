@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-03-10
+
+### Added
+- **`schema:` named option** — Modules can now reference schemas by name instead of
+  numeric ID: `use GridCodec.Struct, schema: "events"`. The name is resolved
+  at compile time from the host app's `:grid_codec` config (`schemas: %{1 => "events"}`).
+  Mutually exclusive with `schema_id:`. Unknown names and type errors raise at compile time.
+  Zero runtime cost — the resolved integer is inlined into the generated code.
+
 ## [0.27.1] - 2026-03-10
 
 ### Fixed

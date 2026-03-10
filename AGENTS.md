@@ -569,6 +569,14 @@ config :my_app, :grid_codec,
   schemas: %{100 => "events", 200 => "bench_sizes"},
   syntax: 1
 ```
+
+Modules can reference schemas by name instead of numeric ID. The `schema:` option
+resolves at compile time from the same config map:
+```elixir
+use GridCodec.Struct, template_id: 1, schema: "events", name: "OrderCreated"
+# Equivalent to: schema_id: 100 (resolved from config)
+```
+`schema:` and `schema_id:` are mutually exclusive. Unknown names raise at compile time.
 Unconfigured schema_ids default to `schema_{id}`. File paths are derived from the
 struct's `name:` option (e.g., `"Namespace.EventName"` → `namespace/event_name.grid`).
 Syntax version precedence: `--syntax` CLI flag > config > `Formatter.current_syntax()`.

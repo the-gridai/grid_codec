@@ -62,6 +62,9 @@ defmodule GridCodec.Struct do
 
   - `:template_id` - Unique message type identifier (default: hash of module name)
   - `:schema_id` - Schema namespace identifier (default: 0)
+  - `:schema` - Schema name (string) that resolves to a numeric `:schema_id` from app config
+    at compile time. Requires a `schemas:` entry in the app's `:grid_codec` config.
+    Mutually exclusive with `:schema_id`. Raises at compile time if the name is not found.
   - `:version` - Schema version (default: 1)
   - `:name` - Stable type name for serialization (default: full module path, e.g.,
     `"MyApp.Events.OrderSubmitted"`). Set explicitly for short names.
@@ -84,6 +87,33 @@ defmodule GridCodec.Struct do
       config :grid_codec,
         telemetry: true,
         telemetry_min_duration: 10_000
+
+  ## Named Schemas
+
+  Instead of hardcoding numeric schema IDs, you can reference schemas by name.
+  The name is resolved at compile time from the app's `:grid_codec` config:
+
+      # config/config.exs
+      config :my_app, :grid_codec,
+        schemas: %{100 => "trading"}
+
+      # lib/my_app/trade.ex
+      defmodule MyApp.Trade do
+        use GridCodec.Struct,
+          template_id: 2,
+          schema: "trading"
+
+        defcodec do
+          field :trade_id, :uuid, presence: :required
+          field :price, :u64
+        end
+      end
+
+      MyApp.Trade.__schema_id__()  #=> 100
+
+  This eliminates magic numbers and gives you compile-time safety — a typo in
+  the schema name raises immediately. The same config map is used by
+  `mix grid_codec.export`, so there's a single source of truth.
 
   ## Usage
 
@@ -132,6 +162,8 @@ defmodule GridCodec.Struct do
 
   @doc false
   defmacro __using__(opts \\ []) do
+    opts = resolve_schema_option(opts)
+
     grid_file = Keyword.get(opts, :grid_file)
     grid_schema = Keyword.get(opts, :grid_schema)
     message_name = Keyword.get(opts, :message)
@@ -324,6 +356,54 @@ defmodule GridCodec.Struct do
 
   defp maybe_put(kw, _key, nil), do: kw
   defp maybe_put(kw, key, val), do: Keyword.put(kw, key, val)
+
+  defp resolve_schema_option(opts) do
+    schema_name = Keyword.get(opts, :schema)
+    schema_id = Keyword.get(opts, :schema_id)
+
+    cond do
+      schema_name != nil and schema_id != nil ->
+        raise ArgumentError,
+              "schema: and schema_id: are mutually exclusive. " <>
+                "Got schema: #{inspect(schema_name)}, schema_id: #{inspect(schema_id)}"
+
+      is_binary(schema_name) ->
+        resolved_id = resolve_schema_name(schema_name)
+
+        opts
+        |> Keyword.delete(:schema)
+        |> Keyword.put(:schema_id, resolved_id)
+
+      schema_name != nil ->
+        raise ArgumentError,
+              "schema: must be a string, got: #{inspect(schema_name)}"
+
+      true ->
+        opts
+    end
+  end
+
+  defp resolve_schema_name(name) do
+    schemas = load_schema_config()
+    inverted = Map.new(schemas, fn {id, n} -> {n, id} end)
+
+    case Map.get(inverted, name) do
+      nil ->
+        available = schemas |> Map.values() |> Enum.sort()
+
+        raise ArgumentError,
+              "Unknown schema #{inspect(name)}. Available: #{inspect(available)}"
+
+      id ->
+        id
+    end
+  end
+
+  defp load_schema_config do
+    app = Mix.Project.config()[:app]
+    config = Application.get_env(app, :grid_codec, [])
+    Keyword.get(config, :schemas, %{})
+  end
 
   @doc """
   Defines the codec schema and generates both `defstruct` and codec functions.
