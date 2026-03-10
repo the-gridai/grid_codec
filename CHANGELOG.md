@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-03-10
+
+### Added
+- **Custom type declaration blocks in `.grid` files** — `prefixed_id`, `char_array`, and
+  `bitset` types can now be fully declared in `.grid` schemas, preserving configuration
+  (prefix, tag, length, flags) for documentation, breaking change detection, and `grid_file:` compilation.
+- **6 new breaking change rules** — `WIRE_PREFIXED_ID_TAG_CHANGED`, `WIRE_CHAR_ARRAY_LENGTH_CHANGED`,
+  `WIRE_BITSET_UNDERLYING_CHANGED`, `WIRE_BITSET_FLAG_REMOVED`, `WIRE_BITSET_FLAG_VALUE_CHANGED`,
+  `SOURCE_PREFIXED_ID_PREFIX_CHANGED` detect changes to custom type declarations.
+- **`__char_array_meta__/0` and `__bitset_meta__/0`** introspection functions on custom type modules,
+  matching the existing `__prefixed_id_meta__/0` pattern.
+- **`Registry.lookup_custom_type_by_name/1`** for auto-resolving custom types from `.grid` files.
+- **`Formatter.detect_custom_types/1` and `detect_all_custom_types/1`** for discovering custom
+  type modules referenced by codec fields.
+- **`WireSizes.resolve/2`** extended for `prefixed_id` (17 bytes), `char_array` (length),
+  and `bitset` (underlying type size) TypeDef kinds.
+
+### Changed
+- **`CompositeType` replaced by `TypeDef`** — The parser's internal struct now uses a `kind`
+  discriminator (`:composite`, `:prefixed_id`, `:char_array`, `:bitset`) for unified custom
+  type representation. Existing `.grid` `type` blocks continue to work as `kind: :composite`.
+- **Export task generates custom type `.grid` files** alongside enum files, with proper
+  import directives in struct files that reference them.
+
 ## [0.28.0] - 2026-03-10
 
 ### Added

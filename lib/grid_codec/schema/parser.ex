@@ -311,9 +311,21 @@ defmodule GridCodec.Schema.Parser do
           }
   end
 
-  defmodule CompositeType do
-    @moduledoc "Parsed composite type structure"
+  defmodule TypeDef do
+    @moduledoc """
+    Parsed custom type definition.
+
+    The `kind` discriminator determines which fields are populated:
+    - `:composite` — field-based composite (existing `type` keyword), uses `fields`
+    - `:prefixed_id` — PrefixedId type, uses `params` (prefix, tag)
+    - `:char_array` — CharArray type, uses `params` (length)
+    - `:bitset` — Bitset type, uses `underlying_type` and `values`
+    """
     defstruct name: nil,
+              kind: :composite,
+              underlying_type: nil,
+              params: %{},
+              values: [],
               fields: []
   end
 
@@ -640,7 +652,52 @@ defmodule GridCodec.Schema.Parser do
   defp parse_top_level([{:word, "type"}, {:word, name} | rest], schema) do
     case parse_type_block(rest) do
       {:ok, fields, remaining} ->
-        type = %CompositeType{name: String.to_atom(name), fields: fields}
+        type = %TypeDef{name: String.to_atom(name), kind: :composite, fields: fields}
+        schema = %{schema | types: Map.put(schema.types, type.name, type)}
+        parse_top_level(remaining, schema)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_top_level([{:word, "prefixed_id"}, {:word, name} | rest], schema) do
+    case parse_kv_type_block(rest) do
+      {:ok, params, remaining} ->
+        type = %TypeDef{name: String.to_atom(name), kind: :prefixed_id, params: params}
+        schema = %{schema | types: Map.put(schema.types, type.name, type)}
+        parse_top_level(remaining, schema)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_top_level([{:word, "char_array"}, {:word, name} | rest], schema) do
+    case parse_kv_type_block(rest) do
+      {:ok, params, remaining} ->
+        type = %TypeDef{name: String.to_atom(name), kind: :char_array, params: params}
+        schema = %{schema | types: Map.put(schema.types, type.name, type)}
+        parse_top_level(remaining, schema)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp parse_top_level(
+         [{:word, "bitset"}, {:word, name}, :colon, {:word, underlying} | rest],
+         schema
+       ) do
+    case parse_enum_block(rest) do
+      {:ok, values, remaining} ->
+        type = %TypeDef{
+          name: String.to_atom(name),
+          kind: :bitset,
+          underlying_type: String.to_atom(underlying),
+          values: values
+        }
+
         schema = %{schema | types: Map.put(schema.types, type.name, type)}
         parse_top_level(remaining, schema)
 
@@ -776,6 +833,9 @@ defmodule GridCodec.Schema.Parser do
   defp parse_kv_block(tokens, _acc) do
     {:error, {:invalid_kv_block, tokens}}
   end
+
+  defp parse_kv_type_block([:lbrace | rest]), do: parse_kv_block(rest, %{})
+  defp parse_kv_type_block(tokens), do: {:error, {:expected_brace, tokens}}
 
   # Parse type { field: type ... }
   defp parse_type_block([:lbrace | rest]) do

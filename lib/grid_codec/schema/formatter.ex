@@ -133,6 +133,19 @@ defmodule GridCodec.Schema.Formatter do
     |> Kernel.<>("\n")
   end
 
+  @doc """
+  Formats a single custom type (prefixed_id, char_array, bitset) as a standalone `.grid` file.
+  """
+  @spec format_custom_type_file(map(), keyword()) :: String.t()
+  def format_custom_type_file(type_info, opts \\ []) do
+    block = format_custom_type_block(type_info)
+
+    [file_header(opts), "", block]
+    |> Enum.join("\n")
+    |> String.trim_trailing()
+    |> Kernel.<>("\n")
+  end
+
   defp import_section([]), do: []
   defp import_section(lines), do: ["" | lines]
 
@@ -280,20 +293,29 @@ defmodule GridCodec.Schema.Formatter do
   """
   @spec build_type_aliases([codec_entry()], map()) :: map()
   def build_type_aliases(codecs, enums) do
+    build_type_aliases(codecs, enums, %{})
+  end
+
+  @doc false
+  def build_type_aliases(codecs, enums, custom_types) do
     enum_aliases = Map.new(enums, fn {mod, info} -> {mod, info.short_name} end)
 
     codec_aliases =
       codecs
       |> Map.new(fn {mod, schema} -> {mod, struct_name(schema)} end)
 
-    prefixed_id_aliases = detect_prefixed_id_aliases(codecs)
+    custom_type_aliases = Map.new(custom_types, fn {mod, info} -> {mod, info.short_name} end)
 
     enum_aliases
     |> Map.merge(codec_aliases)
-    |> Map.merge(prefixed_id_aliases)
+    |> Map.merge(custom_type_aliases)
   end
 
-  defp detect_prefixed_id_aliases(codecs) do
+  @doc """
+  Detects all custom types (PrefixedId, CharArray, Bitset) referenced by codec fields.
+  """
+  @spec detect_custom_types([codec_entry()]) :: map()
+  def detect_custom_types(codecs) do
     codecs
     |> Enum.flat_map(fn {_mod, schema} ->
       Enum.map(schema.fields, fn {_name, type_spec, _opts} ->
@@ -301,16 +323,91 @@ defmodule GridCodec.Schema.Formatter do
       end)
     end)
     |> Enum.uniq()
-    |> Enum.filter(&prefixed_id_module?/1)
-    |> Map.new(fn mod -> {mod, short_module_name(mod)} end)
+    |> Enum.filter(&custom_type_module?/1)
+    |> Enum.map(&custom_type_info/1)
+    |> Map.new()
   end
 
-  defp prefixed_id_module?(mod) when is_atom(mod) do
+  @doc """
+  Detects all custom types across multiple schema groups.
+  """
+  @spec detect_all_custom_types([[codec_entry()]]) :: map()
+  def detect_all_custom_types(codec_groups) do
+    codec_groups
+    |> List.flatten()
+    |> detect_custom_types()
+  end
+
+  @doc """
+  Returns the set of custom type modules referenced by a single struct's fields.
+  """
+  @spec referenced_custom_types(map(), map()) :: [module()]
+  def referenced_custom_types(schema, all_custom_types) do
+    schema.fields
+    |> Enum.map(fn {_name, type_spec, _opts} -> normalize_type_module(type_spec) end)
+    |> Enum.uniq()
+    |> Enum.filter(fn mod -> Map.has_key?(all_custom_types, mod) end)
+  end
+
+  defp custom_type_module?(mod) when is_atom(mod) do
     Code.ensure_loaded?(mod) and
-      function_exported?(mod, :__prefixed_id_meta__, 0)
+      (function_exported?(mod, :__prefixed_id_meta__, 0) or
+         function_exported?(mod, :__char_array_meta__, 0) or
+         function_exported?(mod, :__bitset_meta__, 0))
   end
 
-  defp prefixed_id_module?(_), do: false
+  defp custom_type_module?(_), do: false
+
+  defp custom_type_info(mod) do
+    cond do
+      function_exported?(mod, :__prefixed_id_meta__, 0) ->
+        meta = mod.__prefixed_id_meta__()
+
+        {mod,
+         %{
+           module: mod,
+           short_name: short_module_name(mod),
+           kind: :prefixed_id,
+           params: meta
+         }}
+
+      function_exported?(mod, :__char_array_meta__, 0) ->
+        meta = mod.__char_array_meta__()
+
+        {mod,
+         %{
+           module: mod,
+           short_name: short_module_name(mod),
+           kind: :char_array,
+           params: meta
+         }}
+
+      function_exported?(mod, :__bitset_meta__, 0) ->
+        meta = mod.__bitset_meta__()
+
+        {mod,
+         %{
+           module: mod,
+           short_name: short_module_name(mod),
+           kind: :bitset,
+           params: meta
+         }}
+    end
+  end
+
+  defp format_custom_type_block(%{kind: :prefixed_id, short_name: name, params: params}) do
+    "prefixed_id #{name} {\n  prefix: \"#{params.prefix}\"\n  tag: #{params.tag}\n}"
+  end
+
+  defp format_custom_type_block(%{kind: :char_array, short_name: name, params: params}) do
+    "char_array #{name} {\n  length: #{params.length}\n}"
+  end
+
+  defp format_custom_type_block(%{kind: :bitset, short_name: name, params: params}) do
+    encoding_str = Map.get(@encoding_to_grid, params.size, Atom.to_string(params.size))
+    values = Enum.map_join(params.flags, "\n", fn {fname, bit} -> "  #{fname} = #{bit}" end)
+    "bitset #{name} : #{encoding_str} {\n#{values}\n}"
+  end
 
   defp format_struct_header(name, schema) do
     attrs = ["template_id: #{schema.template_id}"]

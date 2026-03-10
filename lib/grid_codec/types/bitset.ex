@@ -335,6 +335,11 @@ defmodule GridCodec.Types.Bitset do
       @flag_map unquote(Macro.escape(flag_map))
       @all_flags unquote(all_flags)
 
+      @doc false
+      def __bitset_meta__ do
+        %{size: @bitset_size, flags: Enum.sort_by(@flag_map |> Map.to_list(), &elem(&1, 1))}
+      end
+
       @doc """
       Returns all defined flag names.
       """

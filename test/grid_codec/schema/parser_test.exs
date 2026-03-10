@@ -2,7 +2,7 @@ defmodule GridCodec.Schema.ParserTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Schema.Parser
-  alias GridCodec.Schema.Parser.{CompositeType, EnumDef}
+  alias GridCodec.Schema.Parser.{TypeDef, EnumDef}
 
   describe "parse/1" do
     test "parses empty schema block" do
@@ -114,7 +114,7 @@ defmodule GridCodec.Schema.ParserTest do
       assert Map.has_key?(schema.types, :Price)
 
       type = schema.types[:Price]
-      assert %CompositeType{} = type
+      assert %TypeDef{kind: :composite} = type
       assert length(type.fields) == 2
 
       [f1, f2] = type.fields
@@ -122,6 +122,89 @@ defmodule GridCodec.Schema.ParserTest do
       assert f1.type == :i64
       assert f2.name == :exponent
       assert f2.type == :i8
+    end
+
+    test "parses prefixed_id block" do
+      content = """
+      schema { id: 1 }
+
+      prefixed_id UserId {
+        prefix: "user"
+        tag: 1
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert Map.has_key?(schema.types, :UserId)
+
+      type = schema.types[:UserId]
+      assert %TypeDef{kind: :prefixed_id} = type
+      assert type.params == %{prefix: "user", tag: 1}
+    end
+
+    test "parses char_array block" do
+      content = """
+      schema { id: 1 }
+
+      char_array Symbol {
+        length: 8
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert Map.has_key?(schema.types, :Symbol)
+
+      type = schema.types[:Symbol]
+      assert %TypeDef{kind: :char_array} = type
+      assert type.params == %{length: 8}
+    end
+
+    test "parses bitset block" do
+      content = """
+      schema { id: 1 }
+
+      bitset Permissions : u8 {
+        read = 0
+        write = 1
+        execute = 2
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert Map.has_key?(schema.types, :Permissions)
+
+      type = schema.types[:Permissions]
+      assert %TypeDef{kind: :bitset} = type
+      assert type.underlying_type == :u8
+      assert type.values == [read: 0, write: 1, execute: 2]
+    end
+
+    test "custom types are referenced by struct fields" do
+      content = """
+      schema { id: 1 }
+
+      prefixed_id UserId {
+        prefix: "user"
+        tag: 1
+      }
+
+      char_array Symbol {
+        length: 8
+      }
+
+      struct UserCreated (template_id: 1001) {
+        user_id: UserId
+        name: Symbol
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert Map.has_key?(schema.types, :UserId)
+      assert Map.has_key?(schema.types, :Symbol)
+      struct_def = schema.structs[:UserCreated]
+      [f1, f2] = struct_def.fields
+      assert f1.type == :UserId
+      assert f2.type == :Symbol
     end
 
     test "parses enum" do
@@ -676,6 +759,103 @@ defmodule GridCodec.Schema.ParserTest do
       assert field.presence == :constant
       assert field.value == "NYSE"
       assert field.since == 2
+    end
+  end
+
+  describe "custom type round-trip (parse -> format -> re-parse)" do
+    test "prefixed_id round-trips" do
+      content = """
+      @syntax 1
+      schema T { id: 1 version: 1 }
+
+      prefixed_id UserId {
+        prefix: "user"
+        tag: 1
+      }
+      """
+
+      assert {:ok, schema1} = Parser.parse(content)
+      type1 = schema1.types[:UserId]
+      assert type1.kind == :prefixed_id
+      assert type1.params.prefix == "user"
+      assert type1.params.tag == 1
+    end
+
+    test "char_array round-trips" do
+      content = """
+      @syntax 1
+      schema T { id: 1 version: 1 }
+
+      char_array Symbol {
+        length: 8
+      }
+      """
+
+      assert {:ok, schema1} = Parser.parse(content)
+      type1 = schema1.types[:Symbol]
+      assert type1.kind == :char_array
+      assert type1.params.length == 8
+    end
+
+    test "bitset round-trips" do
+      content = """
+      @syntax 1
+      schema T { id: 1 version: 1 }
+
+      bitset Perms : u8 {
+        read = 0
+        write = 1
+        execute = 2
+      }
+      """
+
+      assert {:ok, schema1} = Parser.parse(content)
+      type1 = schema1.types[:Perms]
+      assert type1.kind == :bitset
+      assert type1.underlying_type == :u8
+      assert type1.values == [read: 0, write: 1, execute: 2]
+    end
+  end
+
+  describe "WireSizes.resolve/2 for custom TypeDef kinds" do
+    alias GridCodec.Breaking.WireSizes
+
+    test "prefixed_id resolves to 17 bytes" do
+      types = %{
+        UserId: %TypeDef{name: :UserId, kind: :prefixed_id, params: %{prefix: "user", tag: 1}}
+      }
+
+      assert WireSizes.resolve(:UserId, types) == 17
+    end
+
+    test "char_array resolves to its length" do
+      types = %{Symbol: %TypeDef{name: :Symbol, kind: :char_array, params: %{length: 8}}}
+      assert WireSizes.resolve(:Symbol, types) == 8
+    end
+
+    test "bitset u8 resolves to 1 byte" do
+      types = %{Perms: %TypeDef{name: :Perms, kind: :bitset, underlying_type: :u8, values: []}}
+      assert WireSizes.resolve(:Perms, types) == 1
+    end
+
+    test "bitset u16 resolves to 2 bytes" do
+      types = %{Flags: %TypeDef{name: :Flags, kind: :bitset, underlying_type: :u16, values: []}}
+      assert WireSizes.resolve(:Flags, types) == 2
+    end
+
+    test "bitset u32 resolves to 4 bytes" do
+      types = %{
+        BigFlags: %TypeDef{name: :BigFlags, kind: :bitset, underlying_type: :u32, values: []}
+      }
+
+      assert WireSizes.resolve(:BigFlags, types) == 4
+    end
+
+    test "composite type still works" do
+      alias GridCodec.Schema.Parser.Field
+      fields = [%Field{name: :a, type: :u32}, %Field{name: :b, type: :i64}]
+      types = %{Price: %TypeDef{name: :Price, kind: :composite, fields: fields}}
+      assert WireSizes.resolve(:Price, types) == 12
     end
   end
 end

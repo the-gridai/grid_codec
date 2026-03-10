@@ -455,9 +455,9 @@ This generates:
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
 - `GridCodec.Schema.Parser` - Parse `.grid` schema files with `import` resolution (`parse_file_with_imports/2`), `@syntax` validation, `current_syntax/0`
-- `GridCodec.Schema.Formatter` - Generate `.grid` files: `format/5`, `format_master/5`, `format_struct_file/3`, `format_enum_file/2` (all accept `opts` with `:syntax`, `:imports`); `current_syntax/0`, `detect_all_enums/1`, `referenced_enums/2`
+- `GridCodec.Schema.Formatter` - Generate `.grid` files: `format/5`, `format_master/5`, `format_struct_file/3`, `format_enum_file/2`, `format_custom_type_file/2` (all accept `opts` with `:syntax`, `:imports`); `current_syntax/0`, `detect_all_enums/1`, `detect_custom_types/1`, `detect_all_custom_types/1`, `referenced_enums/2`, `referenced_custom_types/2`
 - `GridCodec.Breaking.*` - Breaking change detection (Checker, Differ, Rules.Wire, Rules.Source, Config)
-- `GridCodec.Registry` - Runtime codec lookup, dispatch, `lookup_enum_by_name/1` for `.grid` type auto-resolution
+- `GridCodec.Registry` - Runtime codec lookup, dispatch, `lookup_enum_by_name/1` and `lookup_custom_type_by_name/1` for `.grid` type auto-resolution
 
 ### Batch Strategies
 
@@ -533,8 +533,29 @@ GridCodec includes a schema evolution system inspired by [Buf](https://buf.build
 lives in `GridCodec.Schema.Parser`'s `@moduledoc`.
 
 The export generates a directory per `schema_id`, each containing a `schema.grid` master
-file plus individual struct/enum files. Individual struct files import their own enum
-dependencies, making each file self-contained.
+file plus individual struct/enum/custom-type files. Individual struct files import their
+enum and custom type dependencies, making each file self-contained.
+
+**Custom type declaration blocks** allow full specification of composite types:
+
+```
+prefixed_id UserId {
+  prefix: "user"
+  tag: 1
+}
+
+char_array Symbol {
+  length: 8
+}
+
+bitset Permissions : u8 {
+  read = 0
+  write = 1
+  execute = 2
+}
+```
+
+These are exported to their own `.grid` files and imported by struct files that reference them.
 
 ```bash
 # Export schemas (creates events/schema.grid, events/order_created.grid, etc.)
@@ -597,8 +618,8 @@ The `types:` option maps `.grid` type names to Elixir modules. When omitted,
 their last module segment.
 
 **Rule categories:**
-- **WIRE** (22 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes, syntax version changes (`WIRE_SYNTAX_VERSION_CHANGED`)
-- **SOURCE** (8 rules) — API compatibility: struct removal, field renames, default changes, required field additions
+- **WIRE** (27 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes, syntax version changes (`WIRE_SYNTAX_VERSION_CHANGED`), custom type changes (`WIRE_PREFIXED_ID_TAG_CHANGED`, `WIRE_CHAR_ARRAY_LENGTH_CHANGED`, `WIRE_BITSET_UNDERLYING_CHANGED`, `WIRE_BITSET_FLAG_REMOVED`, `WIRE_BITSET_FLAG_VALUE_CHANGED`)
+- **SOURCE** (9 rules) — API compatibility: struct removal, field renames, default changes, required field additions, `SOURCE_PREFIXED_ID_PREFIX_CHANGED`
 
 **Configuration** via `.grid_codec.exs`:
 ```elixir

@@ -57,6 +57,15 @@ defmodule GridCodec.Breaking.WireSizes do
     case wire_size(type) do
       :unknown ->
         case Map.get(schema_types, type) do
+          %{kind: :prefixed_id} ->
+            17
+
+          %{kind: :char_array, params: %{length: n}} when is_integer(n) ->
+            n
+
+          %{kind: :bitset, underlying_type: ut} when is_atom(ut) ->
+            wire_size(ut)
+
           %{fields: fields} ->
             sizes = Enum.map(fields, fn f -> wire_size(f.type) end)
 

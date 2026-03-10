@@ -303,7 +303,7 @@ defmodule GridCodec.Struct do
   defp build_custom_types(schema, opts) do
     explicit = Keyword.get(opts, :types, %{})
 
-    auto_resolved =
+    auto_resolved_enums =
       schema.enums
       |> Enum.reduce(%{}, fn {name, _enum_def}, acc ->
         if Map.has_key?(explicit, name) do
@@ -316,7 +316,22 @@ defmodule GridCodec.Struct do
         end
       end)
 
-    Map.merge(auto_resolved, explicit)
+    auto_resolved_types =
+      schema.types
+      |> Enum.reduce(%{}, fn {name, _type_def}, acc ->
+        if Map.has_key?(explicit, name) do
+          acc
+        else
+          case auto_resolve_custom_type(name) do
+            {:ok, module} -> Map.put(acc, name, module)
+            :error -> acc
+          end
+        end
+      end)
+
+    auto_resolved_enums
+    |> Map.merge(auto_resolved_types)
+    |> Map.merge(explicit)
   end
 
   defp auto_resolve_enum(name) do
@@ -326,6 +341,18 @@ defmodule GridCodec.Struct do
          function_exported?(GridCodec.Registry, :lookup_enum_by_name, 1) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(GridCodec.Registry, :lookup_enum_by_name, [name_str])
+    else
+      :error
+    end
+  end
+
+  defp auto_resolve_custom_type(name) do
+    name_str = Atom.to_string(name)
+
+    if Code.ensure_loaded?(GridCodec.Registry) and
+         function_exported?(GridCodec.Registry, :lookup_custom_type_by_name, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(GridCodec.Registry, :lookup_custom_type_by_name, [name_str])
     else
       :error
     end

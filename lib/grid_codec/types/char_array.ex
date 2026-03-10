@@ -93,6 +93,11 @@ defmodule GridCodec.Types.CharArray do
       @char_array_length unquote(length)
       @on_overflow unquote(on_overflow)
 
+      @doc false
+      def __char_array_meta__ do
+        %{length: @char_array_length}
+      end
+
       @doc """
       Returns the fixed length of this char array.
       """

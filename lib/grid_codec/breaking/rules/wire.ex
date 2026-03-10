@@ -16,6 +16,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
     |> check_syntax_version(schema_diff, path)
     |> check_structs(schema_diff, path)
     |> check_enums(schema_diff, path)
+    |> check_custom_types(schema_diff, path)
     |> Enum.reverse()
   end
 
@@ -534,4 +535,131 @@ defmodule GridCodec.Breaking.Rules.Wire do
       ]
     end)
   end
+
+  # ============================================================================
+  # Custom type rules (prefixed_id, char_array, bitset)
+  # ============================================================================
+
+  defp check_custom_types(issues, %{types: type_diff}, path) do
+    Enum.reduce(type_diff.changed, issues, fn {_name, old_type, new_type}, acc ->
+      check_custom_type_change(acc, old_type, new_type, path)
+    end)
+  end
+
+  defp check_custom_type_change(
+         issues,
+         %{kind: :prefixed_id} = old,
+         %{kind: :prefixed_id} = new,
+         path
+       ) do
+    issues =
+      if old.params[:tag] != new.params[:tag] do
+        [
+          %Issue{
+            rule: :WIRE_PREFIXED_ID_TAG_CHANGED,
+            category: :wire,
+            message:
+              "PrefixedId \"#{new.name}\" tag changed from #{old.params[:tag]} to #{new.params[:tag]}.",
+            path: path,
+            location: %{type: new.name}
+          }
+          | issues
+        ]
+      else
+        issues
+      end
+
+    if old.params[:prefix] != new.params[:prefix] do
+      [
+        %Issue{
+          rule: :SOURCE_PREFIXED_ID_PREFIX_CHANGED,
+          category: :source,
+          message:
+            "PrefixedId \"#{new.name}\" prefix changed " <>
+              "from \"#{old.params[:prefix]}\" to \"#{new.params[:prefix]}\".",
+          path: path,
+          location: %{type: new.name}
+        }
+        | issues
+      ]
+    else
+      issues
+    end
+  end
+
+  defp check_custom_type_change(
+         issues,
+         %{kind: :char_array} = old,
+         %{kind: :char_array} = new,
+         path
+       ) do
+    if old.params[:length] != new.params[:length] do
+      [
+        %Issue{
+          rule: :WIRE_CHAR_ARRAY_LENGTH_CHANGED,
+          category: :wire,
+          message:
+            "CharArray \"#{new.name}\" length changed from #{old.params[:length]} to #{new.params[:length]}.",
+          path: path,
+          location: %{type: new.name}
+        }
+        | issues
+      ]
+    else
+      issues
+    end
+  end
+
+  defp check_custom_type_change(issues, %{kind: :bitset} = old, %{kind: :bitset} = new, path) do
+    issues =
+      if old.underlying_type != new.underlying_type do
+        [
+          %Issue{
+            rule: :WIRE_BITSET_UNDERLYING_CHANGED,
+            category: :wire,
+            message:
+              "Bitset \"#{new.name}\" underlying type changed " <>
+                "from #{old.underlying_type} to #{new.underlying_type}.",
+            path: path,
+            location: %{type: new.name}
+          }
+          | issues
+        ]
+      else
+        issues
+      end
+
+    flag_diff = Differ.diff_enum_values(old.values, new.values)
+
+    issues =
+      Enum.reduce(flag_diff.removed, issues, fn {name, _val}, acc ->
+        [
+          %Issue{
+            rule: :WIRE_BITSET_FLAG_REMOVED,
+            category: :wire,
+            message: "Bitset flag \"#{name}\" removed from \"#{new.name}\".",
+            path: path,
+            location: %{type: new.name, flag: name}
+          }
+          | acc
+        ]
+      end)
+
+    Enum.reduce(flag_diff.changed, issues, fn {flag_name, old_bit, new_bit}, acc ->
+      [
+        %Issue{
+          rule: :WIRE_BITSET_FLAG_VALUE_CHANGED,
+          category: :wire,
+          message:
+            ~s(Bitset flag "#{flag_name}" in "#{new.name}" ) <>
+              "bit position changed from #{old_bit} to #{new_bit}.",
+          path: path,
+          location: %{type: new.name, flag: flag_name}
+        }
+        | acc
+      ]
+    end)
+  end
+
+  defp check_custom_type_change(issues, _old, _new, _path), do: issues
 end

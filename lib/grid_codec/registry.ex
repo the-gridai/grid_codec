@@ -322,6 +322,40 @@ defmodule GridCodec.Registry do
       function_exported?(mod, :encoding, 0)
   end
 
+  @doc """
+  Looks up a custom type module (PrefixedId, CharArray, Bitset) by its short name.
+
+  Searches all loaded modules that export one of the meta functions:
+  `__prefixed_id_meta__/0`, `__char_array_meta__/0`, or `__bitset_meta__/0`.
+
+  ## Examples
+
+      {:ok, MyApp.Types.UserId} = GridCodec.Registry.lookup_custom_type_by_name("UserId")
+      :error = GridCodec.Registry.lookup_custom_type_by_name("NonExistent")
+  """
+  @spec lookup_custom_type_by_name(String.t()) :: {:ok, module()} | :error
+  def lookup_custom_type_by_name(name) when is_binary(name) do
+    result =
+      :code.all_loaded()
+      |> Enum.find_value(fn {mod, _} ->
+        if is_custom_type_module?(mod) and short_module_name(mod) == name do
+          mod
+        end
+      end)
+
+    case result do
+      nil -> :error
+      mod -> {:ok, mod}
+    end
+  end
+
+  defp is_custom_type_module?(mod) do
+    Code.ensure_loaded?(mod) and
+      (function_exported?(mod, :__prefixed_id_meta__, 0) or
+         function_exported?(mod, :__char_array_meta__, 0) or
+         function_exported?(mod, :__bitset_meta__, 0))
+  end
+
   defp short_module_name(mod) do
     mod |> Module.split() |> List.last()
   end

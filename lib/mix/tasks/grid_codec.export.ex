@@ -100,7 +100,8 @@ defmodule Mix.Tasks.GridCodec.Export do
 
     schema_names = load_schema_names()
     all_enums = Formatter.detect_all_enums(Map.values(grouped))
-    files = build_files(grouped, output_dir, schema_names, all_enums, fmt_opts)
+    all_custom_types = Formatter.detect_all_custom_types(Map.values(grouped))
+    files = build_files(grouped, output_dir, schema_names, all_enums, all_custom_types, fmt_opts)
 
     if check_mode do
       check(files)
@@ -113,22 +114,30 @@ defmodule Mix.Tasks.GridCodec.Export do
   # File generation
   # ============================================================================
 
-  defp build_files(grouped, output_dir, schema_names, all_enums, fmt_opts) do
-    type_aliases = Formatter.build_type_aliases(List.flatten(Map.values(grouped)), all_enums)
+  defp build_files(grouped, output_dir, schema_names, all_enums, all_custom_types, fmt_opts) do
+    type_aliases =
+      Formatter.build_type_aliases(
+        List.flatten(Map.values(grouped)),
+        all_enums,
+        all_custom_types
+      )
 
     enum_home = build_enum_home_map(grouped, schema_names)
+    custom_type_home = build_custom_type_home_map(grouped, schema_names)
+
+    ctx = %{
+      output_dir: output_dir,
+      schema_names: schema_names,
+      all_enums: all_enums,
+      all_custom_types: all_custom_types,
+      type_aliases: type_aliases,
+      enum_home: enum_home,
+      custom_type_home: custom_type_home,
+      fmt_opts: fmt_opts
+    }
 
     Enum.flat_map(grouped, fn {schema_id, entries} ->
-      build_schema_files(
-        schema_id,
-        entries,
-        output_dir,
-        schema_names,
-        all_enums,
-        type_aliases,
-        enum_home,
-        fmt_opts
-      )
+      build_schema_files(schema_id, entries, ctx)
     end)
     |> Enum.sort_by(fn {path, _content} -> path end)
   end
@@ -150,16 +159,35 @@ defmodule Mix.Tasks.GridCodec.Export do
     end)
   end
 
-  defp build_schema_files(
-         schema_id,
-         entries,
-         output_dir,
-         schema_names,
-         all_enums,
-         type_aliases,
-         enum_home,
-         fmt_opts
-       ) do
+  defp build_custom_type_home_map(grouped, schema_names) do
+    grouped
+    |> Enum.sort_by(fn {schema_id, _} -> schema_id end)
+    |> Enum.flat_map(fn {schema_id, entries} ->
+      dir_name = schema_dir_name(schema_id, schema_names)
+      local_types = Formatter.detect_custom_types(entries)
+
+      Enum.map(local_types, fn {mod, info} ->
+        rel_path = name_to_relative_path(info.short_name)
+        {mod, %{schema_id: schema_id, dir_name: dir_name, rel_path: rel_path}}
+      end)
+    end)
+    |> Enum.reduce(%{}, fn {mod, info}, acc ->
+      Map.put_new(acc, mod, info)
+    end)
+  end
+
+  defp build_schema_files(schema_id, entries, ctx) do
+    %{
+      output_dir: output_dir,
+      schema_names: schema_names,
+      all_enums: all_enums,
+      all_custom_types: all_custom_types,
+      type_aliases: type_aliases,
+      enum_home: enum_home,
+      custom_type_home: custom_type_home,
+      fmt_opts: fmt_opts
+    } = ctx
+
     dir_name = schema_dir_name(schema_id, schema_names)
     schema_dir = Path.join(output_dir, dir_name)
     schema_version = entries |> Enum.map(fn {_mod, s} -> s.version end) |> Enum.max()
@@ -172,6 +200,14 @@ defmodule Mix.Tasks.GridCodec.Export do
       end)
       |> Map.new()
 
+    local_custom_types =
+      all_custom_types
+      |> Enum.filter(fn {mod, _info} ->
+        home = Map.get(custom_type_home, mod)
+        home && home.schema_id == schema_id
+      end)
+      |> Map.new()
+
     struct_files =
       entries
       |> Enum.sort_by(fn {_mod, schema} -> Formatter.struct_name(schema) end)
@@ -179,10 +215,20 @@ defmodule Mix.Tasks.GridCodec.Export do
         rel_path = type_to_relative_path(schema.type)
         struct_abs_dir = Path.dirname(Path.join(schema_dir, rel_path))
 
-        import_paths =
+        enum_imports =
           struct_type_imports(schema, all_enums, enum_home, schema_id, schema_dir, struct_abs_dir)
 
-        struct_opts = Keyword.merge(fmt_opts, imports: import_paths)
+        ct_imports =
+          struct_custom_type_imports(
+            schema,
+            all_custom_types,
+            custom_type_home,
+            schema_id,
+            schema_dir,
+            struct_abs_dir
+          )
+
+        struct_opts = Keyword.merge(fmt_opts, imports: enum_imports ++ ct_imports)
         content = Formatter.format_struct_file(schema, type_aliases, struct_opts)
         {Path.join(schema_dir, rel_path), content}
       end)
@@ -196,14 +242,33 @@ defmodule Mix.Tasks.GridCodec.Export do
         {Path.join(schema_dir, rel_path), content}
       end)
 
-    all_local_files = struct_files ++ enum_files
+    custom_type_files =
+      local_custom_types
+      |> Enum.sort_by(fn {_mod, info} -> info.short_name end)
+      |> Enum.map(fn {_mod, info} ->
+        rel_path = name_to_relative_path(info.short_name)
+        content = Formatter.format_custom_type_file(info, fmt_opts)
+        {Path.join(schema_dir, rel_path), content}
+      end)
+
+    all_local_files = struct_files ++ enum_files ++ custom_type_files
 
     cross_imports = cross_schema_imports(entries, all_enums, enum_home, schema_id, schema_dir)
+
+    cross_ct_imports =
+      cross_schema_custom_type_imports(
+        entries,
+        all_custom_types,
+        custom_type_home,
+        schema_id,
+        schema_dir
+      )
 
     import_paths =
       all_local_files
       |> Enum.map(fn {full_path, _} -> Path.relative_to(full_path, schema_dir) end)
       |> Kernel.++(cross_imports)
+      |> Kernel.++(cross_ct_imports)
       |> Enum.sort()
 
     master_content =
@@ -231,6 +296,57 @@ defmodule Mix.Tasks.GridCodec.Export do
       end
     end)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp struct_custom_type_imports(
+         schema,
+         all_custom_types,
+         custom_type_home,
+         schema_id,
+         schema_dir,
+         struct_abs_dir
+       ) do
+    Formatter.referenced_custom_types(schema, all_custom_types)
+    |> Enum.map(fn mod ->
+      home = Map.get(custom_type_home, mod)
+
+      if home && home.schema_id == schema_id do
+        ct_abs = Path.join(schema_dir, home.rel_path)
+        Path.relative_to(ct_abs, struct_abs_dir)
+      else
+        if home do
+          output_dir = Path.dirname(schema_dir)
+          ct_abs = Path.join([output_dir, home.dir_name, home.rel_path])
+          Path.relative_to(ct_abs, struct_abs_dir)
+        end
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp cross_schema_custom_type_imports(
+         entries,
+         all_custom_types,
+         custom_type_home,
+         schema_id,
+         schema_dir
+       ) do
+    output_dir = Path.dirname(schema_dir)
+
+    entries
+    |> Enum.flat_map(fn {_mod, schema} ->
+      Formatter.referenced_custom_types(schema, all_custom_types)
+    end)
+    |> Enum.uniq()
+    |> Enum.filter(fn mod ->
+      home = Map.get(custom_type_home, mod)
+      home && home.schema_id != schema_id
+    end)
+    |> Enum.map(fn mod ->
+      home = Map.fetch!(custom_type_home, mod)
+      ct_abs = Path.join([output_dir, home.dir_name, home.rel_path])
+      Path.relative_to(ct_abs, schema_dir)
+    end)
   end
 
   defp cross_schema_imports(entries, all_enums, enum_home, schema_id, schema_dir) do

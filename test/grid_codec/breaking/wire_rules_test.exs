@@ -441,4 +441,144 @@ defmodule GridCodec.Breaking.WireRulesTest do
       assert check(old, new) == []
     end
   end
+
+  describe "WIRE_PREFIXED_ID_TAG_CHANGED" do
+    test "detects tag change" do
+      old = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "user" tag: 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "user" tag: 2 }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_PREFIXED_ID_TAG_CHANGED in rules(issues)
+    end
+
+    test "no issue when tag unchanged" do
+      old = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "user" tag: 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "user" tag: 1 }
+      """
+
+      assert check(old, new) == []
+    end
+  end
+
+  describe "SOURCE_PREFIXED_ID_PREFIX_CHANGED" do
+    test "detects prefix change" do
+      old = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "user" tag: 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      prefixed_id UserId { prefix: "account" tag: 1 }
+      """
+
+      issues = check(old, new, %{category: :source})
+      assert :SOURCE_PREFIXED_ID_PREFIX_CHANGED in rules(issues)
+    end
+  end
+
+  describe "WIRE_CHAR_ARRAY_LENGTH_CHANGED" do
+    test "detects length change" do
+      old = """
+      schema T { id: 1 }
+      char_array Symbol { length: 8 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      char_array Symbol { length: 16 }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_CHAR_ARRAY_LENGTH_CHANGED in rules(issues)
+    end
+
+    test "no issue when length unchanged" do
+      old = """
+      schema T { id: 1 }
+      char_array Symbol { length: 8 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      char_array Symbol { length: 8 }
+      """
+
+      assert check(old, new) == []
+    end
+  end
+
+  describe "WIRE_BITSET rules" do
+    test "detects underlying type change" do
+      old = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      bitset Perms : u16 { read = 0 write = 1 }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_BITSET_UNDERLYING_CHANGED in rules(issues)
+    end
+
+    test "detects flag removal" do
+      old = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 execute = 2 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_BITSET_FLAG_REMOVED in rules(issues)
+    end
+
+    test "detects flag value change" do
+      old = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 3 }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_BITSET_FLAG_VALUE_CHANGED in rules(issues)
+    end
+
+    test "no issue when unchanged" do
+      old = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 }
+      """
+
+      new = """
+      schema T { id: 1 }
+      bitset Perms : u8 { read = 0 write = 1 }
+      """
+
+      assert check(old, new) == []
+    end
+  end
 end
