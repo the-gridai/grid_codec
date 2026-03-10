@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.3] - 2026-03-11
+
+### Fixed
+- **CharArray `on_overflow: :error` warnings** — `GridCodec.Types.CharArray` now
+  emits specialized overflow handling without impossible-branch compile warnings,
+  while preserving strict error behavior for oversized strings.
+
 ## [0.29.2] - 2026-03-11
 
 ### Fixed

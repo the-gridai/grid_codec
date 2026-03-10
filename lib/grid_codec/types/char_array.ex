@@ -116,6 +116,16 @@ defmodule GridCodec.Types.CharArray do
       def encode(string) when is_binary(string) do
         byte_len = byte_size(string)
 
+        overflow_result =
+          case @on_overflow do
+            :truncate ->
+              binary_part(string, 0, @char_array_length)
+
+            :error ->
+              raise ArgumentError,
+                    "String length #{byte_len} exceeds char array length #{@char_array_length}"
+          end
+
         cond do
           byte_len == @char_array_length ->
             string
@@ -124,12 +134,8 @@ defmodule GridCodec.Types.CharArray do
             padding_size = @char_array_length - byte_len
             <<string::binary, 0::size(padding_size * 8)>>
 
-          @on_overflow == :truncate ->
-            binary_part(string, 0, @char_array_length)
-
-          @on_overflow == :error ->
-            raise ArgumentError,
-                  "String length #{byte_len} exceeds char array length #{@char_array_length}"
+          true ->
+            overflow_result
         end
       end
 
@@ -163,16 +169,19 @@ defmodule GridCodec.Types.CharArray do
       @impl GridCodec.Type
       def encode_ast(name, _default, _endian, data_var) do
         len = @char_array_length
-        overflow = @on_overflow
 
         overflow_ast =
-          if overflow == :truncate do
-            quote do: binary_part(string, 0, unquote(len))
-          else
-            quote do
-              raise ArgumentError,
-                    "String length #{byte_size(string)} exceeds char array length #{unquote(len)}"
-            end
+          case @on_overflow do
+            :truncate ->
+              quote do
+                binary_part(string, 0, unquote(len))
+              end
+
+            :error ->
+              quote do
+                raise ArgumentError,
+                      "String length #{byte_size(string)} exceeds char array length #{unquote(len)}"
+              end
           end
 
         quote do

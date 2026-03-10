@@ -48,7 +48,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.29.2"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.29.3"}
   ]
 end
 ```
