@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-03-10
+
+### Fixed
+- **String/timestamp/decimal generators registered** — `Generators.for_type/1` now works
+  for `:string8`, `:string16`, `:string32`, `:timestamp_us`, `:timestamp_ns`,
+  `:datetime_us`, `:datetime_ns`, `:decimal`, `:positive_decimal`, and `:uuid_string`
+  without relying on type module compile order.
+- **`.grid` formatter handles PrefixedId types** — `Schema.Formatter` now detects
+  modules with `__prefixed_id_meta__/0` and emits their short name instead of the
+  full `Elixir.MyApp.Types.UserId` module path.
+
+### Performance
+- **UUID hot-path inlining** — `format_uuid/1`, `parse_uuid_string!/1`, and
+  `parse_uuid_nodash!/1` are now `@compile {:inline}` in `UUIDString`, reducing
+  call overhead for UUID, UUIDString, and PrefixedId encode/decode.
+
+### Documentation
+- **PrefixedId in AGENTS.md** — Key Modules and Type System sections updated.
+- **PrefixedId in README.md** — "Custom Prefixed IDs" section with usage example.
+- **ExDoc Types group** — `GridCodec.Types.PrefixedId` added to sidebar.
+- **PrefixedId test coverage** — Added to `struct_all_types_test.exs` (roundtrip,
+  nil, coercion) and `generators_test.exs` (generator validity, for_codec roundtrip).
+
 ## [0.27.0] - 2026-03-10
 
 ### Added

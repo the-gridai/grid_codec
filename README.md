@@ -15,7 +15,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
 - **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
-- **Schema evolution** – `.grid` declarative schema files, breaking change detection (21 wire + 8 source rules), `--check` CI modes
+- **Schema evolution** – `.grid` declarative schema files, breaking change detection (22 wire + 8 source rules), `--check` CI modes
 - **SQL generation** – PostgreSQL decode functions from GridCodec binaries stored as `bytea`
 - **Telemetry** – Optional `[:grid_codec, :encode]` and `[:grid_codec, :decode]` event emission with PromEx integration
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
@@ -48,7 +48,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.26.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.27.1"}
   ]
 end
 ```
@@ -144,6 +144,23 @@ defmodule MyApp.Types.Flags do
   use GridCodec.Types.Bitset, encoding: :u8, flags: [:urgent, :hidden, :system]
 end
 ```
+
+### Custom Prefixed IDs
+
+Self-describing entity identifiers (17 bytes: u8 tag + 16-byte UUID) for DB-level filtering:
+
+```elixir
+defmodule MyApp.Types.UserId do
+  use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
+end
+
+# In a codec:
+defcodec do
+  field :user_id, MyApp.Types.UserId
+end
+```
+
+Helpers: `UserId.generate/0`, `UserId.from_uuid/1`, `UserId.to_uuid/1`, `UserId.valid?/1`.
 
 ## Field Options
 

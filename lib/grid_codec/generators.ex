@@ -44,7 +44,17 @@ if Code.ensure_loaded?(StreamData) do
       f64: &__MODULE__.f64/0,
       uuid: &__MODULE__.uuid/0,
       bool: &__MODULE__.bool/0,
-      string: &__MODULE__.string/0
+      string: &__MODULE__.string/0,
+      string8: &__MODULE__.string8/0,
+      string16: &__MODULE__.default_string16/0,
+      string32: &__MODULE__.default_string32/0,
+      timestamp_us: &__MODULE__.timestamp_us/0,
+      timestamp_ns: &__MODULE__.timestamp_ns/0,
+      datetime_us: &__MODULE__.datetime_us/0,
+      datetime_ns: &__MODULE__.datetime_ns/0,
+      decimal: &__MODULE__.decimal/0,
+      positive_decimal: &__MODULE__.positive_decimal/0,
+      uuid_string: &__MODULE__.uuid_string/0
     }
 
     # ============================================================================
@@ -175,6 +185,10 @@ if Code.ensure_loaded?(StreamData) do
       string(:ascii, min_length: 0, max_length: max)
     end
 
+    @doc false
+    @spec default_string16() :: StreamData.t(String.t())
+    def default_string16, do: string16()
+
     @doc """
     Generator for string32 values (up to ~4GB).
 
@@ -184,6 +198,87 @@ if Code.ensure_loaded?(StreamData) do
     def string32(opts \\ []) do
       max = Keyword.get(opts, :max_length, 10_000)
       string(:ascii, min_length: 0, max_length: max)
+    end
+
+    @doc false
+    @spec default_string32() :: StreamData.t(String.t())
+    def default_string32, do: string32()
+
+    @doc "Generator for UUID strings (36-char dashed format)"
+    @spec uuid_string() :: StreamData.t(String.t() | nil)
+    def uuid_string do
+      one_of([
+        map(uuid(), &GridCodec.Types.UUIDString.format_uuid/1),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for microsecond timestamps (nullable)"
+    @spec timestamp_us() :: StreamData.t(integer() | nil)
+    def timestamp_us do
+      one_of([
+        integer(1_577_836_800_000_000..1_893_456_000_000_000),
+        integer(-1_000_000_000_000..-1),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for nanosecond timestamps (nullable)"
+    @spec timestamp_ns() :: StreamData.t(integer() | nil)
+    def timestamp_ns do
+      one_of([
+        integer(1_577_836_800_000_000_000..1_893_456_000_000_000_000),
+        integer(-1_000_000_000_000_000..-1),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for DateTime (microsecond precision, nullable)"
+    @spec datetime_us() :: StreamData.t(DateTime.t() | nil)
+    def datetime_us do
+      one_of([
+        map(integer(1_577_836_800_000_000..1_893_456_000_000_000), fn us ->
+          DateTime.from_unix!(us, :microsecond)
+        end),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for DateTime (nanosecond precision, nullable)"
+    @spec datetime_ns() :: StreamData.t(DateTime.t() | nil)
+    def datetime_ns do
+      one_of([
+        map(integer(1_577_836_800_000_000..1_893_456_000_000_000), fn us ->
+          DateTime.from_unix!(us, :microsecond)
+        end),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for Decimal values (nullable, as {mantissa, exponent} tuples)"
+    @spec decimal() :: StreamData.t(tuple() | nil)
+    def decimal do
+      one_of([
+        bind(integer(-1_000_000_000..1_000_000_000), fn mantissa ->
+          bind(integer(-8..8), fn exp ->
+            constant({mantissa, exp})
+          end)
+        end),
+        constant(nil)
+      ])
+    end
+
+    @doc "Generator for positive Decimal values (nullable)"
+    @spec positive_decimal() :: StreamData.t(tuple() | nil)
+    def positive_decimal do
+      one_of([
+        bind(integer(0..1_000_000_000), fn mantissa ->
+          bind(integer(-8..0), fn exp ->
+            constant({mantissa, exp})
+          end)
+        end),
+        constant(nil)
+      ])
     end
 
     @doc "Generator for binary data of specified size"

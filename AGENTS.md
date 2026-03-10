@@ -448,7 +448,7 @@ This generates:
 ### Key Modules
 
 - `GridCodec.Struct.Compiler` - Generates encode/decode AST
-- `GridCodec.Types.*` - Type implementations (includes `:datetime_us`/`:datetime_ns` for DateTime-domain timestamps)
+- `GridCodec.Types.*` - Type implementations (includes `:datetime_us`/`:datetime_ns` for DateTime-domain timestamps, `PrefixedId` for tagged entity IDs)
 - `GridCodec.Header` - Binary header handling
 - `GridCodec.Binary` - Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
@@ -495,6 +495,20 @@ Each type implements callbacks:
 - `size/0` - Fixed size (if known)
 - `encode_to_wire_ast/2` - (optional) Convert domain value to wire type value
 - `decode_as_ast/2` - (optional) Decode-time wire→domain type transformation (used by `wire_format:`)
+
+### PrefixedId (Macro-Based Composite Type)
+
+Define entity-specific ID types with a wire tag byte for DB-level filtering:
+
+```elixir
+defmodule MyApp.Types.UserId do
+  use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
+end
+```
+
+Wire format: 17 bytes (u8 tag + 16-byte UUID). Provides `generate/0`, `from_uuid/1`,
+`to_uuid/1`, `valid?/1`, `prefix/0`, `tag/0`. SQL generation (`gridcodec.read_prefixed_id`)
+reconstructs the prefixed string at the DB level.
 
 ### Parameterized Types and `wire_format:`
 

@@ -408,6 +408,52 @@ defmodule GridCodec.StructAllTypesTest do
 
       assert decoded.balance == nil
     end
+
+    defmodule TestUserId do
+      use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
+    end
+
+    defmodule PrefixedIdStruct do
+      use GridCodec.Struct, template_id: 110, schema_id: 1
+
+      defcodec do
+        field :user_id, TestUserId
+        field :name, :string8
+      end
+    end
+
+    test "prefixed_id type roundtrips" do
+      user_id = TestUserId.generate()
+      original = %PrefixedIdStruct{user_id: user_id, name: "Alice"}
+
+      {:ok, binary} = PrefixedIdStruct.encode(original)
+      {:ok, decoded} = PrefixedIdStruct.decode(binary)
+
+      assert decoded.user_id == user_id
+      assert decoded.name == "Alice"
+    end
+
+    test "nil prefixed_id roundtrips" do
+      original = %PrefixedIdStruct{user_id: nil, name: "Bob"}
+
+      {:ok, binary} = PrefixedIdStruct.encode(original)
+      {:ok, decoded} = PrefixedIdStruct.decode(binary)
+
+      assert decoded.user_id == nil
+      assert decoded.name == "Bob"
+    end
+
+    test "prefixed_id coerces plain UUID via new/1" do
+      uuid_str = "550e8400-e29b-41d4-a716-446655440000"
+      {:ok, via_new} = PrefixedIdStruct.new(%{user_id: uuid_str, name: "Charlie"})
+
+      assert String.starts_with?(via_new.user_id, "user-")
+      assert String.ends_with?(via_new.user_id, uuid_str)
+
+      {:ok, bin} = PrefixedIdStruct.encode(via_new)
+      {:ok, decoded} = PrefixedIdStruct.decode(bin)
+      assert decoded.user_id == via_new.user_id
+    end
   end
 
   describe "new/1 ↔ decode/1 identity invariant" do

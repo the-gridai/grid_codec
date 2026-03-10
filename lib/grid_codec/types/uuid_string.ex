@@ -158,7 +158,7 @@ defmodule GridCodec.Types.UUIDString do
       hex(e8), hex(e9), hex(e10), hex(e11), hex(e12)>>
   end
 
-  @compile {:inline, hex: 1}
+  @compile {:inline, hex: 1, format_uuid: 1}
   defp hex(n) when n < 10, do: n + ?0
   defp hex(n), do: n + ?a - 10
 
@@ -271,7 +271,7 @@ defmodule GridCodec.Types.UUIDString do
       unhex(e11)::4, unhex(e12)::4>>
   end
 
-  @compile {:inline, unhex: 1}
+  @compile {:inline, unhex: 1, parse_uuid_string!: 1, parse_uuid_nodash!: 1}
   defp unhex(c) when c >= ?0 and c <= ?9, do: c - ?0
   defp unhex(c) when c >= ?a and c <= ?f, do: c - ?a + 10
   defp unhex(c) when c >= ?A and c <= ?F, do: c - ?A + 10

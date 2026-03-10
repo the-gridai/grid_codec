@@ -286,8 +286,31 @@ defmodule GridCodec.Schema.Formatter do
       codecs
       |> Map.new(fn {mod, schema} -> {mod, struct_name(schema)} end)
 
-    Map.merge(enum_aliases, codec_aliases)
+    prefixed_id_aliases = detect_prefixed_id_aliases(codecs)
+
+    enum_aliases
+    |> Map.merge(codec_aliases)
+    |> Map.merge(prefixed_id_aliases)
   end
+
+  defp detect_prefixed_id_aliases(codecs) do
+    codecs
+    |> Enum.flat_map(fn {_mod, schema} ->
+      Enum.map(schema.fields, fn {_name, type_spec, _opts} ->
+        normalize_type_module(type_spec)
+      end)
+    end)
+    |> Enum.uniq()
+    |> Enum.filter(&prefixed_id_module?/1)
+    |> Map.new(fn mod -> {mod, short_module_name(mod)} end)
+  end
+
+  defp prefixed_id_module?(mod) when is_atom(mod) do
+    Code.ensure_loaded?(mod) and
+      function_exported?(mod, :__prefixed_id_meta__, 0)
+  end
+
+  defp prefixed_id_module?(_), do: false
 
   defp format_struct_header(name, schema) do
     attrs = ["template_id: #{schema.template_id}"]

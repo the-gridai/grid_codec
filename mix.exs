@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.27.0"
+  @version "0.27.1"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -176,7 +176,8 @@ defmodule GridCodec.MixProject do
           GridCodec.Types.DateTimeNanos,
           GridCodec.Types.Enum,
           GridCodec.Types.Bitset,
-          GridCodec.Types.CharArray
+          GridCodec.Types.CharArray,
+          GridCodec.Types.PrefixedId
         ]
       ]
     ]

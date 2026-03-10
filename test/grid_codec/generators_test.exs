@@ -133,4 +133,41 @@ defmodule GridCodec.GeneratorsTest do
       end
     end
   end
+
+  describe "PrefixedId generator" do
+    defmodule GenTestUserId do
+      use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
+    end
+
+    defmodule PrefixedIdCodec do
+      use GridCodec.Struct, template_id: 7701, schema_id: 77
+
+      defcodec do
+        field :user_id, GenTestUserId
+        field :count, :u64
+      end
+    end
+
+    property "PrefixedId generator produces valid prefixed strings" do
+      gen = GenTestUserId.generator()
+
+      check all(v <- gen) do
+        assert is_binary(v)
+        assert String.starts_with?(v, "user-")
+        assert byte_size(v) == 5 + 36
+        assert GenTestUserId.valid?(v)
+      end
+    end
+
+    property "for_codec with PrefixedId generates roundtrippable maps" do
+      check all(fields <- Generators.for_codec(PrefixedIdCodec)) do
+        struct = struct!(PrefixedIdCodec, fields)
+        assert {:ok, bin} = PrefixedIdCodec.encode(struct)
+        assert is_binary(bin)
+        assert {:ok, decoded} = PrefixedIdCodec.decode(bin)
+        assert decoded.user_id == struct.user_id
+        assert decoded.count == struct.count
+      end
+    end
+  end
 end
