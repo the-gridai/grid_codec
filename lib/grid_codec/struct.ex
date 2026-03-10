@@ -296,6 +296,20 @@ defmodule GridCodec.Struct do
         @gridcodec_groups {name, fields, group_opts}
       end
 
+      # Define struct immediately so %__MODULE__{} works in subsequent function heads
+      {gridcodec_sf__, gridcodec_ek__} =
+        GridCodec.Struct.Compiler.compute_struct_fields(
+          Module.get_attribute(__MODULE__, :gridcodec_fields) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_groups) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_batches) || []
+        )
+
+      if gridcodec_ek__ != [] do
+        @enforce_keys gridcodec_ek__
+      end
+
+      defstruct gridcodec_sf__
+
       @before_compile GridCodec.Struct.Compiler
     end
   end
@@ -479,10 +493,25 @@ defmodule GridCodec.Struct do
   """
   defmacro defcodec(do: block) do
     quote do
-      # Collect field definitions
       unquote(block)
 
-      # Generate the struct and codec implementation
+      # Define struct immediately so %__MODULE__{} works in subsequent function heads.
+      # This calls compute_struct_fields as a regular function (not macro expansion),
+      # so Module.get_attribute reads the already-accumulated field definitions.
+      {gridcodec_sf__, gridcodec_ek__} =
+        GridCodec.Struct.Compiler.compute_struct_fields(
+          Module.get_attribute(__MODULE__, :gridcodec_fields) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_groups) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_batches) || []
+        )
+
+      if gridcodec_ek__ != [] do
+        @enforce_keys gridcodec_ek__
+      end
+
+      defstruct gridcodec_sf__
+
+      # Generate codec functions (encode/decode/get/etc.) after module body
       @before_compile GridCodec.Struct.Compiler
     end
   end

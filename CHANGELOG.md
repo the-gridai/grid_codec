@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-03-11
+
+### Fixed
+- **`%__MODULE__{}` in function heads** — `defstruct` is now emitted immediately after
+  field definitions are accumulated (via `compute_struct_fields/3`) instead of being
+  deferred to `@before_compile`. This allows modules using `defcodec` or `grid_file:`
+  to pattern-match on `%__MODULE__{}` in function heads defined after the codec block.
+  All compile-time code generation (encoder/decoder AST, typespecs, macros) is unchanged.
+
 ## [0.29.0] - 2026-03-10
 
 ### Added

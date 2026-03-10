@@ -3,16 +3,10 @@ defmodule GridCodec.Struct.Compiler do
 
   import Bitwise
 
-  @doc """
-  Generates the struct definition and codec implementation at compile time.
-
-  This module is invoked via `@before_compile` when using `GridCodec.Struct`
-  and generates:
-
-  - `defstruct` with fields and defaults from the defcodec block
-  - `@enforce_keys` for fields with `presence: :required`
-  - All codec functions that work with the struct type
-  """
+  @doc false
+  def compute_struct_fields(fields, groups, batches) do
+    build_struct_fields(Enum.reverse(fields), Enum.reverse(groups), Enum.reverse(batches))
+  end
 
   defmacro __before_compile__(env) do
     fields = Module.get_attribute(env.module, :gridcodec_fields) |> Enum.reverse()
@@ -108,7 +102,6 @@ defmodule GridCodec.Struct.Compiler do
     {processed_groups, auto_group_fns} = process_groups(all_groups, endian)
 
     # Build struct field list with defaults (includes group names with default [])
-    {struct_fields, enforce_keys} = build_struct_fields(fields, all_groups)
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
     struct_typedoc = build_struct_typedoc(resolved_fields, groups)
 
@@ -183,13 +176,9 @@ defmodule GridCodec.Struct.Compiler do
     module = env.module
 
     quote do
-      # Generate @enforce_keys before defstruct
-      if unquote(enforce_keys) != [] do
-        @enforce_keys unquote(enforce_keys)
-      end
-
-      # Generate defstruct
-      defstruct unquote(struct_fields)
+      # defstruct and @enforce_keys are emitted by compute_struct_fields/3
+      # called from the defcodec quote block, so %__MODULE__{} is available
+      # in function heads defined after defcodec.
 
       if unquote(generate_typespec) do
         @typedoc unquote(struct_typedoc)
@@ -493,7 +482,7 @@ defmodule GridCodec.Struct.Compiler do
   # Struct Field Generation
   # ============================================================================
 
-  defp build_struct_fields(fields, groups) do
+  defp build_struct_fields(fields, groups, batches) do
     struct_fields =
       Enum.map(fields, fn {name, _type, opts} ->
         presence = Keyword.get(opts, :presence, :optional)
@@ -510,6 +499,7 @@ defmodule GridCodec.Struct.Compiler do
       end)
 
     group_fields = Enum.map(groups, fn {name, _, _} -> {name, []} end)
+    batch_fields = Enum.map(batches, fn {name, _, _} -> {name, []} end)
 
     enforce_keys =
       fields
@@ -518,7 +508,7 @@ defmodule GridCodec.Struct.Compiler do
       end)
       |> Enum.map(fn {name, _, _} -> name end)
 
-    {struct_fields ++ group_fields, enforce_keys}
+    {struct_fields ++ group_fields ++ batch_fields, enforce_keys}
   end
 
   defp ensure_unique_type_name!(type_name, module, file, line) do

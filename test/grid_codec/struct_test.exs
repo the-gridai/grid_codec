@@ -99,6 +99,43 @@ defmodule GridCodec.StructTest do
     end
   end
 
+  describe "%__MODULE__{} in function heads" do
+    defmodule StructPatternMatch do
+      use GridCodec.Struct, template_id: 50, schema_id: 100
+
+      defcodec do
+        field :price, :u64, default: 0
+        field :quantity, :u32, default: 0
+      end
+
+      def validate(%__MODULE__{price: p, quantity: q}) when p > 0 and q > 0, do: :ok
+      def validate(%__MODULE__{}), do: {:error, :invalid}
+
+      def total(%__MODULE__{price: p, quantity: q}), do: p * q
+    end
+
+    test "pattern matching on %__MODULE__{} works in function heads" do
+      assert StructPatternMatch.validate(%StructPatternMatch{price: 100, quantity: 5}) == :ok
+
+      assert StructPatternMatch.validate(%StructPatternMatch{price: 0, quantity: 5}) ==
+               {:error, :invalid}
+
+      assert StructPatternMatch.validate(%StructPatternMatch{}) == {:error, :invalid}
+    end
+
+    test "field extraction via %__MODULE__{} works" do
+      assert StructPatternMatch.total(%StructPatternMatch{price: 10, quantity: 3}) == 30
+    end
+
+    test "encode/decode still works after struct pattern match functions" do
+      struct = %StructPatternMatch{price: 100, quantity: 5}
+      assert {:ok, binary} = StructPatternMatch.encode(struct)
+      assert {:ok, decoded} = StructPatternMatch.decode(binary)
+      assert decoded.price == 100
+      assert decoded.quantity == 5
+    end
+  end
+
   describe "introspection functions" do
     defmodule IntrospectionStruct do
       use GridCodec.Struct, template_id: 5, schema_id: 200, version: 2
