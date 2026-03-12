@@ -9,8 +9,10 @@ Checklist for applications that depend on GridCodec (e.g. market exchange servic
 ## Schema and types
 
 - [ ] **Custom enums in groups** — Requires grid_codec v0.11.0+ for alias resolution in groups.
+- [ ] **Typed groups** — Use `group :name, of: EntryModule` when repeated entries already have a reusable fixed-size codec struct.
 - [ ] **Fixed-point on the wire** — Use `:i64` (or `:u64`) with `wire_format:` when state is integer-native; avoid `:positive_decimal` encoding when a scaled integer is sufficient.
 - [ ] **UUID in groups** — Use `:uuid` (binary) unless you need string format internally; then use `:uuid_string`.
+- [ ] **Lookups for keyed access** — Prefer codec `lookups do` helpers for reusable runtime access paths like `reservations_by_id`; keep them out of `.grid` because they are Elixir-side lookup metadata, not wire schema.
 
 ## Performance
 

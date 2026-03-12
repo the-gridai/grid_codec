@@ -14,9 +14,8 @@ This is an example application that demonstrates real-world usage of `GridCodec.
 example_app/
 ├── lib/
 │   └── example_app/
-│       └── events/           # Example event codecs
-│           ├── order_created.ex
-│           └── trade_executed.ex
+│       ├── events/           # Example event codecs
+│       └── views/            # Typed-group and lookup examples
 ├── benchmarks/
 │   ├── run_all.exs           # Run all benchmarks
 │   ├── quick_bench.exs       # Quick dev benchmark
@@ -51,6 +50,7 @@ mix bench.parameterized
 
 # Or run directly
 mix run benchmarks/encode_decode.exs
+MIX_ENV=prod mix run benchmarks/lookup_bench.exs
 ```
 
 ### Example Codecs
@@ -101,6 +101,20 @@ price = ExampleApp.Events.OrderCreated.get(binary, :price)
 # Dispatch (with consolidated registry)
 {:ok, framed} = GridCodec.encode(order)
 {:ok, decoded} = GridCodec.decode(framed)
+```
+
+### Typed Groups And Lookups
+
+See `lib/example_app/views/` for a concrete aggregate-style example:
+
+- `Reservation` — fixed-size typed group entry with `:datetime_us`
+- `CurrencyAccount` — `group :reservations, of: Reservation` plus generated lookups
+- `CommandEnvelope` — heterogeneous batch with per-type keyed lookups
+
+You can also try the example at runtime:
+
+```elixir
+ExampleApp.lookup_usage()
 ```
 
 ## Benefits

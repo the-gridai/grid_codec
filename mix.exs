@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.29.3"
+  @version "0.30.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -113,6 +113,7 @@ defmodule GridCodec.MixProject do
         "README.md": [title: "Overview"],
         "docs/getting-started.md": [title: "Getting Started"],
         "docs/schemas.md": [title: "Schemas"],
+        "docs/lookups.md": [title: "Typed Groups & Lookups"],
         "docs/schema-evolution.md": [title: "Schema Evolution"],
         "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
         "docs/performance.md": [title: "Performance Guide"],
@@ -131,6 +132,8 @@ defmodule GridCodec.MixProject do
         ],
         Runtime: [
           GridCodec.Group,
+          GridCodec.Lookup,
+          GridCodec.View,
           GridCodec.Batch,
           GridCodec.Batch.PaddedUnion,
           GridCodec.Batch.TypedFrames,

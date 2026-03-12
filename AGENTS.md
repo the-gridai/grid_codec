@@ -451,6 +451,7 @@ This generates:
 - `GridCodec.Types.*` - Type implementations (includes `:datetime_us`/`:datetime_ns` for DateTime-domain timestamps, `PrefixedId` for tagged entity IDs)
 - `GridCodec.Header` - Binary header handling
 - `GridCodec.Binary` - Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
+- `GridCodec.Lookup` - Runtime engine for Elixir-side `lookups do` accessors over decoded `group` and `batch` fields (not part of `.grid`)
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-03-12
+
+### Added
+- **Typed groups and lookups DSL** — `group :name, of: Module` now reuses fixed-size
+  child codecs as homogeneous group entries, and `lookups do` generates named runtime
+  accessors over `group` and `batch` fields with compile-time validation,
+  last-write-wins keyed map semantics, and codec-level introspection via `__lookups__/0`.
+
+### Documentation
+- **Typed groups and lookups guide** — added end-to-end usage guidance across
+  `README.md`, `GridCodec.Struct`, `docs/getting-started.md`,
+  `docs/consumer-integration.md`, and the new `docs/lookups.md` guide, including
+  the boundary between Elixir-side lookups and `.grid` schema export.
+
+### Performance
+- **Lookup benchmark coverage** — added `example_app/benchmarks/lookup_bench.exs` to compare
+  generated lookups against equivalent manual `GridCodec.Group.to_list |> Map.new` /
+  `Enum.filter` pipelines in realistic typed-group and batch scenarios.
+- **Generated keyed group lookups benchmarked** — on the Apple M3 Max reference run used
+  during implementation, a generated typed-group keyed map lookup ran in `5.69 ms`
+  and `6.94 MB` versus `6.21 ms` and `8.49 MB` for the equivalent manual
+  `GridCodec.Group.to_list(...) |> Map.new(...)` pipeline, and the generated
+  filtered list lookup ran in `3.47 ms` / `6.19 MB` versus `4.67 ms` / `7.81 MB`
+  for `to_list |> Enum.filter`.
+
 ## [0.29.3] - 2026-03-11
 
 ### Fixed

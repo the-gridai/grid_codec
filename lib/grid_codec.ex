@@ -345,8 +345,45 @@ defmodule GridCodec do
       |> Stream.filter(&(&1.qty > 100))
       |> Enum.take(10)
   """
-  defmacro group(name, opts \\ [], do: block) do
+  defmacro group(name, opts \\ []) when is_atom(name) and is_list(opts) do
     caller = __CALLER__
+    block = Keyword.get(opts, :do)
+    opts = Keyword.delete(opts, :do)
+
+    if block != nil and Keyword.has_key?(opts, :of) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description: "group #{inspect(name)} cannot use both `of:` and an inline field block"
+    end
+
+    expanded_opts = expand_group_opts(opts, caller)
+
+    expanded_block =
+      if block do
+        Macro.prewalk(block, fn
+          {:__aliases__, _, _} = node -> Macro.expand(node, caller)
+          other -> other
+        end)
+      end
+
+    quote do
+      @gridcodec_groups {unquote(name), unquote(Macro.escape(expanded_block)),
+                         unquote(Macro.escape(expanded_opts))}
+    end
+  end
+
+  defmacro group(name, opts, do: block) do
+    caller = __CALLER__
+
+    if Keyword.has_key?(opts, :of) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description: "group #{inspect(name)} cannot use both `of:` and an inline field block"
+    end
+
+    expanded_opts = expand_group_opts(opts, caller)
 
     expanded_block =
       Macro.prewalk(block, fn
@@ -355,8 +392,62 @@ defmodule GridCodec do
       end)
 
     quote do
-      @gridcodec_groups {unquote(name), unquote(Macro.escape(expanded_block)), unquote(opts)}
+      @gridcodec_groups {unquote(name), unquote(Macro.escape(expanded_block)),
+                         unquote(Macro.escape(expanded_opts))}
     end
+  end
+
+  @doc """
+  Groups named lookup declarations for the surrounding codec.
+  """
+  defmacro lookups(do: block) do
+    block
+  end
+
+  @doc """
+  Declares a named runtime lookup over a group or batch field.
+  """
+  defmacro lookup(name, opts) when is_atom(name) and is_list(opts) do
+    caller = __CALLER__
+    block = Keyword.fetch!(opts, :do)
+
+    expanded_block =
+      Macro.prewalk(block, fn
+        {:__aliases__, _, _} = node -> Macro.expand(node, caller)
+        other -> other
+      end)
+
+    quote do
+      @gridcodec_lookups {unquote(name), unquote(Macro.escape(expanded_block))}
+    end
+  end
+
+  @doc false
+  defmacro views(do: block) do
+    quote do
+      GridCodec.lookups do
+        unquote(block)
+      end
+    end
+  end
+
+  @doc false
+  defmacro view(name, do: block) do
+    quote do
+      GridCodec.lookup unquote(name) do
+        unquote(block)
+      end
+    end
+  end
+
+  defp expand_group_opts(opts, caller) do
+    Keyword.new(opts, fn
+      {:of, {:__aliases__, _, _} = mod_ast} ->
+        {:of, Macro.expand(mod_ast, caller)}
+
+      other ->
+        other
+    end)
   end
 
   @doc """

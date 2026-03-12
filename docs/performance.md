@@ -97,6 +97,32 @@ full decode because it skips all other fields:
 {:ok, %{price: price, side: side}} = MyCodec.decode_only(binary, [:price, :side])
 ```
 
+Use lookups when you need a reusable alternate access path over a decoded group or batch:
+
+```elixir
+{:ok, account} = AccountCodec.decode(binary)
+{:ok, reservations_by_id} = AccountCodec.reservations_by_id(account)
+```
+
+Lookups are not a replacement for `decode_only/2`. They operate on decoded
+collection fields and are best when the same projection logic would otherwise be
+rewritten as `GridCodec.Group.to_list(...) |> Map.new(...)` in multiple places.
+
+For keyed group projections, generated lookups use last-write-wins semantics. In
+the reference `example_app` benchmark on an Apple M3 Max, a generated
+typed-group map lookup beat the equivalent manual
+`GridCodec.Group.to_list(...) |> Map.new(...)` pipeline (`5.69 ms`, `6.94 MB`
+versus `6.21 ms`, `8.49 MB`). The generated filtered list lookup also beat the
+manual `to_list |> Enum.filter` path (`3.47 ms`, `6.19 MB` versus
+`4.67 ms`, `7.81 MB`).
+
+Run the comparison yourself with:
+
+```bash
+cd example_app
+MIX_ENV=prod mix run benchmarks/lookup_bench.exs
+```
+
 ## Use `get/2` for Single Field Hot Reads
 
 For fixed-size fields, zero-copy access is the fastest option:

@@ -12,6 +12,7 @@ defmodule GridCodec.Struct.Compiler do
     fields = Module.get_attribute(env.module, :gridcodec_fields) |> Enum.reverse()
     groups = Module.get_attribute(env.module, :gridcodec_groups) |> Enum.reverse()
     batches = (Module.get_attribute(env.module, :gridcodec_batches) || []) |> Enum.reverse()
+    lookups = (Module.get_attribute(env.module, :gridcodec_lookups) || []) |> Enum.reverse()
     opts = Module.get_attribute(env.module, :gridcodec_opts) || []
 
     # Extract options with defaults
@@ -101,6 +102,8 @@ defmodule GridCodec.Struct.Compiler do
     # entry_encoder/entry_decoder are not explicitly provided
     {processed_groups, auto_group_fns} = process_groups(all_groups, endian)
 
+    normalized_lookups = normalize_lookups(lookups, processed_groups, batches)
+
     # Build struct field list with defaults (includes group names with default [])
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
     struct_typedoc = build_struct_typedoc(resolved_fields, groups)
@@ -130,6 +133,7 @@ defmodule GridCodec.Struct.Compiler do
       groups: groups,
       batches: batch_meta,
       group_fields: group_field_meta,
+      lookups: normalized_lookups,
       version: version,
       template_id: template_id,
       schema_id: schema_id,
@@ -273,6 +277,16 @@ defmodule GridCodec.Struct.Compiler do
           env.module,
           generate_typespec,
           block_length
+        )
+      )
+
+      unquote(
+        generate_lookup_helpers(
+          normalized_lookups,
+          processed_groups,
+          endian,
+          env.module,
+          generate_typespec
         )
       )
 
@@ -565,7 +579,13 @@ defmodule GridCodec.Struct.Compiler do
         if Keyword.get(opts, :is_batch, false) do
           {name, quote(do: [struct()] | GridCodec.Batch.t())}
         else
-          {name, quote(do: [map()] | GridCodec.Group.t())}
+          case Keyword.get(opts, :of) do
+            nil ->
+              {name, quote(do: [map()] | GridCodec.Group.t())}
+
+            module ->
+              {name, quote(do: [%unquote(module){}] | GridCodec.Group.t())}
+          end
         end
       end)
 
@@ -1358,58 +1378,136 @@ defmodule GridCodec.Struct.Compiler do
 
   defp process_groups(groups, endian) do
     Enum.map_reduce(groups, [], fn {name, block, opts}, acc_fns ->
+      typed_module = Keyword.get(opts, :of)
+
       has_explicit_codecs =
         Keyword.has_key?(opts, :entry_encoder) or Keyword.has_key?(opts, :entry_decoder)
 
       group_fields = parse_group_fields(block)
 
-      if has_explicit_codecs or group_fields == [] do
-        {{name, block, opts}, acc_fns}
-      else
-        resolved = resolve_types(group_fields)
+      cond do
+        typed_module != nil ->
+          if has_explicit_codecs do
+            raise CompileError,
+              description: "Group :#{name} cannot use `of:` together with explicit entry codecs."
+          end
 
-        var_fields =
-          Enum.filter(resolved, fn {_n, _t, _mod, _o} = f -> effective_size(f) == :variable end)
+          if group_fields != [] do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `of:` together with inline field declarations."
+          end
 
-        if var_fields != [] do
-          names = Enum.map(var_fields, fn {n, _, _, _} -> n end)
+          {resolved, block_length} = resolve_typed_group!(name, typed_module)
+          encoder_fn = generate_typed_group_entry_encoder(name, typed_module)
+          decoder_fn = generate_typed_group_entry_decoder(name, typed_module)
+          batch_encoder_fn = generate_direct_group_batch_encoder(name, block_length)
+          batch_decoder_fn = generate_typed_group_batch_decoder(name, typed_module, block_length)
 
-          raise CompileError,
-            description:
-              "Group :#{name} contains variable-length fields #{inspect(names)}. " <>
-                "Group entries must have only fixed-size fields."
-        end
+          encoder_fn_name = :"__encode_#{name}_entry__"
+          decoder_fn_name = :"__decode_#{name}_entry__"
+          batch_encoder_fn_name = :"__encode_#{name}_group__"
+          batch_decoder_fn_name = :"__decode_all_#{name}__"
 
-        encoder_fn = generate_auto_entry_encoder(name, resolved, endian)
-        decoder_fn = generate_auto_entry_decoder(name, resolved, endian)
-        batch_encoder_fn = generate_auto_batch_encoder(name, resolved, endian)
-        batch_decoder_fn = generate_auto_batch_decoder(name, resolved, endian)
+          encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
+          decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+          batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
 
-        encoder_fn_name = :"__encode_#{name}_entry__"
-        decoder_fn_name = :"__decode_#{name}_entry__"
-        batch_encoder_fn_name = :"__encode_#{name}_group__"
-        batch_decoder_fn_name = :"__decode_all_#{name}__"
+          updated_opts =
+            opts
+            |> Keyword.put(:entry_encoder, encoder_capture)
+            |> Keyword.put(:entry_decoder, decoder_capture)
+            |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+            |> Keyword.put(:batch_decoder, batch_decoder_capture)
+            |> Keyword.put(:block_length, block_length)
+            |> Keyword.put(:__resolved_fields__, resolved)
+            |> Keyword.put(:__of_module__, typed_module)
 
-        encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
-        decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
-        batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
+          {{name, block, updated_opts},
+           acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
 
-        block_length =
-          Enum.reduce(resolved, 0, fn f, acc -> acc + effective_size(f) end)
+        has_explicit_codecs or group_fields == [] ->
+          {{name, block, opts}, acc_fns}
 
-        updated_opts =
-          opts
-          |> Keyword.put(:entry_encoder, encoder_capture)
-          |> Keyword.put(:entry_decoder, decoder_capture)
-          |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
-          |> Keyword.put(:batch_decoder, batch_decoder_capture)
-          |> Keyword.put(:block_length, block_length)
-          |> Keyword.put(:__resolved_fields__, resolved)
+        true ->
+          resolved = resolve_types(group_fields)
 
-        {{name, block, updated_opts},
-         acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
+          var_fields =
+            Enum.filter(resolved, fn {_n, _t, _mod, _o} = f -> effective_size(f) == :variable end)
+
+          if var_fields != [] do
+            names = Enum.map(var_fields, fn {n, _, _, _} -> n end)
+
+            raise CompileError,
+              description:
+                "Group :#{name} contains variable-length fields #{inspect(names)}. " <>
+                  "Group entries must have only fixed-size fields."
+          end
+
+          encoder_fn = generate_auto_entry_encoder(name, resolved, endian)
+          decoder_fn = generate_auto_entry_decoder(name, resolved, endian)
+          batch_encoder_fn = generate_auto_batch_encoder(name, resolved, endian)
+          batch_decoder_fn = generate_auto_batch_decoder(name, resolved, endian)
+
+          encoder_fn_name = :"__encode_#{name}_entry__"
+          decoder_fn_name = :"__decode_#{name}_entry__"
+          batch_encoder_fn_name = :"__encode_#{name}_group__"
+          batch_decoder_fn_name = :"__decode_all_#{name}__"
+
+          encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
+          decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+          batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
+
+          block_length =
+            Enum.reduce(resolved, 0, fn f, acc -> acc + effective_size(f) end)
+
+          updated_opts =
+            opts
+            |> Keyword.put(:entry_encoder, encoder_capture)
+            |> Keyword.put(:entry_decoder, decoder_capture)
+            |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+            |> Keyword.put(:batch_decoder, batch_decoder_capture)
+            |> Keyword.put(:block_length, block_length)
+            |> Keyword.put(:__resolved_fields__, resolved)
+
+          {{name, block, updated_opts},
+           acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
       end
     end)
+  end
+
+  defp resolve_typed_group!(group_name, module) do
+    Code.ensure_compiled!(module)
+
+    unless function_exported?(module, :__schema__, 0) and
+             function_exported?(module, :block_length, 0) do
+      raise CompileError,
+        description:
+          "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module does not expose GridCodec struct metadata."
+    end
+
+    schema = module.__schema__()
+
+    cond do
+      Map.get(schema, :groups, []) != [] ->
+        raise CompileError,
+          description:
+            "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module contains nested groups."
+
+      Map.get(schema, :batches, []) != [] ->
+        raise CompileError,
+          description:
+            "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module contains nested batches."
+
+      Map.get(schema, :var_fields, []) != [] ->
+        raise CompileError,
+          description:
+            "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module contains variable-length fields #{inspect(schema.var_fields)}."
+
+      true ->
+        resolved = resolve_types(Map.get(schema, :fields, []))
+        {resolved, module.block_length()}
+    end
   end
 
   defp parse_group_fields(block_ast) do
@@ -1425,6 +1523,73 @@ defmodule GridCodec.Struct.Compiler do
       {:field, _, [name, type, opts]} when is_atom(name) -> [{name, type, opts}]
       _ -> []
     end)
+  end
+
+  defp generate_typed_group_entry_encoder(group_name, module) do
+    fn_name = :"__encode_#{group_name}_entry__"
+    entry_var = Macro.var(:entry, __MODULE__)
+
+    quote do
+      defp unquote(fn_name)(unquote(entry_var)) when is_map(unquote(entry_var)) do
+        {:ok, payload} = unquote(module).encode(unquote(entry_var), header: false)
+        payload
+      end
+    end
+  end
+
+  defp generate_typed_group_entry_decoder(group_name, module) do
+    fn_name = :"__decode_#{group_name}_entry__"
+    binary_var = Macro.var(:entry_binary, __MODULE__)
+
+    quote do
+      defp unquote(fn_name)(unquote(binary_var)) when is_binary(unquote(binary_var)) do
+        unquote(module).decode(unquote(binary_var), header: false)
+      end
+    end
+  end
+
+  defp generate_direct_group_batch_encoder(group_name, block_length) do
+    group_fn = :"__encode_#{group_name}_group__"
+    loop_fn = :"__encode_#{group_name}_list__"
+    entry_fn = :"__encode_#{group_name}_entry__"
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<0::little-16, 0::little-16>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        iodata = unquote(loop_fn)(entries)
+
+        :erlang.iolist_to_binary([
+          <<unquote(block_length)::little-16, count::little-16>> | iodata
+        ])
+      end
+
+      defp unquote(loop_fn)([]), do: []
+
+      defp unquote(loop_fn)([entry | rest]) do
+        [unquote(entry_fn)(entry) | unquote(loop_fn)(rest)]
+      end
+    end
+  end
+
+  defp generate_typed_group_batch_decoder(group_name, module, block_length) do
+    fn_name = :"__decode_all_#{group_name}__"
+    entry_var = Macro.var(:entry_binary, __MODULE__)
+
+    quote do
+      defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
+
+      defp unquote(fn_name)(
+             <<unquote(entry_var)::binary-size(unquote(block_length)), rest::binary>>,
+             acc
+           ) do
+        {:ok, decoded} = unquote(module).decode(unquote(entry_var), header: false)
+        unquote(fn_name)(rest, [decoded | acc])
+      end
+    end
   end
 
   defp generate_auto_entry_encoder(group_name, resolved_fields, endian) do
@@ -3558,27 +3723,33 @@ defmodule GridCodec.Struct.Compiler do
 
   defp build_group_coercions(groups, _module) do
     Enum.flat_map(groups, fn {name, _block, opts} ->
+      typed_module = Keyword.get(opts, :__of_module__)
       group_fields = Keyword.get(opts, :__resolved_fields__)
 
-      if group_fields && group_fields != [] do
-        entry_coercions =
-          Enum.map(group_fields, fn {fname, ftype_atom, ftype_module, _fopts} ->
-            fname_str = Atom.to_string(fname)
+      cond do
+        typed_module != nil ->
+          [{name, Atom.to_string(name), {:typed, typed_module}}]
 
-            coerce =
-              if function_exported?(ftype_module, :coerce_ast, 1) do
-                var = Macro.var(:__entry_val__, __MODULE__)
-                ftype_module.coerce_ast(var)
-              else
-                nil
-              end
+        group_fields && group_fields != [] ->
+          entry_coercions =
+            Enum.map(group_fields, fn {fname, ftype_atom, ftype_module, _fopts} ->
+              fname_str = Atom.to_string(fname)
 
-            {fname, fname_str, ftype_atom, coerce}
-          end)
+              coerce =
+                if function_exported?(ftype_module, :coerce_ast, 1) do
+                  var = Macro.var(:__entry_val__, __MODULE__)
+                  ftype_module.coerce_ast(var)
+                else
+                  nil
+                end
 
-        [{name, Atom.to_string(name), entry_coercions}]
-      else
-        []
+              {fname, fname_str, ftype_atom, coerce}
+            end)
+
+          [{name, Atom.to_string(name), entry_coercions}]
+
+        true ->
+          []
       end
     end)
   end
@@ -3638,30 +3809,55 @@ defmodule GridCodec.Struct.Compiler do
       end)
 
     group_extractions =
-      Enum.map(group_coercions, fn {name, name_str, entry_coercions} ->
-        field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+      Enum.map(group_coercions, fn
+        {name, name_str, {:typed, typed_module}} ->
+          field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+          entry_cast = build_typed_entry_cast_ast(typed_module, name, module)
 
-        entry_cast = build_entry_cast_ast(entry_coercions, name, module)
+          quote do
+            unquote(field_var) =
+              case :maps.find(unquote(name), attrs) do
+                {:ok, entries} when is_list(entries) ->
+                  Enum.map(entries, fn entry -> unquote(entry_cast) end)
 
-        quote do
-          unquote(field_var) =
-            case :maps.find(unquote(name), attrs) do
-              {:ok, entries} when is_list(entries) ->
-                Enum.map(entries, fn entry -> unquote(entry_cast) end)
+                {:ok, nil} ->
+                  []
 
-              {:ok, nil} ->
-                []
+                :error ->
+                  case Map.get(attrs, unquote(name_str)) do
+                    entries when is_list(entries) ->
+                      Enum.map(entries, fn entry -> unquote(entry_cast) end)
 
-              :error ->
-                case Map.get(attrs, unquote(name_str)) do
-                  entries when is_list(entries) ->
-                    Enum.map(entries, fn entry -> unquote(entry_cast) end)
+                    _ ->
+                      []
+                  end
+              end
+          end
 
-                  _ ->
-                    []
-                end
-            end
-        end
+        {name, name_str, entry_coercions} ->
+          field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+          entry_cast = build_entry_cast_ast(entry_coercions, name, module)
+
+          quote do
+            unquote(field_var) =
+              case :maps.find(unquote(name), attrs) do
+                {:ok, entries} when is_list(entries) ->
+                  Enum.map(entries, fn entry -> unquote(entry_cast) end)
+
+                {:ok, nil} ->
+                  []
+
+                :error ->
+                  case Map.get(attrs, unquote(name_str)) do
+                    entries when is_list(entries) ->
+                      Enum.map(entries, fn entry -> unquote(entry_cast) end)
+
+                    _ ->
+                      []
+                  end
+              end
+          end
       end)
 
     field_pairs =
@@ -3741,6 +3937,32 @@ defmodule GridCodec.Struct.Compiler do
     {:__block__, [], step_asts ++ [{:%{}, [], pairs}]}
   end
 
+  defp build_typed_entry_cast_ast(typed_module, group_name, parent_module) do
+    quote do
+      case entry do
+        %unquote(typed_module){} = typed ->
+          typed
+
+        other ->
+          case unquote(typed_module).new(other) do
+            {:ok, typed} ->
+              typed
+
+            {:error, %GridCodec.ValidationError{} = error} ->
+              throw(
+                GridCodec.ValidationError.cast_error(
+                  unquote(parent_module),
+                  unquote(group_name),
+                  unquote(typed_module),
+                  other,
+                  "in group #{unquote(group_name)}: " <> Exception.message(error)
+                )
+              )
+          end
+      end
+    end
+  end
+
   # ============================================================================
   # Content Hash Generation
   # ============================================================================
@@ -3803,6 +4025,578 @@ defmodule GridCodec.Struct.Compiler do
             error
         end
       end
+    end
+  end
+
+  # ============================================================================
+  # Lookups DSL
+  # ============================================================================
+
+  defp normalize_lookups(raw_lookups, processed_groups, batches) do
+    raw_lookups
+    |> Enum.map(&normalize_lookup(&1, processed_groups, batches))
+    |> ensure_unique_lookup_names!()
+  end
+
+  defp normalize_lookup({name, block_ast}, processed_groups, batches) do
+    parsed = parse_lookup_block(block_ast)
+    source_name = Map.fetch!(parsed, :from)
+    source = resolve_lookup_source!(source_name, processed_groups, batches)
+    into = Map.get(parsed, :into, :list)
+    key_specs = Map.get(parsed, :keys, [])
+    filters = Map.get(parsed, :filters, [])
+    validate_lookup_target!(name, into)
+
+    normalized_keys =
+      normalize_lookup_keys!(
+        name,
+        source,
+        key_specs
+      )
+
+    normalized_filters = normalize_lookup_filters!(name, source, filters)
+
+    if into == :map and normalized_keys == [] do
+      raise CompileError, description: "Lookup :#{name} with `into :map` must declare a key."
+    end
+
+    %{
+      name: name,
+      source: {source.kind, source_name},
+      into: into,
+      keys: normalized_keys,
+      filters: normalized_filters
+    }
+  end
+
+  defp parse_lookup_block(block_ast) do
+    stmts =
+      case block_ast do
+        {:__block__, _, values} -> values
+        nil -> []
+        single -> [single]
+      end
+
+    Enum.reduce(stmts, %{}, fn
+      {:from, _, [source]}, acc when is_atom(source) ->
+        Map.put(acc, :from, source)
+
+      {:into, _, [target]}, acc when is_atom(target) ->
+        Map.put(acc, :into, target)
+
+      {:key, _, [field]}, acc when is_atom(field) ->
+        Map.update(acc, :keys, [{:all, field}], &(&1 ++ [{:all, field}]))
+
+      {:key, _, [module, field]}, acc when is_atom(module) and is_atom(field) ->
+        Map.update(acc, :keys, [{module, field}], &(&1 ++ [{module, field}]))
+
+      {:where, _, [filters]}, acc when is_list(filters) ->
+        Map.update(acc, :filters, filters, &(&1 ++ filters))
+
+      other, _acc ->
+        raise CompileError,
+          description:
+            "Unsupported lookup DSL statement: #{Macro.to_string(other)}. " <>
+              "Expected from/1, into/1, key/1, key/2, or where/1."
+    end)
+  end
+
+  defp resolve_lookup_source!(source_name, processed_groups, batches) do
+    case Enum.find(batches, fn {name, _mods, _opts} -> name == source_name end) do
+      {^source_name, modules, batch_opts} ->
+        %{
+          kind: :batch,
+          modules: modules,
+          fields_by_module: Map.new(modules, &{&1, module_field_names(&1)}),
+          strategy: Keyword.get(batch_opts, :strategy, :padded_union)
+        }
+
+      nil ->
+        case Enum.find(processed_groups, fn {name, _block, opts} ->
+               name == source_name and not Keyword.get(opts, :is_batch, false)
+             end) do
+          {^source_name, _block, opts} ->
+            resolved = Keyword.get(opts, :__resolved_fields__, [])
+
+            %{
+              kind: :group,
+              fields: Enum.map(resolved, fn {name, _type, _module, _opts} -> name end),
+              of: Keyword.get(opts, :__of_module__)
+            }
+
+          nil ->
+            raise CompileError,
+              description:
+                "Unknown lookup source #{inspect(source_name)}. Expected a group or batch field."
+        end
+    end
+  end
+
+  defp normalize_lookup_keys!(name, %{kind: :group, fields: fields}, key_specs) do
+    Enum.map(key_specs, fn
+      {:all, field} ->
+        unless field in fields do
+          raise CompileError,
+            description: "Lookup :#{name} references unknown group key field #{inspect(field)}."
+        end
+
+        {:all, field}
+
+      {module, _field} ->
+        raise CompileError,
+          description:
+            "Lookup :#{name} cannot use per-type batch key declarations for a group source (got #{inspect(module)})."
+    end)
+  end
+
+  defp normalize_lookup_keys!(
+         name,
+         %{kind: :batch, modules: modules, fields_by_module: fields_by_module},
+         key_specs
+       ) do
+    normalized =
+      Enum.map(key_specs, fn
+        {:all, field} ->
+          Enum.each(modules, fn module ->
+            unless field in Map.fetch!(fields_by_module, module) do
+              raise CompileError,
+                description:
+                  "Lookup :#{name} uses shared batch key #{inspect(field)}, but #{inspect(module)} does not define that field."
+            end
+          end)
+
+          {:all, field}
+
+        {module, field} ->
+          unless module in modules do
+            raise CompileError,
+              description:
+                "Lookup :#{name} references #{inspect(module)} in a batch key, but that module is not in any_of:."
+          end
+
+          unless field in Map.fetch!(fields_by_module, module) do
+            raise CompileError,
+              description:
+                "Lookup :#{name} references unknown key field #{inspect(field)} for #{inspect(module)}."
+          end
+
+          {module, field}
+      end)
+
+    if normalized != [] and not Enum.any?(normalized, fn {mod, _field} -> mod == :all end) do
+      covered = MapSet.new(Enum.map(normalized, fn {module, _field} -> module end))
+      missing = Enum.reject(modules, &MapSet.member?(covered, &1))
+
+      if missing != [] do
+        raise CompileError,
+          description:
+            "Lookup :#{name} is missing key declarations for batch modules #{inspect(missing)}."
+      end
+    end
+
+    normalized
+  end
+
+  defp normalize_lookup_filters!(name, %{kind: :group, fields: fields}, filters) do
+    Enum.map(filters, fn
+      {field, value} when is_atom(field) ->
+        unless field in fields do
+          raise CompileError,
+            description:
+              "Lookup :#{name} references unknown group filter field #{inspect(field)}."
+        end
+
+        {:eq, field, value}
+
+      other ->
+        raise CompileError,
+          description:
+            "Lookup :#{name} only supports equality filters like `where status: :open` (got #{inspect(other)})."
+    end)
+  end
+
+  defp normalize_lookup_filters!(
+         name,
+         %{kind: :batch, modules: modules, fields_by_module: fields_by_module},
+         filters
+       ) do
+    Enum.map(filters, fn
+      {field, value} when is_atom(field) ->
+        Enum.each(modules, fn module ->
+          unless field in Map.fetch!(fields_by_module, module) do
+            raise CompileError,
+              description:
+                "Lookup :#{name} filters on #{inspect(field)}, but #{inspect(module)} does not define that field."
+          end
+        end)
+
+        {:eq, field, value}
+
+      other ->
+        raise CompileError,
+          description:
+            "Lookup :#{name} only supports equality filters like `where status: :open` (got #{inspect(other)})."
+    end)
+  end
+
+  defp module_field_names(module) do
+    Code.ensure_compiled!(module)
+
+    unless function_exported?(module, :__schema__, 0) do
+      raise CompileError,
+        description:
+          "Batch lookup references #{inspect(module)}, but the module does not expose GridCodec schema metadata."
+    end
+
+    module.__schema__()
+    |> Map.get(:fields, [])
+    |> Enum.map(fn {name, _type, _opts} -> name end)
+  end
+
+  defp validate_lookup_target!(name, into) when into in [:list, :map], do: name
+
+  defp validate_lookup_target!(name, into) do
+    raise CompileError,
+      description:
+        "Lookup :#{name} has unsupported `into #{inspect(into)}`. Expected :list or :map."
+  end
+
+  defp ensure_unique_lookup_names!(lookups) do
+    names = Enum.map(lookups, & &1.name)
+
+    case names -- Enum.uniq(names) do
+      [] ->
+        lookups
+
+      [dupe | _] ->
+        raise CompileError, description: "Duplicate lookup name #{inspect(dupe)}."
+    end
+  end
+
+  defp generate_lookup_helpers([], _processed_groups, _endian, _module, _generate_typespec),
+    do: quote(do: nil)
+
+  defp generate_lookup_helpers(lookups, processed_groups, endian, module, generate_typespec) do
+    group_lookup = Map.new(processed_groups, fn {name, _block, opts} -> {name, opts} end)
+
+    named_defs =
+      Enum.map(lookups, fn lookup ->
+        source_name = elem(lookup.source, 1)
+        builder_fn = lookup_builder_name(lookup.name)
+
+        quote do
+          @doc """
+          Builds the `#{unquote(lookup.name)}` lookup for this codec.
+          """
+          if unquote(generate_typespec) do
+            @spec unquote(lookup.name)(t() | GridCodec.Group.t() | GridCodec.Batch.t() | list()) ::
+                    {:ok, list() | map()} | {:error, term()}
+          end
+
+          def unquote(lookup.name)(%unquote(module){} = data) do
+            unquote(lookup.name)(Map.get(data, unquote(source_name)))
+          end
+
+          def unquote(lookup.name)(source) do
+            unquote(builder_fn)(source)
+          end
+        end
+      end)
+
+    private_defs =
+      Enum.map(lookups, fn lookup ->
+        case elem(lookup.source, 0) do
+          :group ->
+            generate_group_lookup_builder(
+              lookup,
+              Map.fetch!(group_lookup, elem(lookup.source, 1)),
+              endian
+            )
+
+          :batch ->
+            generate_batch_lookup_builder(lookup)
+        end
+      end)
+
+    lookup_clauses =
+      Enum.map(lookups, fn lookup ->
+        {:->, [], [[lookup.name], quote(do: unquote(lookup.name)(data))]}
+      end)
+
+    info_pairs =
+      Enum.map(lookups, fn lookup ->
+        {lookup.name, lookup}
+      end)
+
+    fallback_clause =
+      {:->, [], [[Macro.var(:_, nil)], quote(do: {:error, {:unknown_lookup, name}})]}
+
+    generic_case = {:case, [], [quote(do: name), [do: lookup_clauses ++ [fallback_clause]]]}
+
+    quote do
+      unquote_splicing(named_defs)
+      unquote_splicing(private_defs)
+
+      @doc false
+      if unquote(generate_typespec) do
+        @spec __lookups__() :: [map()]
+      end
+
+      def __lookups__, do: unquote(Macro.escape(lookups))
+
+      @doc false
+      if unquote(generate_typespec) do
+        @spec __lookup__(atom()) :: map() | nil
+      end
+
+      def __lookup__(name), do: Map.get(unquote(Macro.escape(Map.new(info_pairs))), name)
+
+      @doc """
+      Builds a named lookup for this codec.
+      """
+      if unquote(generate_typespec) do
+        @spec lookup(t() | GridCodec.Group.t() | GridCodec.Batch.t() | list(), atom()) ::
+                {:ok, list() | map()} | {:error, term()}
+      end
+
+      def lookup(data, name) do
+        unquote(generic_case)
+      end
+
+      @doc false
+      if unquote(generate_typespec) do
+        @spec __views__() :: [map()]
+      end
+
+      def __views__, do: __MODULE__.__lookups__()
+
+      @doc false
+      if unquote(generate_typespec) do
+        @spec __view__(atom()) :: map() | nil
+      end
+
+      def __view__(name), do: __MODULE__.__lookup__(name)
+
+      @doc false
+      if unquote(generate_typespec) do
+        @spec view(t() | GridCodec.Group.t() | GridCodec.Batch.t() | list(), atom()) ::
+                {:ok, list() | map()} | {:error, term()}
+      end
+
+      def view(data, name), do: __MODULE__.lookup(data, name)
+    end
+  end
+
+  defp lookup_builder_name(name), do: :"__build_lookup_#{name}__"
+  defp lookup_reduce_name(name), do: :"__reduce_lookup_#{name}__"
+
+  defp generate_group_lookup_builder(lookup, opts, endian) do
+    builder_fn = lookup_builder_name(lookup.name)
+    reducer_fn = lookup_reduce_name(lookup.name)
+    block_length = Keyword.fetch!(opts, :block_length)
+    initial_acc = initial_lookup_acc_ast(lookup)
+    finalize_acc = finalize_lookup_acc_ast(quote(do: acc), lookup)
+    step_ast = generate_lookup_step_ast(quote(do: entry), quote(do: acc), lookup)
+
+    direct_decoder =
+      case Keyword.get(opts, :__of_module__) do
+        nil ->
+          resolved_fields = Keyword.get(opts, :__resolved_fields__, [])
+
+          patterns =
+            Enum.map(resolved_fields, fn {name, _type, _module, _opts} = field ->
+              var = Macro.var(name, __MODULE__)
+              effective_module(field).decode_pattern_ast(var, endian)
+            end)
+
+          result_pairs = build_decode_result_pairs(resolved_fields)
+
+          quote do
+            defp unquote(reducer_fn)(<<>>, acc), do: {:ok, unquote(finalize_acc)}
+
+            defp unquote(reducer_fn)(<<unquote_splicing(patterns), rest::binary>>, acc) do
+              entry = %{unquote_splicing(result_pairs)}
+
+              unquote(
+                generate_lookup_step_continuation_ast(
+                  step_ast,
+                  quote(do: rest),
+                  reducer_fn,
+                  lookup
+                )
+              )
+            end
+          end
+
+        typed_module ->
+          resolved_fields = Keyword.get(opts, :__resolved_fields__, [])
+
+          patterns =
+            Enum.map(resolved_fields, fn {name, _type, _module, _opts} = field ->
+              var = Macro.var(name, __MODULE__)
+              effective_module(field).decode_pattern_ast(var, endian)
+            end)
+
+          result_pairs = build_decode_result_pairs(resolved_fields)
+
+          quote do
+            defp unquote(reducer_fn)(<<>>, acc), do: {:ok, unquote(finalize_acc)}
+
+            defp unquote(reducer_fn)(<<unquote_splicing(patterns), rest::binary>>, acc) do
+              entry = %unquote(typed_module){unquote_splicing(result_pairs)}
+
+              unquote(
+                generate_lookup_step_continuation_ast(
+                  step_ast,
+                  quote(do: rest),
+                  reducer_fn,
+                  lookup
+                )
+              )
+            end
+          end
+      end
+
+    quote do
+      defp unquote(builder_fn)(%GridCodec.Group{
+             binary: binary,
+             num_in_group: n,
+             block_length: bl,
+             entries_offset: offset
+           })
+           when bl == unquote(block_length) do
+        data = binary_part(binary, offset, n * bl)
+        unquote(reducer_fn)(data, unquote(initial_acc))
+      end
+
+      defp unquote(builder_fn)(source) do
+        GridCodec.Lookup.build_group(source, unquote(Macro.escape(lookup)))
+      end
+
+      unquote(direct_decoder)
+    end
+  end
+
+  defp generate_batch_lookup_builder(lookup) do
+    builder_fn = lookup_builder_name(lookup.name)
+    step_ast = generate_lookup_step_ast(quote(do: entry), quote(do: acc), lookup)
+
+    quote do
+      defp unquote(builder_fn)(%GridCodec.Batch{} = batch) do
+        batch
+        |> GridCodec.Batch.stream()
+        |> Enum.reduce_while({:ok, unquote(initial_lookup_acc_ast(lookup))}, fn {_seq, _tag,
+                                                                                 entry},
+                                                                                {:ok, acc} ->
+          unquote(generate_batch_lookup_reduce_result_ast(step_ast, lookup))
+        end)
+        |> case do
+          {:ok, acc} -> {:ok, unquote(finalize_lookup_acc_ast(quote(do: acc), lookup))}
+          {:error, _} = error -> error
+        end
+      end
+
+      defp unquote(builder_fn)(source) do
+        GridCodec.Lookup.build_batch(source, unquote(Macro.escape(lookup)))
+      end
+    end
+  end
+
+  defp initial_lookup_acc_ast(%{into: :list}), do: quote(do: [])
+  defp initial_lookup_acc_ast(%{into: :map}), do: quote(do: [])
+
+  defp finalize_lookup_acc_ast(acc_ast, %{into: :list}),
+    do: quote(do: :lists.reverse(unquote(acc_ast)))
+
+  defp finalize_lookup_acc_ast(acc_ast, %{into: :map}),
+    do: quote(do: :maps.from_list(:lists.reverse(unquote(acc_ast))))
+
+  defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: filters, into: :list}) do
+    filter_ast = generate_lookup_filter_ast(entry_ast, filters)
+
+    quote do
+      if unquote(filter_ast) do
+        {:ok, [unquote(entry_ast) | unquote(acc_ast)]}
+      else
+        {:ok, unquote(acc_ast)}
+      end
+    end
+  end
+
+  defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: filters, into: :map} = lookup) do
+    filter_ast = generate_lookup_filter_ast(entry_ast, filters)
+    key_ast = generate_lookup_key_ast(entry_ast, lookup.keys)
+    map_put_ast = generate_lookup_map_put_ast(acc_ast, key_ast, entry_ast)
+
+    quote do
+      if unquote(filter_ast) do
+        unquote(map_put_ast)
+      else
+        {:ok, unquote(acc_ast)}
+      end
+    end
+  end
+
+  defp generate_lookup_filter_ast(_entry_ast, []), do: quote(do: true)
+
+  defp generate_lookup_filter_ast(entry_ast, filters) do
+    Enum.reduce(filters, quote(do: true), fn {:eq, field, expected}, acc ->
+      quote do
+        unquote(acc) and
+          Map.get(unquote(entry_ast), unquote(field)) == unquote(Macro.escape(expected))
+      end
+    end)
+  end
+
+  defp generate_lookup_key_ast(entry_ast, [{:all, field}]) do
+    quote do: Map.get(unquote(entry_ast), unquote(field))
+  end
+
+  defp generate_lookup_key_ast(entry_ast, key_specs) do
+    clauses =
+      Enum.map(key_specs, fn
+        {:all, field} ->
+          {:->, [], [[quote(do: _)], quote(do: Map.get(unquote(entry_ast), unquote(field)))]}
+
+        {module, field} ->
+          {:->, [], [[module], quote(do: Map.get(unquote(entry_ast), unquote(field)))]}
+      end)
+
+    {:case, [], [quote(do: unquote(entry_ast).__struct__), [do: clauses]]}
+  end
+
+  defp generate_lookup_map_put_ast(acc_ast, key_ast, entry_ast) do
+    quote do
+      key = unquote(key_ast)
+      {:ok, [{key, unquote(entry_ast)} | unquote(acc_ast)]}
+    end
+  end
+
+  defp generate_lookup_step_continuation_ast(step_ast, rest_ast, reducer_fn, %{into: :list}) do
+    quote do
+      {:ok, next_acc} = unquote(step_ast)
+      unquote(reducer_fn)(unquote(rest_ast), next_acc)
+    end
+  end
+
+  defp generate_lookup_step_continuation_ast(step_ast, rest_ast, reducer_fn, %{into: :map}) do
+    quote do
+      {:ok, next_acc} = unquote(step_ast)
+      unquote(reducer_fn)(unquote(rest_ast), next_acc)
+    end
+  end
+
+  defp generate_batch_lookup_reduce_result_ast(step_ast, %{into: :list}) do
+    quote do
+      {:ok, next_acc} = unquote(step_ast)
+      {:cont, {:ok, next_acc}}
+    end
+  end
+
+  defp generate_batch_lookup_reduce_result_ast(step_ast, %{into: :map}) do
+    quote do
+      {:ok, next_acc} = unquote(step_ast)
+      {:cont, {:ok, next_acc}}
     end
   end
 

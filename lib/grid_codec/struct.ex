@@ -12,6 +12,8 @@ defmodule GridCodec.Struct do
   - **Enforced keys**: Fields with `presence: :required` are added to `@enforce_keys`
   - **Compile-time registration**: Codecs register for dispatch via template_id/schema_id
   - **Zero-copy access**: Use `get/2` macro for O(1) field access without full decode
+  - **Typed groups**: Reuse fixed-size codec structs with `group :name, of: Module`
+  - **Runtime lookups**: Generate named alternate access paths over groups and batches with `lookups do`
 
   ## Quick Example
 
@@ -242,7 +244,19 @@ defmodule GridCodec.Struct do
         # Standard defcodec approach
         quote do
           import GridCodec.Struct, only: [defcodec: 1]
-          import GridCodec, only: [field: 2, field: 3, group: 2, group: 3, batch: 2]
+
+          import GridCodec,
+            only: [
+              field: 2,
+              field: 3,
+              group: 2,
+              group: 3,
+              batch: 2,
+              lookups: 1,
+              lookup: 2,
+              views: 1,
+              view: 2
+            ]
 
           @gridcodec_opts unquote(opts)
           @gridcodec_is_struct true
@@ -250,6 +264,7 @@ defmodule GridCodec.Struct do
           Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
+          Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
         end
     end
   end
@@ -337,7 +352,19 @@ defmodule GridCodec.Struct do
 
     quote do
       import GridCodec.Struct, only: [defcodec: 1]
-      import GridCodec, only: [field: 2, field: 3, group: 2, group: 3, batch: 2]
+
+      import GridCodec,
+        only: [
+          field: 2,
+          field: 3,
+          group: 2,
+          group: 3,
+          batch: 2,
+          lookups: 1,
+          lookup: 2,
+          views: 1,
+          view: 2
+        ]
 
       @gridcodec_opts unquote(Macro.escape(merged_opts))
       @gridcodec_is_struct true
@@ -345,6 +372,7 @@ defmodule GridCodec.Struct do
       Module.register_attribute(__MODULE__, :gridcodec_fields, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
+      Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
 
       for {name, type, field_opts} <- unquote(Macro.escape(field_defs)) do
         @gridcodec_fields {name, type, field_opts}
@@ -507,8 +535,9 @@ defmodule GridCodec.Struct do
   @doc """
   Defines the codec schema and generates both `defstruct` and codec functions.
 
-  Inside the `defcodec` block, use `field/2`, `field/3`, and `group/2`
-  to define your struct fields and binary layout.
+  Inside the `defcodec` block, use `field/2`, `field/3`, `group/2`,
+  `batch/2`, and `lookups/1` to define your struct fields, collection
+  sections, and runtime access paths.
 
   ## Example
 
@@ -516,6 +545,16 @@ defmodule GridCodec.Struct do
         field :id, :uuid, presence: :required
         field :price, :u64, default: 0
         field :quantity, :u32
+
+        group :fills, of: MyApp.Fill
+
+        lookups do
+          lookup :fills_by_id do
+            from :fills
+            into :map
+            key :fill_id
+          end
+        end
       end
 
   ## Generated Struct
@@ -533,11 +572,36 @@ defmodule GridCodec.Struct do
   - `get/2,3` macro - Zero-copy field access via binary pattern matching
   - `match/1,2` macro - Multi-field pattern matching
   - `field/1` macro - Returns field spec for `GridCodec.get/2`
+  - `lookup/2` - Builds a named runtime lookup for this codec
   - `__schema__/0` - Returns schema metadata
+  - `__lookups__/0` / `__lookup__/1` - Returns normalized Elixir-side lookup metadata
   - `__template_id__/0` - Returns template ID
   - `__schema_id__/0` - Returns schema ID
   - `__type__/0` - Returns the stable type name (from `:name` option or module name)
   - `__fields__/0` - Returns list of field names
+
+  ## Runtime Lookups
+
+  Lookups are generated Elixir helpers over decoded `group` and `batch` fields.
+  They are not part of the wire format and are not exported to `.grid`.
+
+      defcodec do
+        group :reservations, of: MyApp.Reservation
+
+        lookups do
+          lookup :reservations_by_id do
+            from :reservations
+            into :map
+            key :reservation_id
+          end
+        end
+      end
+
+      {:ok, account} = MyCodec.decode(binary)
+      {:ok, by_id} = MyCodec.reservations_by_id(account)
+
+  Lookups are computed on demand. The decoded struct keeps only the canonical
+  source field (`reservations` in the example above), not the derived map.
 
   ## Generated Types
 

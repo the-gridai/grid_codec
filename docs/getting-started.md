@@ -283,6 +283,25 @@ defcodec do
 end
 ```
 
+For reusable fixed-size entry structs, you can also declare a typed group:
+
+```elixir
+defmodule Reservation do
+  use GridCodec.Struct, template_id: 10, schema_id: 100
+
+  defcodec do
+    field :reservation_id, :u64
+    field :amount, :u64
+    field :active, :bool
+  end
+end
+
+defcodec do
+  field :account_id, :u64
+  group :reservations, of: Reservation
+end
+```
+
 Use `wire_format:` to control the binary encoding while keeping the domain type:
 
 ```elixir
@@ -310,6 +329,14 @@ GridCodec.Group.to_list(data.orders)         # materialize all entries
 [balances, orders] = GridCodec.Group.to_lists_parallel([data.balances, data.orders])
 ```
 
+Typed groups decode to `GridCodec.Group` values whose entries materialize as the
+typed struct module:
+
+```elixir
+{:ok, account} = AccountCodec.decode(binary)
+[%Reservation{} = reservation] = GridCodec.Group.to_list(account.reservations)
+```
+
 ## Projection and Content Hash
 
 Decode only the fields you need:
@@ -317,6 +344,28 @@ Decode only the fields you need:
 ```elixir
 {:ok, %{price: 100, side: :buy}} = MyCodec.decode_only(binary, [:price, :side])
 ```
+
+For named alternate access paths over decoded groups and batches, use codec lookups:
+
+```elixir
+defcodec do
+  group :reservations, of: Reservation
+
+  lookups do
+    lookup :reservations_by_id do
+      from :reservations
+      into :map
+      key :reservation_id
+    end
+  end
+end
+
+{:ok, account} = MyCodec.decode(binary)
+{:ok, reservations_by_id} = MyCodec.reservations_by_id(account)
+```
+
+Lookups are Elixir-side helpers only. They are computed on demand and are not
+stored on the decoded struct or exported to `.grid`.
 
 Deterministic content hash for deduplication:
 

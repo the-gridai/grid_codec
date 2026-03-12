@@ -12,6 +12,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Struct-based API** – Natural Elixir structs with binary serialization
 - **Validation & coercion** – `validate: true` with typed error reporting; `new/1` for coercion from external input
 - **Repeating groups** – Fixed-size entry collections with lazy decode, random access, and parallel materialization
+- **Typed groups & lookups** – Reuse fixed-size entry structs with `group :name, of: Module` and generate named runtime accessors over groups and batches
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
 - **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
@@ -41,6 +42,12 @@ Single field access from binary without decoding:
 See [Performance Guide](docs/performance.md) for full benchmarks including
 Protobuf, ETF, and MessagePack comparisons.
 
+Generated lookups can also replace common collection post-processing like
+`GridCodec.Group.to_list(group) |> Map.new(...)`. See
+[Typed Groups & Lookups](docs/lookups.md) for the DSL and
+`example_app/benchmarks/lookup_bench.exs` for a Benchee comparison against the
+equivalent manual pipelines.
+
 ## Installation
 
 Add `grid_codec` to your dependencies in `mix.exs`:
@@ -48,7 +55,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.29.3"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.30.0"}
   ]
 end
 ```
@@ -97,6 +104,43 @@ uuid = MyApp.Events.UserCreated.get(binary, :user_id, copy: true)
 {:ok, framed} = GridCodec.encode(user)
 {:ok, decoded} = GridCodec.decode(framed)
 ```
+
+## Typed Groups And Views
+
+```elixir
+defmodule MyApp.Reservation do
+  use GridCodec.Struct, template_id: 10, schema_id: 100
+
+  defcodec do
+    field :reservation_id, :u64
+    field :amount, :u64
+    field :active, :bool
+  end
+end
+
+defmodule MyApp.CurrencyAccount do
+  use GridCodec.Struct, template_id: 11, schema_id: 100
+
+  defcodec do
+    field :account_id, :u64
+    group :reservations, of: MyApp.Reservation
+
+    lookups do
+      lookup :reservations_by_id do
+        from :reservations
+        into :map
+        key :reservation_id
+      end
+    end
+  end
+end
+
+{:ok, account} = MyApp.CurrencyAccount.decode(binary)
+{:ok, reservations_by_id} = MyApp.CurrencyAccount.reservations_by_id(account)
+```
+
+Lookups are Elixir-side helpers only. They are computed on demand and are not
+stored on the decoded struct or exported to `.grid`.
 
 ## Struct Identity
 
