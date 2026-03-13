@@ -13,6 +13,29 @@ defmodule GridCodec.Schema.FormatterTest do
     end
   end
 
+  defmodule TestPrefixedIdWithSchema do
+    @moduledoc false
+    use GridCodec.Types.PrefixedId, prefix: "test", tag: 0x10, schema: "my_events"
+  end
+
+  defmodule TestPrefixedIdNoSchema do
+    @moduledoc false
+    use GridCodec.Types.PrefixedId, prefix: "plain", tag: 0x11
+  end
+
+  defmodule TestCharArrayWithSchema do
+    @moduledoc false
+    use GridCodec.Types.CharArray, length: 8, schema: "my_events"
+  end
+
+  defmodule TestBitsetWithSchema do
+    @moduledoc false
+    use GridCodec.Types.Bitset, size: :u8, schema: "my_events"
+
+    flag(:read, 0)
+    flag(:write, 1)
+  end
+
   describe "format/4" do
     test "produces valid .grid output for simple structs" do
       codecs = [
@@ -162,6 +185,96 @@ defmodule GridCodec.Schema.FormatterTest do
       alpha_pos = :binary.match(output, "Alpha") |> elem(0)
       beta_pos = :binary.match(output, "Beta") |> elem(0)
       assert alpha_pos < beta_pos
+    end
+  end
+
+  describe "custom type schema affinity" do
+    test "detect_custom_types includes schema from meta" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:entity_id, TestPrefixedIdWithSchema, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 1,
+           schema_id: 100,
+           type: "Test.Entity"
+         }}
+      ]
+
+      types = Formatter.detect_custom_types(codecs)
+      info = Map.fetch!(types, TestPrefixedIdWithSchema)
+
+      assert info.kind == :prefixed_id
+      assert info.params.schema == "my_events"
+    end
+
+    test "detect_custom_types returns nil schema when not set" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:entity_id, TestPrefixedIdNoSchema, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 1,
+           schema_id: 100,
+           type: "Test.Entity"
+         }}
+      ]
+
+      types = Formatter.detect_custom_types(codecs)
+      info = Map.fetch!(types, TestPrefixedIdNoSchema)
+
+      assert info.kind == :prefixed_id
+      assert info.params.schema == nil
+    end
+
+    test "char_array schema affinity propagates through detect_custom_types" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:symbol, TestCharArrayWithSchema, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 1,
+           schema_id: 100,
+           type: "Test.Entity"
+         }}
+      ]
+
+      types = Formatter.detect_custom_types(codecs)
+      info = Map.fetch!(types, TestCharArrayWithSchema)
+
+      assert info.kind == :char_array
+      assert info.params.schema == "my_events"
+    end
+
+    test "bitset schema affinity propagates through detect_custom_types" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:perms, TestBitsetWithSchema, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 1,
+           schema_id: 100,
+           type: "Test.Entity"
+         }}
+      ]
+
+      types = Formatter.detect_custom_types(codecs)
+      info = Map.fetch!(types, TestBitsetWithSchema)
+
+      assert info.kind == :bitset
+      assert info.params.schema == "my_events"
     end
   end
 end

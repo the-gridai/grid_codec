@@ -64,6 +64,7 @@ defmodule GridCodec.Types.CharArray do
   - `:on_overflow` - Behavior when string exceeds length
     - `:truncate` (default) - Truncate to fit
     - `:error` - Raise ArgumentError
+  - `:schema` - Schema name for `.grid` export placement (optional)
 
   ## Example
 
@@ -74,6 +75,7 @@ defmodule GridCodec.Types.CharArray do
   defmacro __using__(opts) do
     length = Keyword.fetch!(opts, :length)
     on_overflow = Keyword.get(opts, :on_overflow, :truncate)
+    schema_name = Keyword.get(opts, :schema)
 
     unless is_integer(length) and length > 0 do
       raise ArgumentError, ":length must be a positive integer"
@@ -92,10 +94,11 @@ defmodule GridCodec.Types.CharArray do
 
       @char_array_length unquote(length)
       @on_overflow unquote(on_overflow)
+      @__schema_name unquote(schema_name)
 
       @doc false
       def __char_array_meta__ do
-        %{length: @char_array_length}
+        %{length: @char_array_length, schema: @__schema_name}
       end
 
       @doc """

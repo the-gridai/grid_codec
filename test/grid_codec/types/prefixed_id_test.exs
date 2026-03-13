@@ -18,6 +18,10 @@ defmodule GridCodec.Types.PrefixedIdTest do
     use GridCodec.Types.PrefixedId, prefix: "inst", tag: 0x03
   end
 
+  defmodule SchemaBoundId do
+    use GridCodec.Types.PrefixedId, prefix: "bound", tag: 0x05, schema: "my_schema"
+  end
+
   defmodule UserCreatedEvent do
     use GridCodec.Struct,
       template_id: 900,
@@ -85,6 +89,14 @@ defmodule GridCodec.Types.PrefixedIdTest do
       meta = UserId.__prefixed_id_meta__()
       assert meta.prefix == "user-"
       assert meta.tag == 0x01
+      assert meta.schema == nil
+    end
+
+    test "__prefixed_id_meta__/0 includes schema affinity when set" do
+      meta = SchemaBoundId.__prefixed_id_meta__()
+      assert meta.prefix == "bound-"
+      assert meta.tag == 0x05
+      assert meta.schema == "my_schema"
     end
   end
 
@@ -435,7 +447,7 @@ defmodule GridCodec.Types.PrefixedIdTest do
     end
 
     test "__prefixed_id_meta__/0 still present" do
-      assert SlimUserId.__prefixed_id_meta__() == %{prefix: "slim-", tag: 0x04}
+      assert SlimUserId.__prefixed_id_meta__() == %{prefix: "slim-", tag: 0x04, schema: nil}
     end
 
     test "macro does not inject duplicate helpers" do

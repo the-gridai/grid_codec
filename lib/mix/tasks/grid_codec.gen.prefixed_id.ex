@@ -13,6 +13,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
 
   - `--prefix` — string prefix without trailing dash (e.g., `user`) **(required)**
   - `--tag` — u8 integer 1..254 **(required)**; 0x00 is reserved for null
+  - `--schema` — schema name for `.grid` export placement (e.g., `events`)
   - `--force` — overwrite existing files without prompting
   - `--no-test` — skip generating the companion test file
 
@@ -32,7 +33,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
 
   use Mix.Task
 
-  @switches [prefix: :string, tag: :integer, force: :boolean, test: :boolean]
+  @switches [prefix: :string, tag: :integer, schema: :string, force: :boolean, test: :boolean]
 
   @impl Mix.Task
   def run(args) do
@@ -57,6 +58,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
       Mix.raise("--prefix must be a non-empty string")
     end
 
+    schema = opts[:schema]
     full_prefix = prefix <> "-"
     tag_hex = format_tag_hex(tag)
 
@@ -64,7 +66,8 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
       module_name: module_name,
       prefix: prefix,
       full_prefix: full_prefix,
-      tag_hex: tag_hex
+      tag_hex: tag_hex,
+      schema: schema
     ]
 
     source_path = module_to_path(module_name, "lib")
@@ -87,6 +90,9 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
         end
     """)
   end
+
+  defp use_schema_opt(nil), do: ""
+  defp use_schema_opt(schema), do: ~s(, schema: "#{schema}")
 
   defp format_tag_hex(tag) do
     "0x" <> (Integer.to_string(tag, 16) |> String.pad_leading(2, "0") |> String.upcase())
@@ -137,6 +143,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
     prefix = assigns[:prefix]
     fp = assigns[:full_prefix]
     tag_hex = assigns[:tag_hex]
+    schema = assigns[:schema]
     prefix_len = byte_size(fp)
     version = grid_codec_version()
 
@@ -161,7 +168,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
       | `tag/0` | Returns the wire tag byte |
       \"""
 
-      use GridCodec.Types.PrefixedId, prefix: "#{prefix}", tag: #{tag_hex}
+      use GridCodec.Types.PrefixedId, prefix: "#{prefix}", tag: #{tag_hex}#{use_schema_opt(schema)}
 
       @typedoc "A prefixed ID string of the form `#{fp}<uuid>`."
       @type t() :: String.t()

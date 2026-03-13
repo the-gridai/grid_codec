@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-03-13
+
+### Added
+- **Custom type `schema:` affinity** — PrefixedId, CharArray, and Bitset macros
+  accept a `schema:` option that controls placement of `.grid` files during export,
+  overriding the default "lowest referencing schema" heuristic. The generator
+  (`mix grid_codec.gen.prefixed_id --schema NAME`) emits the option automatically.
+- **Required field validation in `new/1`** — fields with `presence: :required` are
+  now validated in `new/1` and `update/2`, returning
+  `{:error, %ValidationError{code: :required_field}}` when nil. Previously only
+  `encode/1` caught nil required fields.
+
+### Fixed
+- **Consolidated Registry type checker compatibility** — the generated
+  `GridCodec.Registry.encode/2` clauses now use map patterns
+  (`%{__struct__: Module}`) instead of struct patterns (`%Module{}`) to avoid
+  Elixir 1.19 type checker crashes during partial recompilation of consumer apps.
+
 ## [0.31.0] - 2026-03-13
 
 ### Added

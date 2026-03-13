@@ -107,6 +107,34 @@ defmodule GridCodec.OptionalityTest do
       assert {:error, %GridCodec.ValidationError{}} =
                RequiredCodec.encode(%RequiredCodec{id: 1, count: nil})
     end
+
+    test "new/1 returns error when required field is nil" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field} = err} =
+               RequiredCodec.new(%{id: nil, count: 10})
+
+      assert err.details.field == :id
+    end
+
+    test "new/1 returns error when required field is missing" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field} = err} =
+               RequiredCodec.new(%{count: 10})
+
+      assert err.details.field == :id
+    end
+
+    test "new/1 returns error for empty map with all required fields" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field}} =
+               RequiredCodec.new(%{})
+    end
+
+    test "new/1 succeeds when all required fields are provided" do
+      assert {:ok, %RequiredCodec{id: 42, count: 7}} = RequiredCodec.new(%{id: 42, count: 7})
+    end
+
+    test "new/1 with string keys returns error when required field is nil" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field}} =
+               RequiredCodec.new(%{"id" => nil, "count" => 10})
+    end
   end
 
   describe "required variable-length fields" do
@@ -122,6 +150,13 @@ defmodule GridCodec.OptionalityTest do
     test "encode returns error when required string is nil" do
       assert {:error, %GridCodec.ValidationError{}} =
                RequiredVarCodec.encode(%RequiredVarCodec{id: 123, name: nil})
+    end
+
+    test "new/1 returns error when required string field is missing" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field} = err} =
+               RequiredVarCodec.new(%{id: 123})
+
+      assert err.details.field == :name
     end
   end
 
@@ -197,6 +232,21 @@ defmodule GridCodec.OptionalityTest do
     test "required field still returns error" do
       assert {:error, %GridCodec.ValidationError{}} =
                MixedCodec.encode(%MixedCodec{id: nil, count: 10})
+    end
+
+    test "new/1 rejects nil required field but allows nil optional fields" do
+      assert {:error, %GridCodec.ValidationError{code: :required_field}} =
+               MixedCodec.new(%{count: 10, flags: 5})
+
+      assert {:ok, %MixedCodec{id: 1, count: nil, flags: nil}} =
+               MixedCodec.new(%{id: 1})
+    end
+
+    test "update/2 rejects setting required field to nil" do
+      {:ok, existing} = MixedCodec.new(%{id: 1, count: 10})
+
+      assert {:error, %GridCodec.ValidationError{code: :required_field}} =
+               MixedCodec.update(existing, %{id: nil})
     end
   end
 

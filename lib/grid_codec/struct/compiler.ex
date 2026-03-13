@@ -3779,11 +3779,16 @@ defmodule GridCodec.Struct.Compiler do
         {name, name_str, type_atom, coerce_ast}
       end)
 
+    required_fields =
+      non_constant
+      |> Enum.filter(fn {_, _, _, opts} -> Keyword.get(opts, :presence) == :required end)
+      |> Enum.map(fn {name, _, _, _} -> name end)
+
     group_coercions = build_group_coercions(groups, module)
 
     quote do
       defp __cast__(attrs) when is_map(attrs) do
-        unquote(build_cast_body(field_coercions, group_coercions, module))
+        unquote(build_cast_body(field_coercions, group_coercions, required_fields, module))
       end
     end
   end
@@ -3821,11 +3826,9 @@ defmodule GridCodec.Struct.Compiler do
     end)
   end
 
-  defp build_cast_body(field_coercions, group_coercions, module) do
+  defp build_cast_body(field_coercions, group_coercions, required_fields, module) do
     field_extractions =
       Enum.map(field_coercions, fn {name, name_str, type_atom, coerce_ast} ->
-        # Pattern-match for atom key first, fall back to string key only on miss.
-        # Avoids eager evaluation of both Map.get calls.
         extract =
           quote do
             raw_value =
@@ -3872,6 +3875,17 @@ defmodule GridCodec.Struct.Compiler do
         quote do
           unquote(extract)
           unquote(field_var) = unquote(coerce)
+        end
+      end)
+
+    required_checks =
+      Enum.map(required_fields, fn name ->
+        field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+        quote do
+          if unquote(field_var) == nil do
+            throw(GridCodec.ValidationError.required_field(unquote(module), unquote(name)))
+          end
         end
       end)
 
@@ -3943,6 +3957,7 @@ defmodule GridCodec.Struct.Compiler do
       try do
         unquote_splicing(extractions)
         unquote_splicing(group_extractions)
+        unquote_splicing(required_checks)
         {:ok, %{unquote_splicing(struct_pairs)}}
       catch
         %GridCodec.ValidationError{} = e -> {:error, e}

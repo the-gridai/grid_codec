@@ -123,7 +123,7 @@ defmodule Mix.Tasks.GridCodec.Export do
       )
 
     enum_home = build_enum_home_map(grouped, schema_names)
-    custom_type_home = build_custom_type_home_map(grouped, schema_names)
+    custom_type_home = build_custom_type_home_map(grouped, schema_names, all_custom_types)
 
     ctx = %{
       output_dir: output_dir,
@@ -159,20 +159,45 @@ defmodule Mix.Tasks.GridCodec.Export do
     end)
   end
 
-  defp build_custom_type_home_map(grouped, schema_names) do
-    grouped
-    |> Enum.sort_by(fn {schema_id, _} -> schema_id end)
-    |> Enum.flat_map(fn {schema_id, entries} ->
-      dir_name = schema_dir_name(schema_id, schema_names)
-      local_types = Formatter.detect_custom_types(entries)
+  defp build_custom_type_home_map(grouped, schema_names, all_custom_types) do
+    default_map =
+      grouped
+      |> Enum.sort_by(fn {schema_id, _} -> schema_id end)
+      |> Enum.flat_map(fn {schema_id, entries} ->
+        dir_name = schema_dir_name(schema_id, schema_names)
+        local_types = Formatter.detect_custom_types(entries)
 
-      Enum.map(local_types, fn {mod, info} ->
-        rel_path = name_to_relative_path(info.short_name)
-        {mod, %{schema_id: schema_id, dir_name: dir_name, rel_path: rel_path}}
+        Enum.map(local_types, fn {mod, info} ->
+          rel_path = name_to_relative_path(info.short_name)
+          {mod, %{schema_id: schema_id, dir_name: dir_name, rel_path: rel_path}}
+        end)
       end)
-    end)
-    |> Enum.reduce(%{}, fn {mod, info}, acc ->
-      Map.put_new(acc, mod, info)
+      |> Enum.reduce(%{}, fn {mod, info}, acc ->
+        Map.put_new(acc, mod, info)
+      end)
+
+    apply_schema_affinity(default_map, all_custom_types, schema_names)
+  end
+
+  defp apply_schema_affinity(home_map, all_custom_types, schema_names) do
+    name_to_id = Map.new(schema_names, fn {id, name} -> {name, id} end)
+
+    Enum.reduce(all_custom_types, home_map, fn {mod, info}, acc ->
+      affinity = get_in(info, [:params, :schema])
+
+      if affinity do
+        case Map.get(name_to_id, affinity) do
+          nil ->
+            acc
+
+          schema_id ->
+            dir_name = schema_dir_name(schema_id, schema_names)
+            rel_path = name_to_relative_path(info.short_name)
+            Map.put(acc, mod, %{schema_id: schema_id, dir_name: dir_name, rel_path: rel_path})
+        end
+      else
+        acc
+      end
     end)
   end
 

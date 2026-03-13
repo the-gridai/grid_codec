@@ -22,7 +22,7 @@ defmodule GridCodec.ValidationError do
   defexception [:code, :details]
 
   @type t :: %__MODULE__{
-          code: :type_mismatch | :out_of_range | :invalid_format | :cast_error,
+          code: :type_mismatch | :out_of_range | :invalid_format | :cast_error | :required_field,
           details: %{
             field: atom(),
             type: atom() | module(),
@@ -51,6 +51,7 @@ defmodule GridCodec.ValidationError do
   defp format_code(:type_mismatch), do: "type mismatch"
   defp format_code(:invalid_format), do: "invalid format"
   defp format_code(:cast_error), do: "cannot cast"
+  defp format_code(:required_field), do: "required field missing"
 
   @doc false
   def cast_error(module, field, type, value, reason) do
@@ -106,6 +107,18 @@ defmodule GridCodec.ValidationError do
         value: value,
         module: module,
         description: "Expected #{format_desc}"
+      }
+    }
+  end
+
+  @doc false
+  def required_field(module, field) do
+    %__MODULE__{
+      code: :required_field,
+      details: %{
+        field: field,
+        module: module,
+        description: "required field #{inspect(field)} cannot be nil"
       }
     }
   end

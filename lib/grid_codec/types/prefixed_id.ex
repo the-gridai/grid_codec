@@ -76,10 +76,13 @@ defmodule GridCodec.Types.PrefixedId do
 
   - `:prefix` — string prefix without trailing dash (e.g., `"user"`) **(required)**
   - `:tag` — u8 integer 1..254 **(required)**; 0x00 is reserved for null
+  - `:schema` — schema name for `.grid` export placement (optional); overrides the
+    default heuristic that places the type in the lowest referencing schema
   """
   defmacro __using__(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     tag = Keyword.fetch!(opts, :tag)
+    schema_name = Keyword.get(opts, :schema)
 
     unless is_binary(prefix) and byte_size(prefix) > 0 do
       raise ArgumentError, ":prefix must be a non-empty string"
@@ -99,6 +102,7 @@ defmodule GridCodec.Types.PrefixedId do
       @__full_prefix unquote(full_prefix)
       @__prefix_len unquote(prefix_len)
       @__tag unquote(tag)
+      @__schema_name unquote(schema_name)
       @__null_sentinel <<0, 0::128>>
       @__null_uuid <<0::128>>
 
@@ -106,7 +110,7 @@ defmodule GridCodec.Types.PrefixedId do
 
       @doc false
       def __prefixed_id_meta__ do
-        %{prefix: @__full_prefix, tag: @__tag}
+        %{prefix: @__full_prefix, tag: @__tag, schema: @__schema_name}
       end
 
       # ================================================================

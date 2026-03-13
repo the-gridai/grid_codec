@@ -87,6 +87,7 @@ defmodule GridCodec.Types.Bitset do
 
   - `:size` - The underlying integer type (`:u8`, `:u16`, `:u32`, `:u64`)
               Default: `:u8`
+  - `:schema` - Schema name for `.grid` export placement (optional)
 
   ## Example
 
@@ -99,6 +100,7 @@ defmodule GridCodec.Types.Bitset do
   """
   defmacro __using__(opts) do
     size = Keyword.get(opts, :size, :u8)
+    schema_name = Keyword.get(opts, :schema)
 
     {byte_size, max_bits} =
       case size do
@@ -134,6 +136,7 @@ defmodule GridCodec.Types.Bitset do
       @bitset_size unquote(size)
       @bitset_byte_size unquote(byte_size)
       @bitset_max_bits unquote(max_bits)
+      @__schema_name unquote(schema_name)
 
       # GridCodec.Type callbacks
       @impl GridCodec.Type
@@ -337,7 +340,11 @@ defmodule GridCodec.Types.Bitset do
 
       @doc false
       def __bitset_meta__ do
-        %{size: @bitset_size, flags: Enum.sort_by(@flag_map |> Map.to_list(), &elem(&1, 1))}
+        %{
+          size: @bitset_size,
+          flags: Enum.sort_by(@flag_map |> Map.to_list(), &elem(&1, 1)),
+          schema: @__schema_name
+        }
       end
 
       @doc """
