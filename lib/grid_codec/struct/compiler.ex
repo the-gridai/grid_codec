@@ -13,6 +13,10 @@ defmodule GridCodec.Struct.Compiler do
     groups = Module.get_attribute(env.module, :gridcodec_groups) |> Enum.reverse()
     batches = (Module.get_attribute(env.module, :gridcodec_batches) || []) |> Enum.reverse()
     lookups = (Module.get_attribute(env.module, :gridcodec_lookups) || []) |> Enum.reverse()
+
+    from_blocks =
+      (Module.get_attribute(env.module, :gridcodec_from_blocks) || []) |> Enum.reverse()
+
     opts = Module.get_attribute(env.module, :gridcodec_opts) || []
 
     # Extract options with defaults
@@ -103,6 +107,7 @@ defmodule GridCodec.Struct.Compiler do
     {processed_groups, auto_group_fns} = process_groups(all_groups, endian)
 
     normalized_lookups = normalize_lookups(lookups, processed_groups, batches)
+    normalized_from_blocks = normalize_from_blocks(from_blocks, resolved_fields)
 
     # Build struct field list with defaults (includes group names with default [])
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
@@ -134,6 +139,7 @@ defmodule GridCodec.Struct.Compiler do
       batches: batch_meta,
       group_fields: group_field_meta,
       lookups: normalized_lookups,
+      from_blocks: normalized_from_blocks,
       version: version,
       template_id: template_id,
       schema_id: schema_id,
@@ -490,6 +496,67 @@ defmodule GridCodec.Struct.Compiler do
       # Field spec macro for GridCodec.get/2
       unquote(field_macro)
     end
+  end
+
+  # ============================================================================
+  # From Block Helpers
+  # ============================================================================
+
+  # Parse and normalize from block declarations
+  defp normalize_from_blocks(raw_from_blocks, target_fields) do
+    Enum.map(raw_from_blocks, fn {sources, block} ->
+      parse_from_block(sources, block, target_fields)
+    end)
+  end
+
+  # Parse a single from block
+  defp parse_from_block(sources, block, target_fields) do
+    # Extract field mappings from the block
+    mappings = parse_from_field_mappings(block)
+
+    # Validate that all target fields are covered
+    target_field_names = Enum.map(target_fields, fn {name, _, _, _} -> name end)
+    mapped_field_names = Enum.map(mappings, &elem(&1, 0))
+
+    # Check for unmapped fields
+    unmapped = target_field_names -- mapped_field_names
+
+    if unmapped != [] do
+      raise "from block must define mappings for all target fields, missing: #{inspect(unmapped)}"
+    end
+
+    # Check for unknown fields
+    unknown = mapped_field_names -- target_field_names
+
+    if unknown != [] do
+      raise "from block defines mappings for unknown fields: #{inspect(unknown)}"
+    end
+
+    %{
+      sources: sources,
+      mappings: mappings
+    }
+  end
+
+  # Parse field mappings from the from block AST
+  defp parse_from_field_mappings({:__block__, _, exprs}) do
+    Enum.map(exprs, &parse_from_field_mapping/1)
+  end
+
+  defp parse_from_field_mappings(expr) do
+    [parse_from_field_mapping(expr)]
+  end
+
+  # Parse individual field mapping
+  defp parse_from_field_mapping({:field, _, [field_name, opts]}) when is_list(opts) do
+    from_source = Keyword.get(opts, :from)
+    transform = Keyword.get(opts, :transform)
+
+    {field_name, from_source, transform}
+  end
+
+  defp parse_from_field_mapping({:field, _, [field_name]}) do
+    {field_name, nil, nil}
   end
 
   # ============================================================================

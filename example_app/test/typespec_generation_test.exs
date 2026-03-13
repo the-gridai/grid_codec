@@ -23,7 +23,8 @@ defmodule ExampleApp.TypespecGenerationTest do
       flags: 0
     }
 
-    assert is_binary(encode_payload(order))
+    assert {:ok, payload} = encode_payload(order)
+    assert is_binary(payload)
   end
 
   test "required field type omits nil in generated struct t/0" do
@@ -57,7 +58,7 @@ defmodule ExampleApp.TypespecGenerationTest do
     assert Macro.to_string(t_ast) =~ "non_neg_integer"
   end
 
-  @spec encode_payload(OrderCreated.t()) :: OrderCreated.layout()
+  @spec encode_payload(OrderCreated.t()) :: {:ok, OrderCreated.layout()} | {:error, term()}
   defp encode_payload(event), do: OrderCreated.encode(event, header: false)
 
   defp has_type?(module, type_name, arity) do

@@ -356,6 +356,112 @@ defmodule GridCodec.Types.PrefixedIdTest do
   end
 
   # ================================================================
+  # Slim mode (user-defined helpers, simulating generated source)
+  # ================================================================
+
+  defmodule SlimUserId do
+    @moduledoc "Generated PrefixedId with visible helpers."
+    use GridCodec.Types.PrefixedId, prefix: "slim", tag: 0x04
+
+    @typedoc "A prefixed ID string of the form `slim-<uuid>`."
+    @type t() :: String.t()
+
+    @spec generate() :: t()
+    def generate do
+      raw = GridCodec.Types.UUID.generate_v4()
+      "slim-" <> GridCodec.Types.UUIDString.format_uuid(raw)
+    end
+
+    @spec from_uuid(String.t()) :: t()
+    def from_uuid(uuid_str) when is_binary(uuid_str), do: "slim-" <> uuid_str
+
+    @spec to_uuid(t()) :: String.t()
+    def to_uuid("slim-" <> uuid_str), do: uuid_str
+
+    @spec valid?(t() | term()) :: boolean()
+    def valid?("slim-" <> <<uuid_str::binary-size(36)>>) do
+      GridCodec.Types.PrefixedId.valid_uuid_string?(uuid_str)
+    end
+
+    def valid?(_), do: false
+
+    @spec prefix() :: String.t()
+    def prefix, do: "slim-"
+
+    @spec tag() :: 0..254
+    def tag, do: 0x04
+  end
+
+  defmodule SlimIdEvent do
+    use GridCodec.Struct, template_id: 902, schema_id: 90, version: 1
+
+    defcodec do
+      field :slim_id, GridCodec.Types.PrefixedIdTest.SlimUserId
+      field :label, :string16
+    end
+  end
+
+  describe "slim mode (user-defined helpers)" do
+    test "generate/0 works" do
+      id = SlimUserId.generate()
+      assert String.starts_with?(id, "slim-")
+    end
+
+    test "from_uuid/1 prepends prefix" do
+      assert SlimUserId.from_uuid("550e8400-e29b-41d4-a716-446655440000") ==
+               "slim-550e8400-e29b-41d4-a716-446655440000"
+    end
+
+    test "to_uuid/1 strips prefix" do
+      assert SlimUserId.to_uuid("slim-550e8400-e29b-41d4-a716-446655440000") ==
+               "550e8400-e29b-41d4-a716-446655440000"
+    end
+
+    test "valid?/1 validates" do
+      assert SlimUserId.valid?("slim-550e8400-e29b-41d4-a716-446655440000")
+      refute SlimUserId.valid?("user-550e8400-e29b-41d4-a716-446655440000")
+      refute SlimUserId.valid?(nil)
+    end
+
+    test "prefix/0 and tag/0" do
+      assert SlimUserId.prefix() == "slim-"
+      assert SlimUserId.tag() == 0x04
+    end
+
+    test "Type callbacks still work (size, alignment, null_value)" do
+      assert SlimUserId.size() == 17
+      assert SlimUserId.alignment() == 1
+      assert SlimUserId.null_value() == <<0, 0::128>>
+    end
+
+    test "__prefixed_id_meta__/0 still present" do
+      assert SlimUserId.__prefixed_id_meta__() == %{prefix: "slim-", tag: 0x04}
+    end
+
+    test "macro does not inject duplicate helpers" do
+      funs = SlimUserId.__info__(:functions)
+      generate_count = Enum.count(funs, fn {name, _} -> name == :generate end)
+      assert generate_count == 1, "generate/0 should appear exactly once (user-defined only)"
+    end
+
+    test "encode/decode roundtrip in a codec" do
+      id = SlimUserId.generate()
+      {:ok, event} = SlimIdEvent.new(slim_id: id, label: "test")
+      {:ok, binary} = SlimIdEvent.encode(event)
+      {:ok, decoded} = SlimIdEvent.decode(binary)
+
+      assert decoded.slim_id == id
+      assert decoded.label == "test"
+    end
+
+    test "coercion works through new/1" do
+      uuid = "550e8400-e29b-41d4-a716-446655440000"
+      {:ok, event} = SlimIdEvent.new(slim_id: uuid, label: "x")
+      assert String.starts_with?(event.slim_id, "slim-")
+    end
+  end
+
+  # ================================================================
   # Property tests
   # ================================================================
 

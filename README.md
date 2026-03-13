@@ -234,11 +234,20 @@ end
 
 Self-describing entity identifiers (17 bytes: u8 tag + 16-byte UUID) for DB-level filtering:
 
+```bash
+# Generate with visible source code (recommended)
+mix grid_codec.gen.prefixed_id MyApp.Types.UserId --prefix user --tag 1
+```
+
+Or use the compact macro-only form:
+
 ```elixir
 defmodule MyApp.Types.UserId do
   use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
 end
+```
 
+```elixir
 # In a codec:
 defcodec do
   field :user_id, MyApp.Types.UserId

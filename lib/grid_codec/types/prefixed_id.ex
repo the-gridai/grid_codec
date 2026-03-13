@@ -18,6 +18,14 @@ defmodule GridCodec.Types.PrefixedId do
 
   ## Defining a Prefixed ID Type
 
+  ### Generated (recommended)
+
+  Use the Mix generator for visible source code with full docs:
+
+      mix grid_codec.gen.prefixed_id MyApp.Types.UserId --prefix user --tag 1
+
+  ### Macro-only (compact)
+
       defmodule MyApp.Types.UserId do
         use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x01
       end
@@ -85,10 +93,6 @@ defmodule GridCodec.Types.PrefixedId do
     prefix_len = byte_size(full_prefix)
 
     quote do
-      unless Module.has_attribute?(__MODULE__, :moduledoc) do
-        @moduledoc "GridCodec prefixed ID: `#{unquote(full_prefix)}<uuid>` (tag #{unquote(tag)})."
-      end
-
       @behaviour GridCodec.Type
 
       @__prefix unquote(prefix)
@@ -98,43 +102,7 @@ defmodule GridCodec.Types.PrefixedId do
       @__null_sentinel <<0, 0::128>>
       @__null_uuid <<0::128>>
 
-      # ================================================================
-      # Public helpers
-      # ================================================================
-
-      @doc "Generates a new prefixed ID with a random UUIDv4."
-      @spec generate() :: String.t()
-      def generate do
-        raw = GridCodec.Types.UUID.generate_v4()
-        @__full_prefix <> GridCodec.Types.UUIDString.format_uuid(raw)
-      end
-
-      @doc "Prepends the prefix to a plain UUID string."
-      @spec from_uuid(String.t()) :: String.t()
-      def from_uuid(uuid_str) when is_binary(uuid_str), do: @__full_prefix <> uuid_str
-
-      @doc "Strips the prefix, returning the plain UUID string."
-      @spec to_uuid(String.t()) :: String.t()
-      def to_uuid(<<prefix::binary-size(unquote(prefix_len)), uuid_str::binary>>)
-          when prefix == unquote(full_prefix),
-          do: uuid_str
-
-      @doc "Returns `true` if the string is a valid prefixed ID for this type."
-      @spec valid?(term()) :: boolean()
-      def valid?(<<prefix::binary-size(unquote(prefix_len)), uuid_str::binary-size(36)>>)
-          when prefix == unquote(full_prefix) do
-        GridCodec.Types.PrefixedId.valid_uuid_string?(uuid_str)
-      end
-
-      def valid?(_), do: false
-
-      @doc "Returns the string prefix (including trailing dash)."
-      @spec prefix() :: String.t()
-      def prefix, do: @__full_prefix
-
-      @doc "Returns the wire tag byte."
-      @spec tag() :: 0..254
-      def tag, do: @__tag
+      @before_compile GridCodec.Types.PrefixedId
 
       @doc false
       def __prefixed_id_meta__ do
@@ -142,7 +110,7 @@ defmodule GridCodec.Types.PrefixedId do
       end
 
       # ================================================================
-      # GridCodec.Type callbacks
+      # GridCodec.Type callbacks (always injected — compile-time AST)
       # ================================================================
 
       @impl GridCodec.Type
@@ -268,6 +236,97 @@ defmodule GridCodec.Types.PrefixedId do
           end)
         end
       end
+    end
+  end
+
+  # ================================================================
+  # @before_compile — conditionally inject public helpers
+  # ================================================================
+
+  @doc false
+  defmacro __before_compile__(env) do
+    GridCodec.Types.PrefixedId.__maybe_inject_helpers__(env.module)
+  end
+
+  @doc false
+  def __maybe_inject_helpers__(module) do
+    if Module.defines?(module, {:generate, 0}) do
+      quote do: :ok
+    else
+      __inject_helpers__(module)
+    end
+  end
+
+  defp __inject_helpers__(module) do
+    full_prefix = Module.get_attribute(module, :__full_prefix)
+    prefix_len = Module.get_attribute(module, :__prefix_len)
+    tag = Module.get_attribute(module, :__tag)
+
+    default_intro =
+      "GridCodec prefixed ID type: `#{full_prefix}<uuid>` (tag `#{tag}`)."
+
+    standard_section = """
+
+    ## Prefixed ID
+
+    Wire format: 17 bytes (u8 tag + 16-byte UUID). Prefix: `#{full_prefix}` | Tag: `#{tag}`
+
+    | Function | Description |
+    |----------|-------------|
+    | `generate/0` | Create a new prefixed ID with a random UUIDv4 |
+    | `from_uuid/1` | Prepend the prefix to a plain UUID string |
+    | `to_uuid/1` | Strip the prefix, returning the plain UUID |
+    | `valid?/1` | Check if a value is a valid prefixed ID for this type |
+    | `prefix/0` | Returns the string prefix (including trailing dash) |
+    | `tag/0` | Returns the wire tag byte |
+    """
+
+    moduledoc_value =
+      case Module.get_attribute(module, :moduledoc) do
+        {_, false} -> false
+        {_, existing} when is_binary(existing) -> existing <> "\n" <> standard_section
+        _ -> default_intro <> "\n" <> standard_section
+      end
+
+    quote do
+      @moduledoc unquote(moduledoc_value)
+
+      @typedoc "A prefixed ID string of the form `#{unquote(full_prefix)}<uuid>`."
+      @type t() :: String.t()
+
+      @doc "Generates a new prefixed ID with a random UUIDv4."
+      @spec generate() :: t()
+      def generate do
+        raw = GridCodec.Types.UUID.generate_v4()
+        unquote(full_prefix) <> GridCodec.Types.UUIDString.format_uuid(raw)
+      end
+
+      @doc "Prepends the prefix to a plain UUID string."
+      @spec from_uuid(String.t()) :: t()
+      def from_uuid(uuid_str) when is_binary(uuid_str), do: unquote(full_prefix) <> uuid_str
+
+      @doc "Strips the prefix, returning the plain UUID string."
+      @spec to_uuid(t()) :: String.t()
+      def to_uuid(<<prefix::binary-size(unquote(prefix_len)), uuid_str::binary>>)
+          when prefix == unquote(full_prefix),
+          do: uuid_str
+
+      @doc "Returns `true` if the value is a valid prefixed ID for this type."
+      @spec valid?(t() | term()) :: boolean()
+      def valid?(<<prefix::binary-size(unquote(prefix_len)), uuid_str::binary-size(36)>>)
+          when prefix == unquote(full_prefix) do
+        GridCodec.Types.PrefixedId.valid_uuid_string?(uuid_str)
+      end
+
+      def valid?(_), do: false
+
+      @doc "Returns the string prefix (including trailing dash)."
+      @spec prefix() :: String.t()
+      def prefix, do: unquote(full_prefix)
+
+      @doc "Returns the wire tag byte."
+      @spec tag() :: 0..254
+      def tag, do: unquote(tag)
     end
   end
 

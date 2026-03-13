@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-03-13
+
+### Added
+- **`mix grid_codec.gen.prefixed_id` generator** — creates PrefixedId type modules
+  as full `.ex` source files with visible functions, `@doc`/`@spec`, doctests, and
+  a companion test file. Generated files include a version-stamped header comment.
+- **PrefixedId slim mode** — the `use GridCodec.Types.PrefixedId` macro now detects
+  user-defined helper functions (e.g. from the generator) and skips injecting
+  duplicates via `@before_compile`, enabling a visible-source workflow without
+  breaking existing macro-only usage.
+- **PrefixedId `@moduledoc` merging** — the macro appends a standard "Prefixed ID"
+  documentation section to any user-provided `@moduledoc`, or provides a default
+  when none is set.
+- **Example app PrefixedId types** — added `ExampleApp.Types.OrderId` (`ord-`, tag 1)
+  and `ExampleApp.Types.UserId` (`user-`, tag 2) as generated-source examples with
+  passing doctests.
+
+### Fixed
+- **Example app typespec test** — `encode_payload/1` now correctly pattern-matches
+  the `{:ok, binary}` return value from `encode/2`.
+
+### Changed
+- **Compiler cleanup** — removed unused WIP "from blocks" private functions that
+  caused `--warnings-as-errors` failures.
+
+### Documentation
+- **README.md** — updated PrefixedId section to recommend the generator workflow.
+- **AGENTS.md** — updated PrefixedId section with both generator and macro-only paths.
+
 ## [0.30.0] - 2026-03-12
 
 ### Added

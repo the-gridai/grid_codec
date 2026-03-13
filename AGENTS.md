@@ -497,9 +497,21 @@ Each type implements callbacks:
 - `encode_to_wire_ast/2` - (optional) Convert domain value to wire type value
 - `decode_as_ast/2` - (optional) Decode-time wire→domain type transformation (used by `wire_format:`)
 
-### PrefixedId (Macro-Based Composite Type)
+### PrefixedId (Composite Type)
 
-Define entity-specific ID types with a wire tag byte for DB-level filtering:
+Define entity-specific ID types with a wire tag byte for DB-level filtering.
+
+**Generated source (recommended)** — creates a full `.ex` file with visible functions, docs, specs:
+
+```bash
+mix grid_codec.gen.prefixed_id MyApp.Types.UserId --prefix user --tag 1
+```
+
+The generated module contains `use GridCodec.Types.PrefixedId` (slim: only `@impl` callbacks)
+plus all public helpers as visible source code. The macro detects user-defined `generate/0`
+and skips injecting helpers, so both modes coexist without conflict.
+
+**Compact macro-only** — all helpers injected at compile time (invisible in source):
 
 ```elixir
 defmodule MyApp.Types.UserId do
