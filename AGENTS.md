@@ -471,6 +471,52 @@ The `batch/2` macro supports two encoding strategies:
 
 Choose `:typed_frames` when `max_block / min_block > 3` to avoid padding waste.
 
+### Virtual Fields
+
+Fields that exist on the struct but are excluded from binary encoding:
+
+```elixir
+defcodec do
+  field :id, :u64
+  virtual :cache, default: %{}
+  virtual :metadata, default: nil, validate: false
+end
+```
+
+- `validate: true` (default) — included in `new/1` coercion
+- `validate: false` — skipped by `new/1` entirely
+- Skipped by `.grid` export
+
+### Framed Groups
+
+Groups with variable-length entries use length-prefixed framing:
+
+```elixir
+defcodec do
+  group :bills, of: Bill, framing: :length_prefixed
+end
+```
+
+Wire format: `numEntries (u32 LE) | [payload_len (u16 LE) | payload]*`.
+Eagerly decodes to a plain list. Compatible with `lookups` for map-keyed access.
+
+### Scalar Groups
+
+Homogeneous lists of scalar values:
+
+```elixir
+defcodec do
+  group :tag_ids, type: :uuid       # fixed-size → standard group wire format
+  group :labels, type: :string16    # variable-length → auto-selects framed encoding
+  group :scores, type: :u32         # fixed-size integers
+end
+```
+
+Fixed-size types use the standard group header. Variable-length types auto-select
+`framing: :length_prefixed`. Both eagerly decode to a plain list.
+
+Note: `.grid` schema format does not yet support scalar groups.
+
 ### Binary Memory Model
 
 GridCodec binaries are almost always > 64 bytes, making them **refc binaries**

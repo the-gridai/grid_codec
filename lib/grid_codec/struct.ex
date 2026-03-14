@@ -255,7 +255,9 @@ defmodule GridCodec.Struct do
               lookups: 1,
               lookup: 2,
               views: 1,
-              view: 2
+              view: 2,
+              virtual: 1,
+              virtual: 2
             ]
 
           @gridcodec_opts unquote(opts)
@@ -265,6 +267,7 @@ defmodule GridCodec.Struct do
           Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
+          Module.register_attribute(__MODULE__, :gridcodec_virtuals, accumulate: true)
         end
     end
   end
@@ -335,7 +338,8 @@ defmodule GridCodec.Struct do
     group_defs =
       Enum.map(struct_def.groups, fn group ->
         group_fields = Enum.map(group.fields, &grid_field_to_def(&1, custom_types))
-        {group.name, group_fields, []}
+        group_opts = if group.framing, do: [framing: group.framing], else: []
+        {group.name, group_fields, group_opts}
       end)
 
     version = struct_def.version || schema.version || 1
@@ -363,7 +367,9 @@ defmodule GridCodec.Struct do
           lookups: 1,
           lookup: 2,
           views: 1,
-          view: 2
+          view: 2,
+          virtual: 1,
+          virtual: 2
         ]
 
       @gridcodec_opts unquote(Macro.escape(merged_opts))
@@ -373,6 +379,7 @@ defmodule GridCodec.Struct do
       Module.register_attribute(__MODULE__, :gridcodec_groups, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
+      Module.register_attribute(__MODULE__, :gridcodec_virtuals, accumulate: true)
 
       for {name, type, field_opts} <- unquote(Macro.escape(field_defs)) do
         @gridcodec_fields {name, type, field_opts}
@@ -387,7 +394,8 @@ defmodule GridCodec.Struct do
         GridCodec.Struct.Compiler.compute_struct_fields(
           Module.get_attribute(__MODULE__, :gridcodec_fields) || [],
           Module.get_attribute(__MODULE__, :gridcodec_groups) || [],
-          Module.get_attribute(__MODULE__, :gridcodec_batches) || []
+          Module.get_attribute(__MODULE__, :gridcodec_batches) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_virtuals) || []
         )
 
       if gridcodec_ek__ != [] do
@@ -624,7 +632,8 @@ defmodule GridCodec.Struct do
         GridCodec.Struct.Compiler.compute_struct_fields(
           Module.get_attribute(__MODULE__, :gridcodec_fields) || [],
           Module.get_attribute(__MODULE__, :gridcodec_groups) || [],
-          Module.get_attribute(__MODULE__, :gridcodec_batches) || []
+          Module.get_attribute(__MODULE__, :gridcodec_batches) || [],
+          Module.get_attribute(__MODULE__, :gridcodec_virtuals) || []
         )
 
       if gridcodec_ek__ != [] do

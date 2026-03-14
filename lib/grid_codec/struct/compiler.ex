@@ -4,8 +4,13 @@ defmodule GridCodec.Struct.Compiler do
   import Bitwise
 
   @doc false
-  def compute_struct_fields(fields, groups, batches) do
-    build_struct_fields(Enum.reverse(fields), Enum.reverse(groups), Enum.reverse(batches))
+  def compute_struct_fields(fields, groups, batches, virtuals \\ []) do
+    build_struct_fields(
+      Enum.reverse(fields),
+      Enum.reverse(groups),
+      Enum.reverse(batches),
+      Enum.reverse(virtuals)
+    )
   end
 
   defmacro __before_compile__(env) do
@@ -13,11 +18,14 @@ defmodule GridCodec.Struct.Compiler do
     groups = Module.get_attribute(env.module, :gridcodec_groups) |> Enum.reverse()
     batches = (Module.get_attribute(env.module, :gridcodec_batches) || []) |> Enum.reverse()
     lookups = (Module.get_attribute(env.module, :gridcodec_lookups) || []) |> Enum.reverse()
+    virtuals = (Module.get_attribute(env.module, :gridcodec_virtuals) || []) |> Enum.reverse()
 
     from_blocks =
       (Module.get_attribute(env.module, :gridcodec_from_blocks) || []) |> Enum.reverse()
 
     opts = Module.get_attribute(env.module, :gridcodec_opts) || []
+
+    validate_virtual_names!(virtuals, fields, groups, batches)
 
     # Extract options with defaults
     version = Keyword.get(opts, :version, 1)
@@ -133,9 +141,35 @@ defmodule GridCodec.Struct.Compiler do
       end)
       |> Map.new()
 
+    virtual_field_meta =
+      Enum.map(virtuals, fn {name, vopts} ->
+        %{
+          name: name,
+          default: Keyword.get(vopts, :default),
+          validate: Keyword.get(vopts, :validate, true)
+        }
+      end)
+
+    schema_groups =
+      Enum.map(processed_groups, fn {name, block, opts} ->
+        clean_opts =
+          opts
+          |> Keyword.drop([
+            :entry_encoder,
+            :entry_decoder,
+            :batch_encoder,
+            :batch_decoder,
+            :__resolved_fields__,
+            :__of_module__,
+            :__scalar_type__
+          ])
+
+        {name, block, clean_opts}
+      end)
+
     schema = %{
       fields: fields,
-      groups: groups,
+      groups: schema_groups,
       batches: batch_meta,
       group_fields: group_field_meta,
       lookups: normalized_lookups,
@@ -148,7 +182,8 @@ defmodule GridCodec.Struct.Compiler do
       fixed_fields: Enum.map(fixed_fields, fn {name, _, _, _} -> name end),
       var_fields: Enum.map(var_fields, fn {name, _, _, _} -> name end),
       field_versions: field_versions,
-      type: type_name
+      type: type_name,
+      virtual_fields: virtual_field_meta
     }
 
     # Generate encoder/decoder AST (using processed_groups with auto-generated codecs)
@@ -269,7 +304,7 @@ defmodule GridCodec.Struct.Compiler do
       unquote(generate_update_and_helpers(module, generate_typespec, validate_enabled))
 
       # Internal: coerce attrs map, return {:ok, coerced_map} or {:error, %ValidationError{}}
-      unquote(generate_cast_fn(resolved_fields, processed_groups, env.module))
+      unquote(generate_cast_fn(resolved_fields, processed_groups, virtuals, env.module))
 
       # Content hash: deterministic SHA256 from wire format
       unquote(generate_content_hash_fn(env.module, generate_typespec))
@@ -563,7 +598,7 @@ defmodule GridCodec.Struct.Compiler do
   # Struct Field Generation
   # ============================================================================
 
-  defp build_struct_fields(fields, groups, batches) do
+  defp build_struct_fields(fields, groups, batches, virtuals) do
     struct_fields =
       Enum.map(fields, fn {name, _type, opts} ->
         presence = Keyword.get(opts, :presence, :optional)
@@ -582,6 +617,11 @@ defmodule GridCodec.Struct.Compiler do
     group_fields = Enum.map(groups, fn {name, _, _} -> {name, []} end)
     batch_fields = Enum.map(batches, fn {name, _, _} -> {name, []} end)
 
+    virtual_fields =
+      Enum.map(virtuals, fn {name, opts} ->
+        {name, Keyword.get(opts, :default)}
+      end)
+
     enforce_keys =
       fields
       |> Enum.filter(fn {_name, _type, opts} ->
@@ -589,7 +629,31 @@ defmodule GridCodec.Struct.Compiler do
       end)
       |> Enum.map(fn {name, _, _} -> name end)
 
-    {struct_fields ++ group_fields ++ batch_fields, enforce_keys}
+    {struct_fields ++ group_fields ++ batch_fields ++ virtual_fields, enforce_keys}
+  end
+
+  defp validate_virtual_names!(virtuals, fields, groups, batches) do
+    field_names = MapSet.new(fields, fn {name, _, _} -> name end)
+    group_names = MapSet.new(groups, fn {name, _, _} -> name end)
+    batch_names = MapSet.new(batches, fn {name, _, _} -> name end)
+    wire_names = MapSet.union(field_names, MapSet.union(group_names, batch_names))
+
+    Enum.each(virtuals, fn {name, _opts} ->
+      if MapSet.member?(wire_names, name) do
+        raise CompileError,
+          description:
+            "Virtual field :#{name} conflicts with an existing field, group, or batch of the same name."
+      end
+    end)
+
+    virtual_names = Enum.map(virtuals, fn {name, _} -> name end)
+
+    if length(virtual_names) != length(Enum.uniq(virtual_names)) do
+      dupes = virtual_names -- Enum.uniq(virtual_names)
+
+      raise CompileError,
+        description: "Duplicate virtual field names: #{inspect(Enum.uniq(dupes))}"
+    end
   end
 
   defp ensure_unique_type_name!(type_name, module, file, line) do
@@ -1452,7 +1516,43 @@ defmodule GridCodec.Struct.Compiler do
 
       group_fields = parse_group_fields(block)
 
+      framing = Keyword.get(opts, :framing)
+
       cond do
+        typed_module != nil and framing == :length_prefixed ->
+          if has_explicit_codecs do
+            raise CompileError,
+              description: "Group :#{name} cannot use `of:` together with explicit entry codecs."
+          end
+
+          if group_fields != [] do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `of:` together with inline field declarations."
+          end
+
+          resolved = resolve_typed_group_framed!(name, typed_module)
+          encoder_fn = generate_typed_group_entry_encoder(name, typed_module)
+          decoder_fn = generate_typed_group_entry_decoder(name, typed_module)
+          batch_encoder_fn = generate_framed_group_batch_encoder(name)
+
+          encoder_fn_name = :"__encode_#{name}_entry__"
+          decoder_fn_name = :"__decode_#{name}_entry__"
+          batch_encoder_fn_name = :"__encode_#{name}_group__"
+
+          encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
+          decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+
+          updated_opts =
+            opts
+            |> Keyword.put(:entry_encoder, encoder_capture)
+            |> Keyword.put(:entry_decoder, decoder_capture)
+            |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+            |> Keyword.put(:__resolved_fields__, resolved)
+            |> Keyword.put(:__of_module__, typed_module)
+
+          {{name, block, updated_opts}, acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn]}
+
         typed_module != nil ->
           if has_explicit_codecs do
             raise CompileError,
@@ -1492,6 +1592,22 @@ defmodule GridCodec.Struct.Compiler do
 
           {{name, block, updated_opts},
            acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
+
+        Keyword.has_key?(opts, :type) ->
+          if has_explicit_codecs do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `type:` together with explicit entry codecs."
+          end
+
+          if group_fields != [] do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `type:` together with inline field declarations."
+          end
+
+          scalar_type = Keyword.fetch!(opts, :type)
+          process_scalar_group(name, scalar_type, opts, acc_fns, endian)
 
         has_explicit_codecs or group_fields == [] ->
           {{name, block, opts}, acc_fns}
@@ -1577,6 +1693,191 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
+  defp resolve_typed_group_framed!(group_name, module) do
+    Code.ensure_compiled!(module)
+
+    unless function_exported?(module, :__schema__, 0) do
+      raise CompileError,
+        description:
+          "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module does not expose GridCodec struct metadata."
+    end
+
+    schema = module.__schema__()
+
+    cond do
+      Map.get(schema, :groups, []) != [] ->
+        raise CompileError,
+          description:
+            "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module contains nested groups."
+
+      Map.get(schema, :batches, []) != [] ->
+        raise CompileError,
+          description:
+            "Group :#{group_name} uses #{inspect(module)} with `of:`, but the module contains nested batches."
+
+      true ->
+        resolve_types(Map.get(schema, :fields, []))
+    end
+  end
+
+  defp process_scalar_group(name, scalar_type, opts, acc_fns, endian) do
+    {type_atom, _type_opts} = normalize_type_spec(scalar_type)
+
+    type_module =
+      case GridCodec.Type.lookup(type_atom) do
+        {:ok, mod} ->
+          mod
+
+        {:error, :unknown_type} ->
+          raise CompileError,
+            description: "Unknown scalar type #{inspect(type_atom)} for group :#{name}"
+      end
+
+    is_variable = type_module.size() == :variable
+
+    encoder_fn = generate_scalar_entry_encoder(name, type_atom, type_module, endian, is_variable)
+    decoder_fn = generate_scalar_entry_decoder(name, type_atom, type_module, endian, is_variable)
+
+    encoder_fn_name = :"__encode_#{name}_entry__"
+    decoder_fn_name = :"__decode_#{name}_entry__"
+    encoder_capture = {:&, [], [{:/, [], [{encoder_fn_name, [], Elixir}, 1]}]}
+    decoder_capture = {:&, [], [{:/, [], [{decoder_fn_name, [], Elixir}, 1]}]}
+
+    if is_variable do
+      batch_encoder_fn = generate_framed_group_batch_encoder(name)
+      batch_encoder_fn_name = :"__encode_#{name}_group__"
+
+      updated_opts =
+        opts
+        |> Keyword.put(:entry_encoder, encoder_capture)
+        |> Keyword.put(:entry_decoder, decoder_capture)
+        |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+        |> Keyword.put(:framing, :length_prefixed)
+        |> Keyword.put(:__scalar_type__, {type_atom, type_module})
+
+      {{name, nil, updated_opts}, acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn]}
+    else
+      block_length = type_module.size()
+      batch_encoder_fn = generate_scalar_batch_encoder(name, block_length)
+      batch_decoder_fn = generate_scalar_batch_decoder(name, block_length)
+      batch_encoder_fn_name = :"__encode_#{name}_group__"
+      batch_decoder_fn_name = :"__decode_all_#{name}__"
+      batch_decoder_capture = {:&, [], [{:/, [], [{batch_decoder_fn_name, [], Elixir}, 2]}]}
+
+      updated_opts =
+        opts
+        |> Keyword.put(:entry_encoder, encoder_capture)
+        |> Keyword.put(:entry_decoder, decoder_capture)
+        |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
+        |> Keyword.put(:batch_decoder, batch_decoder_capture)
+        |> Keyword.put(:block_length, block_length)
+        |> Keyword.put(:__scalar_type__, {type_atom, type_module})
+
+      {{name, nil, updated_opts},
+       acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
+    end
+  end
+
+  defp generate_scalar_entry_encoder(group_name, type_atom, _type_module, _endian, true) do
+    fn_name = :"__encode_#{group_name}_entry__"
+    value_var = Macro.var(:value, __MODULE__)
+    encode_call = var_encode_ast(type_atom, value_var)
+
+    quote do
+      defp unquote(fn_name)(unquote(value_var)) do
+        unquote(encode_call)
+      end
+    end
+  end
+
+  defp generate_scalar_entry_encoder(group_name, type_atom, type_module, endian, false) do
+    fn_name = :"__encode_#{group_name}_entry__"
+    value_var = Macro.var(:value, __MODULE__)
+    wrapper_var = Macro.var(:__wrapper__, __MODULE__)
+    synthetic_field = {:__value__, type_atom, type_module, []}
+    encode_segment = field_encode_ast(synthetic_field, endian, wrapper_var)
+
+    quote do
+      defp unquote(fn_name)(unquote(value_var)) do
+        unquote(wrapper_var) = %{__value__: unquote(value_var)}
+        <<unquote(encode_segment)>>
+      end
+    end
+  end
+
+  defp generate_scalar_entry_decoder(group_name, type_atom, _type_module, _endian, true) do
+    fn_name = :"__decode_#{group_name}_entry__"
+    binary_var = Macro.var(:binary, __MODULE__)
+    decode_call = var_decode_ast(type_atom, binary_var)
+
+    quote do
+      defp unquote(fn_name)(unquote(binary_var)) do
+        {value, _rest} = unquote(decode_call)
+        {:ok, value}
+      end
+    end
+  end
+
+  defp generate_scalar_entry_decoder(group_name, _type_atom, type_module, endian, false) do
+    fn_name = :"__decode_#{group_name}_entry__"
+    value_var = Macro.var(:value, __MODULE__)
+    pattern = type_module.decode_pattern_ast(value_var, endian)
+
+    decode_value =
+      if function_exported?(type_module, :decode_value_ast, 1) do
+        type_module.decode_value_ast(value_var)
+      else
+        value_var
+      end
+
+    quote do
+      defp unquote(fn_name)(<<unquote(pattern)>>) do
+        {:ok, unquote(decode_value)}
+      end
+    end
+  end
+
+  defp generate_scalar_batch_encoder(group_name, block_length) do
+    group_fn = :"__encode_#{group_name}_group__"
+    loop_fn = :"__encode_#{group_name}_list__"
+    entry_fn = :"__encode_#{group_name}_entry__"
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<0::little-16, 0::little-16>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        iodata = unquote(loop_fn)(entries)
+
+        :erlang.iolist_to_binary([
+          <<unquote(block_length)::little-16, count::little-16>> | iodata
+        ])
+      end
+
+      defp unquote(loop_fn)([]), do: []
+
+      defp unquote(loop_fn)([entry | rest]) do
+        [unquote(entry_fn)(entry) | unquote(loop_fn)(rest)]
+      end
+    end
+  end
+
+  defp generate_scalar_batch_decoder(group_name, block_length) do
+    fn_name = :"__decode_all_#{group_name}__"
+    entry_decoder = :"__decode_#{group_name}_entry__"
+
+    quote do
+      defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
+
+      defp unquote(fn_name)(<<chunk::binary-size(unquote(block_length)), rest::binary>>, acc) do
+        {:ok, value} = unquote(entry_decoder)(chunk)
+        unquote(fn_name)(rest, [value | acc])
+      end
+    end
+  end
+
   defp parse_group_fields(block_ast) do
     stmts =
       case block_ast do
@@ -1638,6 +1939,32 @@ defmodule GridCodec.Struct.Compiler do
 
       defp unquote(loop_fn)([entry | rest]) do
         [unquote(entry_fn)(entry) | unquote(loop_fn)(rest)]
+      end
+    end
+  end
+
+  defp generate_framed_group_batch_encoder(group_name) do
+    group_fn = :"__encode_#{group_name}_group__"
+    loop_fn = :"__encode_#{group_name}_list__"
+    entry_fn = :"__encode_#{group_name}_entry__"
+
+    quote do
+      defp unquote(group_fn)([]) do
+        <<0::little-32>>
+      end
+
+      defp unquote(group_fn)(entries) when is_list(entries) do
+        count = length(entries)
+        iodata = unquote(loop_fn)(entries)
+        :erlang.iolist_to_binary([<<count::little-32>> | iodata])
+      end
+
+      defp unquote(loop_fn)([]), do: []
+
+      defp unquote(loop_fn)([entry | rest]) do
+        payload = unquote(entry_fn)(entry)
+        payload_len = byte_size(payload)
+        [<<payload_len::little-16, payload::binary>> | unquote(loop_fn)(rest)]
       end
     end
   end
@@ -2584,8 +2911,40 @@ defmodule GridCodec.Struct.Compiler do
         group_var = Macro.var(:"__grp_#{name}__", __MODULE__)
         new_rest = Macro.var(:"__rest_#{name}__", __MODULE__)
 
+        framing = Keyword.get(opts, :framing)
+
+        scalar_type = Keyword.get(opts, :__scalar_type__)
+
         step =
           cond do
+            scalar_type != nil and framing == :length_prefixed ->
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Group.parse_framed_with_rest!(
+                    unquote(rest_var),
+                    unquote(decoder)
+                  )
+              end
+
+            scalar_type != nil ->
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Group.parse_scalar_fixed_with_rest!(
+                    unquote(rest_var),
+                    unquote(decoder),
+                    unquote(batch_decoder)
+                  )
+              end
+
+            framing == :length_prefixed ->
+              quote do
+                {unquote(group_var), unquote(new_rest)} =
+                  GridCodec.Group.parse_framed_with_rest!(
+                    unquote(rest_var),
+                    unquote(decoder)
+                  )
+              end
+
             is_batch and batch_strategy == :typed_frames ->
               escaped_specs = Macro.escape(batch_type_specs)
 
@@ -3758,7 +4117,7 @@ defmodule GridCodec.Struct.Compiler do
   # Cast / Coercion Generation
   # ============================================================================
 
-  defp generate_cast_fn(fields, groups, module) do
+  defp generate_cast_fn(fields, groups, virtuals, module) do
     non_constant =
       Enum.reject(fields, fn {_, _, _, opts} ->
         Keyword.get(opts, :presence) == :constant
@@ -3786,9 +4145,24 @@ defmodule GridCodec.Struct.Compiler do
 
     group_coercions = build_group_coercions(groups, module)
 
+    validated_virtuals =
+      virtuals
+      |> Enum.filter(fn {_name, vopts} -> Keyword.get(vopts, :validate, true) end)
+      |> Enum.map(fn {name, vopts} ->
+        {name, Atom.to_string(name), Keyword.get(vopts, :default)}
+      end)
+
     quote do
       defp __cast__(attrs) when is_map(attrs) do
-        unquote(build_cast_body(field_coercions, group_coercions, required_fields, module))
+        unquote(
+          build_cast_body(
+            field_coercions,
+            group_coercions,
+            validated_virtuals,
+            required_fields,
+            module
+          )
+        )
       end
     end
   end
@@ -3797,8 +4171,22 @@ defmodule GridCodec.Struct.Compiler do
     Enum.flat_map(groups, fn {name, _block, opts} ->
       typed_module = Keyword.get(opts, :__of_module__)
       group_fields = Keyword.get(opts, :__resolved_fields__)
+      scalar_type = Keyword.get(opts, :__scalar_type__)
 
       cond do
+        scalar_type != nil ->
+          {_type_atom, type_module} = scalar_type
+
+          coerce =
+            if function_exported?(type_module, :coerce_ast, 1) do
+              var = Macro.var(:__entry_val__, __MODULE__)
+              type_module.coerce_ast(var)
+            else
+              nil
+            end
+
+          [{name, Atom.to_string(name), {:scalar, coerce}}]
+
         typed_module != nil ->
           [{name, Atom.to_string(name), {:typed, typed_module}}]
 
@@ -3826,7 +4214,13 @@ defmodule GridCodec.Struct.Compiler do
     end)
   end
 
-  defp build_cast_body(field_coercions, group_coercions, required_fields, module) do
+  defp build_cast_body(
+         field_coercions,
+         group_coercions,
+         validated_virtuals,
+         required_fields,
+         module
+       ) do
     field_extractions =
       Enum.map(field_coercions, fn {name, name_str, type_atom, coerce_ast} ->
         extract =
@@ -3891,6 +4285,43 @@ defmodule GridCodec.Struct.Compiler do
 
     group_extractions =
       Enum.map(group_coercions, fn
+        {name, name_str, {:scalar, coerce_ast}} ->
+          field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+          scalar_coerce =
+            if coerce_ast do
+              quote do
+                fn __entry_val__ ->
+                  case unquote(coerce_ast) do
+                    {:ok, v} -> v
+                    {:error, _} -> __entry_val__
+                  end
+                end
+              end
+            else
+              quote(do: fn v -> v end)
+            end
+
+          quote do
+            unquote(field_var) =
+              case :maps.find(unquote(name), attrs) do
+                {:ok, entries} when is_list(entries) ->
+                  Enum.map(entries, unquote(scalar_coerce))
+
+                {:ok, nil} ->
+                  []
+
+                :error ->
+                  case Map.get(attrs, unquote(name_str)) do
+                    entries when is_list(entries) ->
+                      Enum.map(entries, unquote(scalar_coerce))
+
+                    _ ->
+                      []
+                  end
+              end
+          end
+
         {name, name_str, {:typed, typed_module}} ->
           field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
           entry_cast = build_typed_entry_cast_ast(typed_module, name, module)
@@ -3941,6 +4372,25 @@ defmodule GridCodec.Struct.Compiler do
           end
       end)
 
+    virtual_extractions =
+      Enum.map(validated_virtuals, fn {name, name_str, default} ->
+        field_var = Macro.var(:"__cast_#{name}__", __MODULE__)
+
+        quote do
+          unquote(field_var) =
+            case :maps.find(unquote(name), attrs) do
+              {:ok, v} ->
+                v
+
+              :error ->
+                case Map.get(attrs, unquote(name_str)) do
+                  nil -> unquote(Macro.escape(default))
+                  v -> v
+                end
+            end
+        end
+      end)
+
     field_pairs =
       Enum.map(field_extractions, fn {name, _, _} ->
         {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
@@ -3951,12 +4401,18 @@ defmodule GridCodec.Struct.Compiler do
         {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
       end)
 
-    struct_pairs = field_pairs ++ group_pairs
+    virtual_pairs =
+      Enum.map(validated_virtuals, fn {name, _, _} ->
+        {name, Macro.var(:"__cast_#{name}__", __MODULE__)}
+      end)
+
+    struct_pairs = field_pairs ++ group_pairs ++ virtual_pairs
 
     quote do
       try do
         unquote_splicing(extractions)
         unquote_splicing(group_extractions)
+        unquote_splicing(virtual_extractions)
         unquote_splicing(required_checks)
         {:ok, %{unquote_splicing(struct_pairs)}}
       catch
@@ -4474,6 +4930,25 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_group_lookup_builder(lookup, opts, endian) do
     builder_fn = lookup_builder_name(lookup.name)
+    framing = Keyword.get(opts, :framing)
+    scalar_type = Keyword.get(opts, :__scalar_type__)
+
+    if framing == :length_prefixed or scalar_type != nil do
+      generate_framed_group_lookup_builder(builder_fn, lookup)
+    else
+      generate_fixed_group_lookup_builder(builder_fn, lookup, opts, endian)
+    end
+  end
+
+  defp generate_framed_group_lookup_builder(builder_fn, lookup) do
+    quote do
+      defp unquote(builder_fn)(source) do
+        GridCodec.Lookup.build_group(source, unquote(Macro.escape(lookup)))
+      end
+    end
+  end
+
+  defp generate_fixed_group_lookup_builder(builder_fn, lookup, opts, endian) do
     reducer_fn = lookup_reduce_name(lookup.name)
     block_length = Keyword.fetch!(opts, :block_length)
     initial_acc = initial_lookup_acc_ast(lookup)

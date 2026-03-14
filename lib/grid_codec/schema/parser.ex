@@ -303,11 +303,13 @@ defmodule GridCodec.Schema.Parser do
   defmodule Group do
     @moduledoc "Parsed group structure"
     defstruct name: nil,
-              fields: []
+              fields: [],
+              framing: nil
 
     @type t :: %__MODULE__{
             name: atom() | nil,
-            fields: [Field.t()]
+            fields: [Field.t()],
+            framing: :length_prefixed | nil
           }
   end
 
@@ -897,9 +899,9 @@ defmodule GridCodec.Schema.Parser do
          groups,
          batches
        ) do
-    case parse_fields_block(rest, []) do
-      {:ok, group_fields, remaining} ->
-        group = %Group{name: String.to_atom(name), fields: group_fields}
+    case parse_group_block(rest) do
+      {:ok, group, remaining} ->
+        group = %{group | name: String.to_atom(name)}
         parse_struct_body(remaining, fields, [group | groups], batches)
 
       {:error, _} = err ->
@@ -910,9 +912,9 @@ defmodule GridCodec.Schema.Parser do
   defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups, batches) do
     case rest do
       [:lbrace | rest2] ->
-        case parse_fields_block(rest2, []) do
-          {:ok, group_fields, remaining} ->
-            group = %Group{name: String.to_atom(name), fields: group_fields}
+        case parse_group_block(rest2) do
+          {:ok, group, remaining} ->
+            group = %{group | name: String.to_atom(name)}
             parse_struct_body(remaining, fields, [group | groups], batches)
 
           {:error, _} = err ->
@@ -1045,6 +1047,29 @@ defmodule GridCodec.Schema.Parser do
   end
 
   defp parse_list(tokens, _acc), do: {:error, {:invalid_list, tokens}}
+
+  # Parse group block: extract optional properties (framing) then delegate to parse_fields_block
+  defp parse_group_block(tokens) do
+    {framing, rest} = extract_group_framing(tokens)
+
+    case parse_fields_block(rest, []) do
+      {:ok, group_fields, remaining} ->
+        {:ok, %Group{fields: group_fields, framing: framing}, remaining}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp extract_group_framing([
+         {:word, "framing"},
+         :colon,
+         {:word, "length_prefixed"} | rest
+       ]) do
+    {:length_prefixed, rest}
+  end
+
+  defp extract_group_framing(tokens), do: {nil, tokens}
 
   # Parse fields block for types and groups
   defp parse_fields_block([:rbrace | rest], acc) do
