@@ -268,6 +268,26 @@ Key differences from built-in types:
 - SQL: `gridcodec.read_prefixed_id(data, pos)` and `read_prefixed_id_tag(data, pos)` helpers
 - `.grid` schema: NOT YET SUPPORTED — formatter emits raw module name, needs grammar extension
 
+## Keeping This Skill Current
+
+This skill is only useful if it reflects the actual codebase. After completing
+any feature that changes the architecture, check whether this skill needs updating:
+
+- [ ] **Subsystem table** — Did you add a new compiler function, runtime module,
+  parser path, or formatter branch? Add it to the Subsystem Reference table.
+- [ ] **Impact map** — Did you add a new *category* of change (not just a new
+  instance of an existing category)? Add a new "Adding a ..." section to the
+  Change → Subsystem Impact Map.
+- [ ] **Groups table** — Did you add a new group style? Update the Groups table.
+- [ ] **Syntax example** — Did you extend the `.grid` grammar? Update the `.grid`
+  syntax example to show the new construct.
+- [ ] **Callback/option tables** — Did you add new type callbacks, field options,
+  or macro options? Update the relevant tables.
+
+**Rule of thumb**: if you had to figure out "where does this need to go?" during
+development, that knowledge should be captured here so the next change doesn't
+require the same discovery.
+
 ## Release Workflow
 
 ```
