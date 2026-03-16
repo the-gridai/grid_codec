@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-03-16
+
+### Fixed
+- **CharArray consumer-wrapper Dialyzer noise** — `GridCodec.Types.CharArray`
+  now specializes the public `encode/1` overflow path at macro expansion time
+  as well as `encode_ast/4`, avoiding constant-branch code in consumer wrapper
+  modules that can trigger false positive Dialyzer warnings.
+
 ## [0.33.1] - 2026-03-16
 
 ### Added

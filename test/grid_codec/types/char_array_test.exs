@@ -26,6 +26,27 @@ defmodule GridCodec.Types.CharArrayTest do
       refute warning_output =~ "will never match"
       refute warning_output =~ "encode_ast/4"
     end
+
+    test "default wrapper module compiles without impossible-branch warnings" do
+      module_name =
+        Module.concat(__MODULE__, :"DefaultProbe#{System.unique_integer([:positive])}")
+
+      warning_output =
+        capture_io(:stderr, fn ->
+          Code.compiler_options(ignore_module_conflict: true)
+
+          Code.compile_string("""
+          defmodule #{inspect(module_name)} do
+            use GridCodec.Types.CharArray, length: 200, schema: "events"
+          end
+          """)
+        end)
+
+      refute warning_output =~ "comparison between distinct types found"
+      refute warning_output =~ "will never match"
+      refute warning_output =~ "encode/1"
+      refute warning_output =~ "encode_ast/4"
+    end
   end
 
   describe "overflow behavior" do
