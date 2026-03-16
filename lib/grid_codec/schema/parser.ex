@@ -191,7 +191,9 @@ defmodule GridCodec.Schema.Parser do
 
   ### Group
 
-      groupBlock   = "group" ident "{" { field } "}"
+      groupBlock   = "group" ident "{" [groupProp] { field } "}"
+                   | "group" ident ":" typeRef "{" [groupProp] "}"
+      groupProp    = "framing" ":" "length_prefixed"
 
   ### Batch
 
@@ -304,12 +306,14 @@ defmodule GridCodec.Schema.Parser do
     @moduledoc "Parsed group structure"
     defstruct name: nil,
               fields: [],
-              framing: nil
+              framing: nil,
+              of_type: nil
 
     @type t :: %__MODULE__{
             name: atom() | nil,
             fields: [Field.t()],
-            framing: :length_prefixed | nil
+            framing: :length_prefixed | nil,
+            of_type: atom() | nil
           }
   end
 
@@ -432,7 +436,7 @@ defmodule GridCodec.Schema.Parser do
   defp tokenize(content) do
     content
     |> String.replace(~r/#[^\n]*/, "")
-    |> String.replace(~r/([\[\]\(\),])/, " \\1 ")
+    |> String.replace(~r/([\[\]\(\),\{\}])/, " \\1 ")
     |> String.split(~r/\s+/, trim: true)
     |> tokenize_stream([])
   end
@@ -894,6 +898,29 @@ defmodule GridCodec.Schema.Parser do
   end
 
   defp parse_struct_body(
+         [{:word, "group"}, {:word, name}, :colon, {:word, scalar_type}, :lbrace | rest],
+         fields,
+         groups,
+         batches
+       ) do
+    {framing, rest2} = extract_group_framing(rest)
+
+    case rest2 do
+      [:rbrace | remaining] ->
+        group = %Group{
+          name: String.to_atom(name),
+          of_type: String.to_atom(scalar_type),
+          framing: framing
+        }
+
+        parse_struct_body(remaining, fields, [group | groups], batches)
+
+      _ ->
+        {:error, {:expected_closing_brace_for_scalar_group, name}}
+    end
+  end
+
+  defp parse_struct_body(
          [{:word, "group"}, {:word, name}, :lbrace | rest],
          fields,
          groups,
@@ -911,6 +938,23 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups, batches) do
     case rest do
+      [:colon, {:word, scalar_type}, :lbrace | rest2] ->
+        {framing, rest3} = extract_group_framing(rest2)
+
+        case rest3 do
+          [:rbrace | remaining] ->
+            group = %Group{
+              name: String.to_atom(name),
+              of_type: String.to_atom(scalar_type),
+              framing: framing
+            }
+
+            parse_struct_body(remaining, fields, [group | groups], batches)
+
+          _ ->
+            {:error, {:expected_closing_brace_for_scalar_group, name}}
+        end
+
       [:lbrace | rest2] ->
         case parse_group_block(rest2) do
           {:ok, group, remaining} ->

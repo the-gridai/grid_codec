@@ -204,4 +204,59 @@ defmodule GridCodec.ScalarGroupTest do
       assert Keyword.get(opts, :framing) == :length_prefixed
     end
   end
+
+  describe ".grid schema support" do
+    test "parser handles scalar group syntax" do
+      grid = """
+      @syntax 1
+
+      schema Test {
+        id: 91
+        version: 1
+      }
+
+      struct Container (template_id: 9100, version: 1) {
+        name: string16
+
+        group tag_ids : uuid {}
+
+        group labels : string16 {
+          framing: length_prefixed
+        }
+      }
+      """
+
+      {:ok, schema} = GridCodec.Schema.Parser.parse(grid)
+      container = schema.structs[:Container]
+
+      assert length(container.groups) == 2
+
+      [tag_group, label_group] = container.groups
+      assert tag_group.name == :tag_ids
+      assert tag_group.of_type == :uuid
+      assert tag_group.fields == []
+      assert tag_group.framing == nil
+
+      assert label_group.name == :labels
+      assert label_group.of_type == :string16
+      assert label_group.framing == :length_prefixed
+      assert label_group.fields == []
+    end
+
+    test "formatter emits scalar group syntax" do
+      schema = FixedScalarContainer.__schema__()
+      formatted = GridCodec.Schema.Formatter.format_struct_file(schema, %{})
+
+      assert formatted =~ "group tag_ids : uuid {"
+      assert formatted =~ "group scores : u32 {"
+    end
+
+    test "formatter emits framing for variable scalar groups" do
+      schema = VariableScalarContainer.__schema__()
+      formatted = GridCodec.Schema.Formatter.format_struct_file(schema, %{})
+
+      assert formatted =~ "group names : string16 {"
+      assert formatted =~ "framing: length_prefixed"
+    end
+  end
 end

@@ -338,7 +338,12 @@ defmodule GridCodec.Struct do
     group_defs =
       Enum.map(struct_def.groups, fn group ->
         group_fields = Enum.map(group.fields, &grid_field_to_def(&1, custom_types))
-        group_opts = if group.framing, do: [framing: group.framing], else: []
+
+        group_opts =
+          []
+          |> then(fn o -> if group.framing, do: [{:framing, group.framing} | o], else: o end)
+          |> then(fn o -> if group.of_type, do: [{:of, group.of_type} | o], else: o end)
+
         {group.name, group_fields, group_opts}
       end)
 

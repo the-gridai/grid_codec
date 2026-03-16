@@ -258,17 +258,27 @@ defmodule GridCodec.Schema.Formatter do
         gfields = Map.get(schema.group_fields || %{}, gname, [])
         gopts = Map.get(group_opts_by_name, gname, [])
         framing = Keyword.get(gopts, :framing)
+        scalar_of = Keyword.get(gopts, :of)
+        is_scalar = scalar_of != nil and gfields == []
 
-        if gfields == [] do
-          []
-        else
-          framing_line =
-            if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
+        cond do
+          is_scalar ->
+            framing_line =
+              if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
-          field_strs =
-            Enum.map(gfields, fn {fname, type_atom} -> "    #{fname}: #{type_atom}" end)
+            ["", "  group #{gname} : #{scalar_of} {"] ++ framing_line ++ ["  }"]
 
-          ["", "  group #{gname} {"] ++ framing_line ++ field_strs ++ ["  }"]
+          gfields == [] ->
+            []
+
+          true ->
+            framing_line =
+              if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
+
+            field_strs =
+              Enum.map(gfields, fn {fname, type_atom} -> "    #{fname}: #{type_atom}" end)
+
+            ["", "  group #{gname} {"] ++ framing_line ++ field_strs ++ ["  }"]
         end
       end)
 
