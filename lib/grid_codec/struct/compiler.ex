@@ -707,16 +707,19 @@ defmodule GridCodec.Struct.Compiler do
 
     group_fields =
       Enum.map(groups, fn {name, _block, opts} ->
-        if Keyword.get(opts, :is_batch, false) do
-          {name, quote(do: [struct()] | GridCodec.Batch.t())}
-        else
-          case Keyword.get(opts, :of) do
-            nil ->
-              {name, quote(do: [map()] | GridCodec.Group.t())}
+        cond do
+          Keyword.get(opts, :is_batch, false) ->
+            {name, quote(do: [struct()] | GridCodec.Batch.t())}
 
-            module ->
-              {name, quote(do: [%unquote(module){}] | GridCodec.Group.t())}
-          end
+          scalar_type?(Keyword.get(opts, :of)) ->
+            {name, quote(do: list())}
+
+          Keyword.get(opts, :of) != nil ->
+            module = Keyword.get(opts, :of)
+            {name, quote(do: [%unquote(module){}] | GridCodec.Group.t())}
+
+          true ->
+            {name, quote(do: [map()] | GridCodec.Group.t())}
         end
       end)
 
@@ -1509,7 +1512,7 @@ defmodule GridCodec.Struct.Compiler do
 
   defp process_groups(groups, endian) do
     Enum.map_reduce(groups, [], fn {name, block, opts}, acc_fns ->
-      typed_module = Keyword.get(opts, :of)
+      of_value = Keyword.get(opts, :of)
 
       has_explicit_codecs =
         Keyword.has_key?(opts, :entry_encoder) or Keyword.has_key?(opts, :entry_decoder)
@@ -1518,8 +1521,25 @@ defmodule GridCodec.Struct.Compiler do
 
       framing = Keyword.get(opts, :framing)
 
+      is_scalar = of_value != nil and scalar_type?(of_value)
+
       cond do
-        typed_module != nil and framing == :length_prefixed ->
+        is_scalar ->
+          if has_explicit_codecs do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `of:` with a scalar type together with explicit entry codecs."
+          end
+
+          if group_fields != [] do
+            raise CompileError,
+              description:
+                "Group :#{name} cannot use `of:` with a scalar type together with inline field declarations."
+          end
+
+          process_scalar_group(name, of_value, opts, acc_fns, endian)
+
+        of_value != nil and framing == :length_prefixed ->
           if has_explicit_codecs do
             raise CompileError,
               description: "Group :#{name} cannot use `of:` together with explicit entry codecs."
@@ -1531,9 +1551,9 @@ defmodule GridCodec.Struct.Compiler do
                 "Group :#{name} cannot use `of:` together with inline field declarations."
           end
 
-          resolved = resolve_typed_group_framed!(name, typed_module)
-          encoder_fn = generate_typed_group_entry_encoder(name, typed_module)
-          decoder_fn = generate_typed_group_entry_decoder(name, typed_module)
+          resolved = resolve_typed_group_framed!(name, of_value)
+          encoder_fn = generate_typed_group_entry_encoder(name, of_value)
+          decoder_fn = generate_typed_group_entry_decoder(name, of_value)
           batch_encoder_fn = generate_framed_group_batch_encoder(name)
 
           encoder_fn_name = :"__encode_#{name}_entry__"
@@ -1549,11 +1569,11 @@ defmodule GridCodec.Struct.Compiler do
             |> Keyword.put(:entry_decoder, decoder_capture)
             |> Keyword.put(:batch_encoder, batch_encoder_fn_name)
             |> Keyword.put(:__resolved_fields__, resolved)
-            |> Keyword.put(:__of_module__, typed_module)
+            |> Keyword.put(:__of_module__, of_value)
 
           {{name, block, updated_opts}, acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn]}
 
-        typed_module != nil ->
+        of_value != nil ->
           if has_explicit_codecs do
             raise CompileError,
               description: "Group :#{name} cannot use `of:` together with explicit entry codecs."
@@ -1565,11 +1585,11 @@ defmodule GridCodec.Struct.Compiler do
                 "Group :#{name} cannot use `of:` together with inline field declarations."
           end
 
-          {resolved, block_length} = resolve_typed_group!(name, typed_module)
-          encoder_fn = generate_typed_group_entry_encoder(name, typed_module)
-          decoder_fn = generate_typed_group_entry_decoder(name, typed_module)
+          {resolved, block_length} = resolve_typed_group!(name, of_value)
+          encoder_fn = generate_typed_group_entry_encoder(name, of_value)
+          decoder_fn = generate_typed_group_entry_decoder(name, of_value)
           batch_encoder_fn = generate_direct_group_batch_encoder(name, block_length)
-          batch_decoder_fn = generate_typed_group_batch_decoder(name, typed_module, block_length)
+          batch_decoder_fn = generate_typed_group_batch_decoder(name, of_value, block_length)
 
           encoder_fn_name = :"__encode_#{name}_entry__"
           decoder_fn_name = :"__decode_#{name}_entry__"
@@ -1588,26 +1608,10 @@ defmodule GridCodec.Struct.Compiler do
             |> Keyword.put(:batch_decoder, batch_decoder_capture)
             |> Keyword.put(:block_length, block_length)
             |> Keyword.put(:__resolved_fields__, resolved)
-            |> Keyword.put(:__of_module__, typed_module)
+            |> Keyword.put(:__of_module__, of_value)
 
           {{name, block, updated_opts},
            acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
-
-        Keyword.has_key?(opts, :type) ->
-          if has_explicit_codecs do
-            raise CompileError,
-              description:
-                "Group :#{name} cannot use `type:` together with explicit entry codecs."
-          end
-
-          if group_fields != [] do
-            raise CompileError,
-              description:
-                "Group :#{name} cannot use `type:` together with inline field declarations."
-          end
-
-          scalar_type = Keyword.fetch!(opts, :type)
-          process_scalar_group(name, scalar_type, opts, acc_fns, endian)
 
         has_explicit_codecs or group_fields == [] ->
           {{name, block, opts}, acc_fns}
@@ -1718,6 +1722,13 @@ defmodule GridCodec.Struct.Compiler do
       true ->
         resolve_types(Map.get(schema, :fields, []))
     end
+  end
+
+  defp scalar_type?(value) do
+    {type_atom, _} = normalize_type_spec(value)
+    match?({:ok, _}, GridCodec.Type.lookup(type_atom))
+  rescue
+    _ -> false
   end
 
   defp process_scalar_group(name, scalar_type, opts, acc_fns, endian) do

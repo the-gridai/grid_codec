@@ -16,10 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   groups of structs with variable-length fields. Wire format:
   `numEntries (u32 LE) | [payload_len (u16 LE) | payload]*`. Eagerly decodes to a
   plain list. Works with `lookups` for map-keyed access.
-- **Scalar groups** — `group :tag_ids, type: :uuid` supports homogeneous lists of
-  scalar values (UUIDs, integers, strings). Fixed-size types use the standard group
-  wire format; variable-length types (strings) auto-select framed encoding. Eagerly
-  decodes to a plain list.
+- **Scalar groups** — `group :tag_ids, of: :uuid` supports homogeneous lists of
+  scalar values (UUIDs, integers, strings) using the same `of:` keyword as typed
+  groups. Fixed-size types use the standard group wire format; variable-length types
+  (strings) auto-select framed encoding. Eagerly decodes to a plain list.
 
 ## [0.32.0] - 2026-03-13
 

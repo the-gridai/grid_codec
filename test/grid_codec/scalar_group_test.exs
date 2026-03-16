@@ -7,8 +7,8 @@ defmodule GridCodec.ScalarGroupTest do
     defcodec do
       field :name, :string16
 
-      group :tag_ids, type: :uuid
-      group :scores, type: :u32
+      group :tag_ids, of: :uuid
+      group :scores, of: :u32
     end
   end
 
@@ -18,7 +18,7 @@ defmodule GridCodec.ScalarGroupTest do
     defcodec do
       field :label, :string16
 
-      group :names, type: :string16
+      group :names, of: :string16
     end
   end
 
@@ -28,9 +28,9 @@ defmodule GridCodec.ScalarGroupTest do
     defcodec do
       field :account_id, :u64
 
-      group :tag_ids, type: :uuid
-      group :labels, type: :string16
-      group :priorities, type: :u64
+      group :tag_ids, of: :uuid
+      group :labels, of: :string16
+      group :priorities, of: :u64
     end
   end
 
@@ -187,20 +187,20 @@ defmodule GridCodec.ScalarGroupTest do
   end
 
   describe "schema introspection" do
-    test "fixed scalar group reports scalar_type in schema" do
+    test "fixed scalar group reports of: in schema" do
       schema = FixedScalarContainer.__schema__()
       tag_group = Enum.find(schema.groups, fn {name, _, _} -> name == :tag_ids end)
       assert tag_group != nil
       {_, _, opts} = tag_group
-      assert Keyword.get(opts, :type) == :uuid
+      assert Keyword.get(opts, :of) == :uuid
     end
 
-    test "variable scalar group reports scalar_type and framing" do
+    test "variable scalar group reports of: and framing" do
       schema = VariableScalarContainer.__schema__()
       names_group = Enum.find(schema.groups, fn {name, _, _} -> name == :names end)
       assert names_group != nil
       {_, _, opts} = names_group
-      assert Keyword.get(opts, :type) == :string16
+      assert Keyword.get(opts, :of) == :string16
       assert Keyword.get(opts, :framing) == :length_prefixed
     end
   end

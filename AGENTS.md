@@ -502,18 +502,20 @@ Eagerly decodes to a plain list. Compatible with `lookups` for map-keyed access.
 
 ### Scalar Groups
 
-Homogeneous lists of scalar values:
+Homogeneous lists of scalar values, using the same `of:` keyword as typed groups:
 
 ```elixir
 defcodec do
-  group :tag_ids, type: :uuid       # fixed-size → standard group wire format
-  group :labels, type: :string16    # variable-length → auto-selects framed encoding
-  group :scores, type: :u32         # fixed-size integers
+  group :tag_ids, of: :uuid         # fixed-size → standard group wire format
+  group :labels, of: :string16      # variable-length → auto-selects framed encoding
+  group :scores, of: :u32           # fixed-size integers
 end
 ```
 
-Fixed-size types use the standard group header. Variable-length types auto-select
-`framing: :length_prefixed`. Both eagerly decode to a plain list.
+The compiler detects whether `of:` refers to a struct module or a scalar type atom
+and dispatches accordingly. Fixed-size types use the standard group header.
+Variable-length types auto-select `framing: :length_prefixed`. Both eagerly decode
+to a plain list.
 
 Note: `.grid` schema format does not yet support scalar groups.
 
