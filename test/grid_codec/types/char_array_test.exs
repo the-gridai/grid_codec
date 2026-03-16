@@ -3,6 +3,10 @@ defmodule GridCodec.Types.CharArrayTest do
 
   import ExUnit.CaptureIO
 
+  defmodule SchemaBoundCode4 do
+    use GridCodec.Types.CharArray, length: 4, schema: "events"
+  end
+
   describe "compile-time code generation" do
     test "on_overflow: :error does not emit impossible-branch warnings" do
       module_name = Module.concat(__MODULE__, :"Probe#{System.unique_integer([:positive])}")
@@ -41,6 +45,12 @@ defmodule GridCodec.Types.CharArrayTest do
 
     test "truncate mode still truncates oversized strings" do
       assert Code4Truncate.encode("ABCDE") == "ABCD"
+    end
+  end
+
+  describe "__char_array_meta__/0" do
+    test "returns length and schema affinity" do
+      assert SchemaBoundCode4.__char_array_meta__() == %{length: 4, schema: "events"}
     end
   end
 end

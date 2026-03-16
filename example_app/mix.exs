@@ -9,7 +9,10 @@ defmodule ExampleApp.MixProject do
       start_permanent: Mix.env() == :prod,
       compilers: Mix.compilers() ++ [:grid_codec],
       deps: deps(),
-      aliases: aliases()
+      aliases: aliases(),
+      dialyzer: [
+        plt_add_apps: [:mix]
+      ]
     ]
   end
 
@@ -17,6 +20,14 @@ defmodule ExampleApp.MixProject do
     [
       extra_applications: [:logger],
       mod: {ExampleApp.Application, []}
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        check: :test
+      ]
     ]
   end
 
@@ -43,6 +54,7 @@ defmodule ExampleApp.MixProject do
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
 
       # Code quality
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
@@ -55,7 +67,8 @@ defmodule ExampleApp.MixProject do
       check: [
         "compile --warnings-as-errors",
         "format --check-formatted",
-        "credo --strict"
+        "credo --strict",
+        "dialyzer"
       ]
     ]
   end

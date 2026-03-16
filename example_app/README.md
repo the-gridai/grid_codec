@@ -34,7 +34,12 @@ example_app/
 cd example_app
 mix deps.get
 mix compile
+mix check
+mix dialyzer
 ```
+
+`mix check` mirrors the example app quality gate in CI: compile with warnings as
+errors, format check, Credo, and Dialyzer.
 
 ### Run Benchmarks
 
@@ -61,11 +66,13 @@ See `lib/example_app/events/` for example codecs:
 defmodule ExampleApp.Events.OrderCreated do
   use GridCodec.Struct, template_id: 1, schema_id: 100
 
+  alias ExampleApp.Types.OrderSide
+
   defcodec do
     field :order_id, :uuid
     field :user_id, :u64
     field :symbol, :string16
-    field :side, :u8
+    field :side, OrderSide
     field :price, :u64
     field :quantity, :u32
     field :timestamp, :timestamp_us
@@ -84,7 +91,7 @@ order = %ExampleApp.Events.OrderCreated{
   symbol: "BTCUSD",
   price: 15000,
   quantity: 100,
-  side: 1,
+  side: :buy,
   timestamp: DateTime.utc_now(),
   flags: 0
 }
@@ -116,6 +123,9 @@ You can also try the example at runtime:
 ```elixir
 ExampleApp.lookup_usage()
 ```
+
+The lookup examples in `views/` are also part of the example app's Dialyzer
+coverage, so they double as integration tests for normal consumer usage.
 
 ## Benefits
 

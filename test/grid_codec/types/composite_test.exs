@@ -2,6 +2,8 @@ defmodule GridCodec.Types.CompositeTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias GridCodec.Types.DateTimeMicros
+  alias GridCodec.Types.DateTimeNanos
   alias GridCodec.Types.Decimal
   alias GridCodec.Types.TimestampMicros
   alias GridCodec.Types.TimestampNanos
@@ -273,6 +275,24 @@ defmodule GridCodec.Types.CompositeTest do
 
       # Will be in nanoseconds
       assert is_integer(decoded.event_time)
+    end
+  end
+
+  # ============================================================================
+  # DateTime Domain Types
+  # ============================================================================
+
+  describe "DateTimeMicros type" do
+    test "size and null sentinel match timestamp wire format" do
+      assert DateTimeMicros.size() == 8
+      assert DateTimeMicros.null_value() == 0
+    end
+  end
+
+  describe "DateTimeNanos type" do
+    test "size and null sentinel match timestamp wire format" do
+      assert DateTimeNanos.size() == 8
+      assert DateTimeNanos.null_value() == 0
     end
   end
 

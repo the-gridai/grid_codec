@@ -55,7 +55,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.33.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.33.1"}
   ]
 end
 ```
@@ -267,6 +267,27 @@ end
 
 Helpers: `UserId.generate/0`, `UserId.from_uuid/1`, `UserId.to_uuid/1`, `UserId.valid?/1`.
 
+Generated PrefixedId modules are meant to be edited. If you need a deterministic,
+domain-specific constructor, add it directly to the generated file:
+
+```elixir
+defmodule MyApp.Types.MarketPeriodId do
+  use GridCodec.Types.PrefixedId, prefix: "market_period", tag: 0x05
+
+  alias GridCodec.Types.UUID
+  alias GridCodec.Types.UUIDString
+
+  @spec new(String.t(), integer(), pos_integer()) :: t()
+  def new(market_id, window_start, seq) do
+    raw = UUID.generate_v5(:url, "#{market_id}:#{window_start}:#{seq}")
+    prefix() <> UUIDString.format_uuid(raw)
+  end
+end
+```
+
+This keeps the generated type callbacks and helper API while letting you add
+stable name-based IDs for domain keys.
+
 ## Field Options
 
 | Option | Description |
@@ -390,8 +411,8 @@ Configure with `.grid_codec.exs`:
 ```
 
 The breaking change tool resolves `import` directives automatically, so it works with
-both the new directory structure and legacy flat files. Rules: 21 WIRE (binary
-compatibility) + 8 SOURCE (API compatibility). See the [Schema evolution guide](docs/schema-evolution.md) for details.
+both the new directory structure and legacy flat files. Rules: 27 WIRE (binary
+compatibility) + 9 SOURCE (API compatibility). See the [Schema evolution guide](docs/schema-evolution.md) for details.
 
 ### Compile from `.grid` files
 
@@ -399,7 +420,7 @@ Point `grid_file:` at a master `schema.grid` — imports are resolved automatica
 
 ```elixir
 defmodule MyApp.Events.OrderCreated do
-  use GridCodec.Struct, grid_file: "priv/schemas/events/schema.grid", struct: "OrderCreated"
+  use GridCodec.Struct, grid_file: "priv/schemas/events/schema.grid", message: :OrderCreated
 end
 ```
 
@@ -477,8 +498,14 @@ Key modules:
 # Run all quality checks
 mix check
 
+# Audit public modules for test references
+mix grid_codec.test_audit
+
 # Run tests
 mix test
+
+# Run tests with coverage threshold enforcement
+mix test --cover
 
 # Build ExDoc docs
 mix docs
@@ -508,6 +535,8 @@ For real-world usage examples and benchmarks:
 cd example_app
 mix deps.get
 mix compile
+mix check
+mix dialyzer
 mix run benchmarks/quick_bench.exs
 mix run benchmarks/group_bench.exs
 ```
@@ -534,7 +563,8 @@ mix deps.get
 mix compile --warnings-as-errors
 mix format --check-formatted
 mix credo --strict
-mix test
+mix grid_codec.test_audit
+mix test --cover
 mix dialyzer
 ```
 
@@ -542,7 +572,7 @@ mix dialyzer
 
 1. Bump `@version` in `mix.exs` and add a `## [X.Y.Z] - YYYY-MM-DD` entry to `CHANGELOG.md`.
 2. Regenerate baselines: `cd example_app && mix grid_codec.export`.
-3. Run `mix check` (compile, format, credo, test, dialyzer).
+3. Run `mix check` (compile, format, credo, test audit, coverage-gated tests, dialyzer).
 4. Commit, tag, push: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
 
 ### Code Quality
@@ -552,9 +582,10 @@ All PRs must pass CI, which runs:
 1. **Compile** with `--warnings-as-errors`
 2. **Format** check
 3. **Credo** strict
-4. **Tests** with property-based tests
-5. **Dialyzer** static type analysis
-6. **Breaking change detection** on `.grid` schema files
+4. **Test audit** for new public modules without matching test references
+5. **Tests** with property-based tests and a coverage threshold gate
+6. **Dialyzer** static type analysis
+7. **Breaking change detection** on `.grid` schema files
 
 ## License
 

@@ -221,9 +221,10 @@ defmodule GridCodec.Types.DateTimeNanos do
   | `:timestamp_ns` | `integer()` | Hot paths, high-throughput pipelines |
   | `:datetime_ns` | `%DateTime{}` | Application code, JSON APIs |
 
-  Note: Elixir's `DateTime` supports microsecond precision, so nanosecond
-  precision is truncated to microseconds in the `%DateTime{}` struct but
-  preserved exactly on the wire.
+  Note: Elixir's `DateTime` supports microsecond precision. `DateTime` inputs
+  therefore round-trip at microsecond precision. Integer nanosecond inputs are
+  accepted only when they are microsecond-aligned (`rem(ns, 1000) == 0`);
+  sub-microsecond values are rejected to avoid silent precision loss.
 
   ## Usage
 
@@ -261,9 +262,18 @@ defmodule GridCodec.Types.DateTimeNanos do
 
     quote do
       case :maps.get(unquote(field_name), unquote(data_var), unquote(default)) do
-        nil -> 0
-        %unquote(dt_mod){} = dt -> unquote(dt_mod).to_unix(dt, :nanosecond)
-        n when is_integer(n) -> n
+        nil ->
+          0
+
+        %unquote(dt_mod){} = dt ->
+          unquote(dt_mod).to_unix(dt, :nanosecond)
+
+        n when is_integer(n) and rem(n, 1000) == 0 ->
+          n
+
+        n when is_integer(n) ->
+          raise ArgumentError,
+                "datetime_ns integers must be microsecond-aligned, got: #{inspect(n)}"
       end :: little - signed - 64
     end
   end
@@ -274,7 +284,11 @@ defmodule GridCodec.Types.DateTimeNanos do
   def encode_value(%DateTime{} = dt),
     do: <<DateTime.to_unix(dt, :nanosecond)::little-signed-64>>
 
-  def encode_value(n) when is_integer(n), do: <<n::little-signed-64>>
+  def encode_value(n) when is_integer(n) and rem(n, 1000) == 0, do: <<n::little-signed-64>>
+
+  def encode_value(n) when is_integer(n) do
+    raise ArgumentError, "datetime_ns integers must be microsecond-aligned, got: #{inspect(n)}"
+  end
 
   @impl true
   def decode_pattern_ast(var, _endian) do
@@ -332,8 +346,11 @@ defmodule GridCodec.Types.DateTimeNanos do
         %unquote(dt_mod){} = v ->
           {:ok, v}
 
-        v when is_integer(v) ->
+        v when is_integer(v) and rem(v, 1000) == 0 ->
           {:ok, unquote(dt_mod).from_unix!(v, :nanosecond)}
+
+        v when is_integer(v) ->
+          {:error, "datetime_ns integers must be microsecond-aligned, got: #{inspect(v)}"}
 
         v when is_binary(v) ->
           case unquote(dt_mod).from_iso8601(v) do
@@ -359,8 +376,17 @@ defmodule GridCodec.Types.DateTimeNanos do
         %unquote(dt_mod){} ->
           :ok
 
-        v when is_integer(v) ->
+        v when is_integer(v) and rem(v, 1000) == 0 ->
           :ok
+
+        v when is_integer(v) ->
+          raise GridCodec.ValidationError.cast_error(
+                  unquote(mod),
+                  unquote(field),
+                  :datetime_ns,
+                  v,
+                  "datetime_ns integers must be microsecond-aligned"
+                )
 
         v ->
           raise GridCodec.ValidationError.type_mismatch(

@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.33.0"
+  @version "0.33.1"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -34,6 +34,14 @@ defmodule GridCodec.MixProject do
           GridCodec.Types.String32,
           # Generators are dev/test utilities
           GridCodec.Generators
+        ]
+      ],
+      test_audit: [
+        ignore_modules: [
+          # Internal compiler assembly module; behavior is exercised through codec tests
+          GridCodec.Struct.Compiler,
+          # Formatting helper used by breaking-change reporting
+          GridCodec.Breaking.Issue
         ]
       ],
 
@@ -69,7 +77,8 @@ defmodule GridCodec.MixProject do
         "compile --warnings-as-errors",
         "format --check-formatted",
         "credo --strict",
-        "test",
+        "grid_codec.test_audit",
+        "test --cover",
         "dialyzer"
       ]
     ]

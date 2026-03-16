@@ -98,32 +98,38 @@ defmodule Mix.Tasks.GridCodec.Breaking do
       except: config.except
     }
 
-    {total_issues, file_count} =
-      Enum.reduce(files, {[], 0}, fn file_path, {all_issues, files_with_issues} ->
+    {total_issues, file_count, error_count} =
+      Enum.reduce(files, {[], 0, 0}, fn file_path, {all_issues, files_with_issues, errors} ->
         case check_file(file_path, config.against, check_opts) do
           {:ok, []} ->
-            {all_issues, files_with_issues}
+            {all_issues, files_with_issues, errors}
 
           {:ok, issues} ->
             print_file_issues(file_path, issues)
-            {all_issues ++ issues, files_with_issues + 1}
+            {all_issues ++ issues, files_with_issues + 1, errors}
 
           :new_file ->
-            {all_issues, files_with_issues}
+            {all_issues, files_with_issues, errors}
 
           {:error, reason} ->
             Mix.shell().error("Error checking #{file_path}: #{inspect(reason)}")
-            {all_issues, files_with_issues}
+            {all_issues, files_with_issues, errors + 1}
         end
       end)
 
     count = length(total_issues)
 
-    if count > 0 do
-      Mix.shell().error("\nFound #{count} breaking change(s) in #{file_count} file(s).")
-      exit({:shutdown, 1})
-    else
-      Mix.shell().info("No breaking changes detected.")
+    cond do
+      error_count > 0 ->
+        Mix.shell().error("\nEncountered #{error_count} error(s) while checking schemas.")
+        exit({:shutdown, 2})
+
+      count > 0 ->
+        Mix.shell().error("\nFound #{count} breaking change(s) in #{file_count} file(s).")
+        exit({:shutdown, 1})
+
+      true ->
+        Mix.shell().info("No breaking changes detected.")
     end
   end
 

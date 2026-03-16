@@ -21,19 +21,19 @@ defmodule ExampleApp.OrderFilters do
   alias ExampleApp.Events.OrderCreated
   require OrderCreated
 
-  @doc "Returns `true` when the order side is `:buy` (encoded as `0`)."
+  @doc "Returns `true` when the order side is `:buy`."
   defmatch :buy_order?, OrderCreated do
-    where(side == 0)
+    where(side == :buy)
   end
 
-  @doc "Returns `true` when the order side is `:sell` (encoded as `1`)."
+  @doc "Returns `true` when the order side is `:sell`."
   defmatch :sell_order?, OrderCreated do
-    where(side == 1)
+    where(side == :sell)
   end
 
   @doc "Returns `true` for buy orders with price above 10,000,000 (10M raw units)."
   defmatch :large_buy?, OrderCreated do
-    where(side == 0)
+    where(side == :buy)
     where(price > 10_000_000)
   end
 

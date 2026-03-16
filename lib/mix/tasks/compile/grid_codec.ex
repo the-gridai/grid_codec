@@ -40,6 +40,17 @@ defmodule Mix.Tasks.Compile.GridCodec do
   @impl true
   def run(_args) do
     config = Mix.Project.config()
+
+    # The library project itself relies on the fallback registry during tests for
+    # dynamically-defined codecs. Consolidation is a consumer-app feature.
+    if config[:app] == :grid_codec do
+      {:ok, []}
+    else
+      do_run(config)
+    end
+  end
+
+  defp do_run(config) do
     consolidation_path = consolidation_path(config)
 
     # Ensure consolidation directory exists
@@ -200,7 +211,8 @@ defmodule Mix.Tasks.Compile.GridCodec do
     module_ast = build_registry_ast(codecs)
 
     # Compile and write the beam file
-    [{GridCodec.Registry, binary}] = Code.compile_quoted(module_ast)
+    unload_compiled_module(GridCodec.Registry)
+    [{GridCodec.Registry, binary}] = compile_generated_registry(module_ast)
     File.write!(output_path, binary)
 
     # Update manifest
@@ -210,6 +222,28 @@ defmodule Mix.Tasks.Compile.GridCodec do
     }
 
     File.write!(manifest_path(), :erlang.term_to_binary(manifest))
+  end
+
+  defp compile_generated_registry(module_ast) do
+    old_options = Code.compiler_options()
+    Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      Code.compile_quoted(module_ast)
+    after
+      Code.compiler_options(old_options)
+    end
+  end
+
+  defp unload_compiled_module(module) do
+    if Code.ensure_loaded?(module) do
+      :code.purge(module)
+      :code.delete(module)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @doc false

@@ -42,8 +42,11 @@ jobs:
       - name: Compile with warnings as errors
         run: mix compile --warnings-as-errors
 
-      - name: Run tests
-        run: mix test
+      - name: Audit test references
+        run: mix grid_codec.test_audit
+
+      - name: Run tests with coverage gate
+        run: mix test --cover
 
   quality:
     name: Code Quality
@@ -154,6 +157,47 @@ jobs:
 
       - name: Run Credo
         run: cd example_app && mix credo --strict
+
+  example-app-dialyzer:
+    name: Example App Dialyzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            example_app/deps
+            example_app/_build
+          key: ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('example_app/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
+
+      - name: Restore PLT cache
+        uses: actions/cache@v4
+        with:
+          path: example_app/priv/plts
+          key: ${{ runner.os }}-example-plt-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('example_app/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-example-plt-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
+
+      - name: Install dependencies
+        run: cd example_app && mix deps.get
+
+      - name: Create PLTs directory
+        run: mkdir -p example_app/priv/plts
+
+      - name: Run Dialyzer
+        run: cd example_app && mix dialyzer --format github
 
   breaking:
     name: Breaking Change Detection

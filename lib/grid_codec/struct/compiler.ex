@@ -5079,6 +5079,12 @@ defmodule GridCodec.Struct.Compiler do
   defp finalize_lookup_acc_ast(acc_ast, %{into: :map}),
     do: quote(do: :maps.from_list(:lists.reverse(unquote(acc_ast))))
 
+  defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: [], into: :list}) do
+    quote do
+      {:ok, [unquote(entry_ast) | unquote(acc_ast)]}
+    end
+  end
+
   defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: filters, into: :list}) do
     filter_ast = generate_lookup_filter_ast(entry_ast, filters)
 
@@ -5089,6 +5095,11 @@ defmodule GridCodec.Struct.Compiler do
         {:ok, unquote(acc_ast)}
       end
     end
+  end
+
+  defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: [], into: :map} = lookup) do
+    key_ast = generate_lookup_key_ast(entry_ast, lookup.keys)
+    generate_lookup_map_put_ast(acc_ast, key_ast, entry_ast)
   end
 
   defp generate_lookup_step_ast(entry_ast, acc_ast, %{filters: filters, into: :map} = lookup) do
@@ -5107,13 +5118,20 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_lookup_filter_ast(_entry_ast, []), do: quote(do: true)
 
-  defp generate_lookup_filter_ast(entry_ast, filters) do
-    Enum.reduce(filters, quote(do: true), fn {:eq, field, expected}, acc ->
+  defp generate_lookup_filter_ast(entry_ast, [first | rest]) do
+    Enum.reduce(rest, generate_single_lookup_filter_ast(entry_ast, first), fn filter, acc ->
+      next = generate_single_lookup_filter_ast(entry_ast, filter)
+
       quote do
-        unquote(acc) and
-          Map.get(unquote(entry_ast), unquote(field)) == unquote(Macro.escape(expected))
+        unquote(acc) and unquote(next)
       end
     end)
+  end
+
+  defp generate_single_lookup_filter_ast(entry_ast, {:eq, field, expected}) do
+    quote do
+      Map.get(unquote(entry_ast), unquote(field)) == unquote(Macro.escape(expected))
+    end
   end
 
   defp generate_lookup_key_ast(entry_ast, [{:all, field}]) do

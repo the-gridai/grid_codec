@@ -29,6 +29,17 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
   **Test file** (`test/…`):
 
   - `doctest MyApp.Types.UserId` — exercises every doctest in the module
+
+  ## Customizing Generated Modules
+
+  Generated files are meant to be edited. A common pattern is adding a
+  deterministic constructor for domain keys using `UUID.generate_v5/2`:
+
+      @spec new(String.t(), integer(), pos_integer()) :: t()
+      def new(market_id, window_start, seq) do
+        raw = UUID.generate_v5(:url, "\#{market_id}:\#{window_start}:\#{seq}")
+        prefix() <> UUIDString.format_uuid(raw)
+      end
   """
 
   use Mix.Task

@@ -278,4 +278,68 @@ defmodule GridCodec.Schema.FormatterTest do
       assert info.params.schema == "my_events"
     end
   end
+
+  describe "inline group type formatting" do
+    test "format_struct_file uses short names for inline group enum and custom types" do
+      schema = %{
+        fields: [{:id, :uuid, []}],
+        groups: [{:rejections, nil, []}],
+        batches: [],
+        group_fields: %{
+          rejections: [
+            {:order_id, TestPrefixedIdWithSchema},
+            {:status, TestEnum},
+            {:symbol, TestCharArrayWithSchema}
+          ]
+        },
+        version: 1,
+        template_id: 1,
+        schema_id: 100,
+        type: "Test.OrderBatchProcessed"
+      }
+
+      codecs = [{TestMod, schema}]
+      enums = Formatter.detect_enums(codecs)
+      custom_types = Formatter.detect_custom_types(codecs)
+      type_aliases = Formatter.build_type_aliases(codecs, enums, custom_types)
+      output = Formatter.format_struct_file(schema, type_aliases)
+
+      assert output =~ "order_id: TestPrefixedIdWithSchema"
+      assert output =~ "status: TestEnum"
+      assert output =~ "symbol: TestCharArrayWithSchema"
+      refute output =~ "Elixir."
+    end
+
+    test "enum and custom type detection includes inline group fields" do
+      schema = %{
+        fields: [{:id, :uuid, []}],
+        groups: [{:rejections, nil, []}],
+        batches: [],
+        group_fields: %{
+          rejections: [
+            {:order_id, TestPrefixedIdWithSchema},
+            {:status, TestEnum},
+            {:symbol, TestCharArrayWithSchema}
+          ]
+        },
+        version: 1,
+        template_id: 1,
+        schema_id: 100,
+        type: "Test.OrderBatchProcessed"
+      }
+
+      codecs = [{TestMod, schema}]
+      enums = Formatter.detect_enums(codecs)
+      custom_types = Formatter.detect_custom_types(codecs)
+
+      assert Map.has_key?(enums, TestEnum)
+      assert Map.has_key?(custom_types, TestPrefixedIdWithSchema)
+      assert Map.has_key?(custom_types, TestCharArrayWithSchema)
+
+      assert Formatter.referenced_enums(schema, enums) == [TestEnum]
+
+      assert Enum.sort(Formatter.referenced_custom_types(schema, custom_types)) ==
+               Enum.sort([TestCharArrayWithSchema, TestPrefixedIdWithSchema])
+    end
+  end
 end

@@ -131,21 +131,51 @@ defmodule GridCodec.Breaking.Checker do
   @spec baseline_from_git(String.t(), String.t()) ::
           {:ok, String.t()} | :new_file | {:error, term()}
   def baseline_from_git(git_ref, file_path) do
-    case System.cmd("git", ["show", "#{git_ref}:#{file_path}"], stderr_to_stdout: true) do
-      {content, 0} ->
-        {:ok, content}
+    with {:ok, repo_root} <- git_repo_root(),
+         {:ok, git_path} <- git_relative_path(file_path, repo_root) do
+      case System.cmd("git", ["show", "#{git_ref}:#{git_path}"], stderr_to_stdout: true) do
+        {content, 0} ->
+          {:ok, content}
+
+        {error_output, _code} ->
+          cond do
+            String.contains?(error_output, "does not exist") ->
+              :new_file
+
+            String.contains?(error_output, "not a valid object") ->
+              {:error, {:invalid_git_ref, git_ref}}
+
+            true ->
+              {:error, {:git_error, error_output}}
+          end
+      end
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp git_repo_root do
+    case System.cmd("git", ["rev-parse", "--show-toplevel"], stderr_to_stdout: true) do
+      {output, 0} ->
+        {:ok, String.trim(output)}
 
       {error_output, _code} ->
-        cond do
-          String.contains?(error_output, "does not exist") ->
-            :new_file
+        {:error, {:git_error, error_output}}
+    end
+  end
 
-          String.contains?(error_output, "not a valid object") ->
-            {:error, {:invalid_git_ref, git_ref}}
+  defp git_relative_path(file_path, repo_root) do
+    abs_path =
+      if Path.type(file_path) == :absolute do
+        file_path
+      else
+        Path.expand(file_path, File.cwd!())
+      end
 
-          true ->
-            {:error, {:git_error, error_output}}
-        end
+    if String.starts_with?(abs_path, repo_root <> "/") or abs_path == repo_root do
+      {:ok, Path.relative_to(abs_path, repo_root)}
+    else
+      {:error, {:path_outside_repo, file_path, repo_root}}
     end
   end
 

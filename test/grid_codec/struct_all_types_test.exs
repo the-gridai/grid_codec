@@ -635,5 +635,33 @@ defmodule GridCodec.StructAllTypesTest do
       {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
       assert DateTime.compare(via_new.dt_ns, via_decode.dt_ns) == :eq
     end
+
+    test "datetime_ns: new/1 with microsecond-aligned integer coerces to DateTime" do
+      ns = 1_718_451_000_123_456_000
+      {:ok, via_new} = DateTimeIdentityCodec.new(%{dt_ns: ns})
+
+      assert %DateTime{} = via_new.dt_ns
+      assert DateTime.to_unix(via_new.dt_ns, :nanosecond) == ns
+
+      {:ok, bin} = DateTimeIdentityCodec.encode(via_new)
+      {:ok, via_decode} = DateTimeIdentityCodec.decode(bin)
+      assert DateTime.to_unix(via_decode.dt_ns, :nanosecond) == ns
+    end
+
+    test "datetime_ns: new/1 rejects sub-microsecond integer precision" do
+      ns = 1_718_451_000_123_456_789
+
+      assert {:error, %GridCodec.ValidationError{code: :cast_error, details: %{field: :dt_ns}}} =
+               DateTimeIdentityCodec.new(%{dt_ns: ns})
+    end
+
+    test "datetime_ns: encode rejects sub-microsecond integer precision" do
+      ns = 1_718_451_000_123_456_789
+
+      assert {:error, %GridCodec.ValidationError{code: :cast_error, details: details}} =
+               DateTimeIdentityCodec.encode(%DateTimeIdentityCodec{dt_ns: ns})
+
+      assert details.description =~ "datetime_ns integers must be microsecond-aligned"
+    end
   end
 end

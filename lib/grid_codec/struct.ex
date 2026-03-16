@@ -43,7 +43,7 @@ defmodule GridCodec.Struct do
         version: 1
       }
 
-      message Order (1001) {
+      struct Order (template_id: 1001) {
         id: uuid_string
         price: u64
         quantity: u32
@@ -82,7 +82,10 @@ defmodule GridCodec.Struct do
   - `:telemetry_min_duration` - Skip emitting telemetry events when duration is below this
     threshold in `:native` time units (default: `0`, emit all). Filters out cheap operations.
   - `:grid_file` - Path to `.grid` schema file (optional)
+  - `:grid_schema` - Inline `.grid` schema via `~G` / `~g` sigil or parsed schema struct (optional)
   - `:message` - Message name in schema file (required with `:grid_file`)
+  - `:types` - Explicit mapping from `.grid` type names to Elixir modules when loading
+    from `:grid_file` / `:grid_schema` (optional)
 
   Options can also be set globally via application config:
 

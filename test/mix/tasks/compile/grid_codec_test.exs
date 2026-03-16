@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Compile.GridCodecTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
   alias GridCodec.TestSupport.OrderEvent
   alias Mix.Tasks.Compile.GridCodec, as: CompileGridCodec
 
@@ -83,6 +85,35 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       assert {:ok, decoded} = apply(reg, :decode, [binary])
       assert decoded.side == :buy
       assert decoded.price == 100
+    end
+
+    test "regenerating the same registry module does not emit redefinition warnings" do
+      codecs = [
+        %{module: OrderEvent, schema_id: 60, template_id: 600}
+      ]
+
+      reg = Module.concat(__MODULE__, :"RegistryRecompile#{System.unique_integer([:positive])}")
+      ast = CompileGridCodec.build_registry_ast(codecs, reg)
+
+      warning_output =
+        capture_io(:stderr, fn ->
+          old_options = Code.compiler_options()
+          Code.compiler_options(ignore_module_conflict: true)
+
+          try do
+            :code.purge(reg)
+            :code.delete(reg)
+            [{^reg, _binary}] = Code.compile_quoted(ast)
+
+            :code.purge(reg)
+            :code.delete(reg)
+            [{^reg, _binary}] = Code.compile_quoted(ast)
+          after
+            Code.compiler_options(old_options)
+          end
+        end)
+
+      refute warning_output =~ "redefining module GridCodec.Registry"
     end
   end
 

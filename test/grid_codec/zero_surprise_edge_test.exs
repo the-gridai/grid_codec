@@ -104,6 +104,21 @@ defmodule GridCodec.ZeroSurpriseEdgeTest do
       assert s.flags == MapSet.new([:admin, :verified])
     end
 
+    test "string list coercion normalizes to MapSet" do
+      {:ok, s} = BitsetCodec.new(%{flags: ["admin", "verified"]})
+      assert s.flags == MapSet.new([:admin, :verified])
+    end
+
+    test "unknown string flags return a cast error instead of raising" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error, details: %{field: :flags}}} =
+               BitsetCodec.new(%{flags: ["admin", "nope"]})
+    end
+
+    test "unknown atom flags return a cast error" do
+      assert {:error, %GridCodec.ValidationError{code: :cast_error, details: %{field: :flags}}} =
+               BitsetCodec.new(%{flags: [:admin, :nope]})
+    end
+
     property "bitset: any combination roundtrips" do
       flags = [:admin, :moderator, :verified, :banned]
 
@@ -113,6 +128,44 @@ defmodule GridCodec.ZeroSurpriseEdgeTest do
         {:ok, bin} = BitsetCodec.encode(s)
         {:ok, d} = BitsetCodec.decode(bin)
         assert d.flags == set
+      end
+    end
+
+    property "bitset: atom lists, string lists, and MapSets normalize identically" do
+      flags = [:admin, :moderator, :verified, :banned]
+
+      check all(selected <- list_of(member_of(flags), max_length: 4)) do
+        set = MapSet.new(selected)
+        strings = Enum.map(selected, &Atom.to_string/1)
+
+        {:ok, from_atoms} = BitsetCodec.new(%{flags: selected})
+        {:ok, from_strings} = BitsetCodec.new(%{flags: strings})
+        {:ok, from_set} = BitsetCodec.new(%{flags: set})
+
+        assert from_atoms.flags == set
+        assert from_strings.flags == set
+        assert from_set.flags == set
+
+        {:ok, bin} = BitsetCodec.encode(from_strings)
+        {:ok, decoded} = BitsetCodec.decode(bin)
+        assert decoded.flags == set
+      end
+    end
+
+    property "bitset: impossible flag element types always return cast errors" do
+      invalid_flags =
+        one_of([
+          integer(),
+          float(),
+          tuple({integer(), integer()}),
+          map_of(atom(:alphanumeric), integer(), max_length: 2),
+          binary(min_length: 1, max_length: 8)
+          |> filter(&(&1 not in ["admin", "moderator", "verified", "banned"]))
+        ])
+
+      check all(invalid <- invalid_flags) do
+        assert {:error, %GridCodec.ValidationError{code: :cast_error, details: %{field: :flags}}} =
+                 BitsetCodec.new(%{flags: [:admin, invalid]})
       end
     end
   end
@@ -141,6 +194,45 @@ defmodule GridCodec.ZeroSurpriseEdgeTest do
       {:ok, bin} = CharCodec.encode(s)
       {:ok, d} = CharCodec.decode(bin)
       assert d.ticker == "ABCDEFGH"
+    end
+
+    property "char_array truncation is deterministic for arbitrary byte strings" do
+      check all(
+              bytes <- list_of(integer(1..255), max_length: 20),
+              max_runs: 100
+            ) do
+        input = :erlang.list_to_binary(bytes)
+        expected = binary_part(input, 0, min(byte_size(input), 8))
+
+        {:ok, s} = CharCodec.new(%{ticker: input})
+        {:ok, bin} = CharCodec.encode(s)
+        {:ok, d} = CharCodec.decode(bin)
+
+        assert d.ticker == expected
+      end
+    end
+
+    property "char_array: overlong inputs with same first 8 bytes encode identically" do
+      check all(
+              prefix <- list_of(integer(1..255), length: 8),
+              suffix_a <- list_of(integer(1..255), max_length: 8),
+              suffix_b <- list_of(integer(1..255), max_length: 8)
+            ) do
+        left = :erlang.list_to_binary(prefix ++ suffix_a)
+        right = :erlang.list_to_binary(prefix ++ suffix_b)
+        expected = :erlang.list_to_binary(prefix)
+
+        {:ok, s_left} = CharCodec.new(%{ticker: left})
+        {:ok, s_right} = CharCodec.new(%{ticker: right})
+        {:ok, bin_left} = CharCodec.encode(s_left)
+        {:ok, bin_right} = CharCodec.encode(s_right)
+        {:ok, d_left} = CharCodec.decode(bin_left)
+        {:ok, d_right} = CharCodec.decode(bin_right)
+
+        assert d_left.ticker == expected
+        assert d_right.ticker == expected
+        assert bin_left == bin_right
+      end
     end
 
     test "shorter string is padded then trimmed back" do

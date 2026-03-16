@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-03-16
+
+### Added
+- **Coverage and test-audit gate** — `mix check` now runs `mix grid_codec.test_audit`
+  plus `mix test --cover`, turning the existing coverage threshold into an enforced
+  quality gate and failing fast when a new public `GridCodec.*` module ships
+  without any matching `*_test.exs` reference.
+- **Example app Dialyzer gate** — `example_app` now includes `:dialyxir`, a local
+  `mix check` Dialyzer step, and a dedicated GitHub Actions Dialyzer job with its
+  own PLT cache so consumer-facing examples stay type-check clean.
+
+### Changed
+- **CI test job** — now audits public module test references before running the
+  library test suite with coverage enabled, keeping test coverage checks aligned
+  between local development and GitHub Actions.
+
+### Fixed
+- **Nested-app breaking checks** — `mix grid_codec.breaking` now resolves baseline
+  schema paths relative to the Git repository root and exits non-zero on git
+  lookup failures instead of printing errors and reporting a false clean result.
+- **`datetime_ns` coercion precision safety** — sub-microsecond integer nanosecond
+  inputs are now rejected by `new/1` and `encode/1` instead of being silently
+  truncated through `%DateTime{}` coercion.
+- **Bitset coercion error handling** — unknown string or atom flags now return a
+  structured cast error from `new/1` instead of raising via
+  `String.to_existing_atom/1`.
+- **Inline-group `.grid` custom type names** — schema export now applies the same
+  short-name resolution to inline group fields as top-level fields, preventing
+  fully qualified Elixir module names from leaking into generated `.grid` files.
+- **Lookup codegen Dialyzer compatibility** — typed-group and batch lookups no
+  longer emit constant-boolean branches for empty or simple filters, eliminating
+  false positive unreachable-branch warnings in normal consumer lookup modules.
+- **Registry regeneration warning noise** — the `:grid_codec` Mix compiler now
+  suppresses intentional module-redefinition warnings while replacing the
+  fallback `GridCodec.Registry` with the generated consolidated registry, so
+  consumer apps no longer see spurious warnings during normal compilation.
+
+### Tests
+- **Native type roundtrip fuzzing** — expanded property-based coverage for
+  datetime coercion equivalence, `datetime_ns` precision rejection, bitset atom
+  vs string normalization, and char array truncation determinism.
+
+### Documentation
+- **PrefixedId generator extension pattern** — `README.md`,
+  `example_app/README.md`, and `mix grid_codec.gen.prefixed_id` now show the
+  supported way to add deterministic `UUID.generate_v5/2` constructors to
+  generated PrefixedId modules without giving up the visible-source workflow.
+
 ## [0.33.0] - 2026-03-16
 
 ### Added

@@ -208,6 +208,84 @@ defmodule GridCodec.ZeroSurpriseTest do
       end
     end
 
+    property "datetime_us: DateTime, integer, and ISO inputs normalize identically" do
+      check all(us <- integer(1_577_836_800_000_000..1_893_456_000_000_000)) do
+        dt = DateTime.from_unix!(us, :microsecond)
+        iso = DateTime.to_iso8601(dt)
+
+        {:ok, via_dt} = TimestampCodec.new(%{dt_us: dt, dt_ns: nil, ts_us: nil, ts_ns: nil})
+        {:ok, via_int} = TimestampCodec.new(%{dt_us: us, dt_ns: nil, ts_us: nil, ts_ns: nil})
+        {:ok, via_iso} = TimestampCodec.new(%{dt_us: iso, dt_ns: nil, ts_us: nil, ts_ns: nil})
+
+        assert DateTime.compare(via_dt.dt_us, via_int.dt_us) == :eq
+        assert DateTime.compare(via_dt.dt_us, via_iso.dt_us) == :eq
+
+        {:ok, bin} = TimestampCodec.encode(via_iso)
+        {:ok, decoded} = TimestampCodec.decode(bin)
+        assert DateTime.compare(via_dt.dt_us, decoded.dt_us) == :eq
+      end
+    end
+
+    property "datetime_ns: microsecond-aligned integers roundtrip safely" do
+      check all(us <- integer(1_577_836_800_000_000..1_893_456_000_000_000)) do
+        ns = us * 1000
+
+        {:ok, via_new} = TimestampCodec.new(%{dt_us: nil, dt_ns: ns, ts_us: nil, ts_ns: nil})
+        assert DateTime.to_unix(via_new.dt_ns, :nanosecond) == ns
+
+        {:ok, bin} = TimestampCodec.encode(via_new)
+        {:ok, decoded} = TimestampCodec.decode(bin)
+        assert DateTime.to_unix(decoded.dt_ns, :nanosecond) == ns
+      end
+    end
+
+    property "datetime_ns: DateTime and aligned integer inputs normalize identically" do
+      check all(us <- integer(1_577_836_800_000_000..1_893_456_000_000_000)) do
+        ns = us * 1000
+        dt = DateTime.from_unix!(ns, :nanosecond)
+
+        {:ok, via_dt} = TimestampCodec.new(%{dt_us: nil, dt_ns: dt, ts_us: nil, ts_ns: nil})
+        {:ok, via_int} = TimestampCodec.new(%{dt_us: nil, dt_ns: ns, ts_us: nil, ts_ns: nil})
+
+        assert DateTime.compare(via_dt.dt_ns, via_int.dt_ns) == :eq
+
+        {:ok, bin_dt} = TimestampCodec.encode(via_dt)
+        {:ok, bin_int} = TimestampCodec.encode(via_int)
+        assert bin_dt == bin_int
+      end
+    end
+
+    property "datetime_ns: sub-microsecond integer inputs are rejected" do
+      check all(
+              us <- integer(1_577_836_800_000_000..1_893_456_000_000_000),
+              offset <- integer(1..999)
+            ) do
+        ns = us * 1000 + offset
+
+        assert {:error, %GridCodec.ValidationError{code: :cast_error, details: %{field: :dt_ns}}} =
+                 TimestampCodec.new(%{dt_us: nil, dt_ns: ns, ts_us: nil, ts_ns: nil})
+      end
+    end
+
+    property "datetime_ns: encode rejects every sub-microsecond integer precision" do
+      check all(
+              us <- integer(1_577_836_800_000_000..1_893_456_000_000_000),
+              offset <- integer(1..999)
+            ) do
+        ns = us * 1000 + offset
+
+        assert {:error, %GridCodec.ValidationError{code: :cast_error, details: details}} =
+                 TimestampCodec.encode(%TimestampCodec{
+                   ts_us: nil,
+                   ts_ns: nil,
+                   dt_us: nil,
+                   dt_ns: ns
+                 })
+
+        assert details.description =~ "microsecond-aligned"
+      end
+    end
+
     property "decimal: new/1 roundtrip preserves Decimal identity" do
       check all(
               mantissa <- integer(-1_000_000_000..1_000_000_000),

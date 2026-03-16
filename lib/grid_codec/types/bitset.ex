@@ -282,6 +282,7 @@ defmodule GridCodec.Types.Bitset do
 
     flag_map = Map.new(flags)
     all_flags = names
+    string_flag_map = Map.new(flags, fn {name, _bit_pos} -> {Atom.to_string(name), name} end)
 
     # Generate predicate functions for each flag
     predicates =
@@ -337,6 +338,39 @@ defmodule GridCodec.Types.Bitset do
     quote do
       @flag_map unquote(Macro.escape(flag_map))
       @all_flags unquote(all_flags)
+      @string_flag_map unquote(Macro.escape(string_flag_map))
+
+      @doc false
+      def __coerce_flag__(flag) when is_atom(flag) do
+        if Map.has_key?(@flag_map, flag) do
+          {:ok, flag}
+        else
+          {:error, "unknown bitset flag: #{inspect(flag)}"}
+        end
+      end
+
+      @doc false
+      def __coerce_flag__(flag) when is_binary(flag) do
+        case Map.fetch(@string_flag_map, flag) do
+          {:ok, coerced} -> {:ok, coerced}
+          :error -> {:error, "unknown bitset flag: #{inspect(flag)}"}
+        end
+      end
+
+      @doc false
+      def __coerce_flag__(flag) do
+        {:error, "expected bitset flag as atom or string, got: #{inspect(flag)}"}
+      end
+
+      @doc false
+      def __coerce_flags__(flags) do
+        Enum.reduce_while(flags, {:ok, MapSet.new()}, fn flag, {:ok, acc} ->
+          case __coerce_flag__(flag) do
+            {:ok, coerced} -> {:cont, {:ok, MapSet.put(acc, coerced)}}
+            {:error, _} = error -> {:halt, error}
+          end
+        end)
+      end
 
       @doc false
       def __bitset_meta__ do
@@ -472,14 +506,10 @@ defmodule GridCodec.Types.Bitset do
               {:ok, nil}
 
             %MapSet{} = v ->
-              {:ok, v}
+              unquote(mod).__coerce_flags__(MapSet.to_list(v))
 
             v when is_list(v) ->
-              {:ok,
-               MapSet.new(v, fn
-                 s when is_binary(s) -> String.to_existing_atom(s)
-                 a when is_atom(a) -> a
-               end)}
+              unquote(mod).__coerce_flags__(v)
 
             v when is_integer(v) ->
               {:ok, unquote(mod).from_integer(v)}

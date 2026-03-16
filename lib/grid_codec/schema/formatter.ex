@@ -2,8 +2,9 @@ defmodule GridCodec.Schema.Formatter do
   @moduledoc """
   Converts runtime GridCodec schema metadata into `.grid` file content.
 
-  Takes compiled codec modules' `__schema__/0` data, detects enum types
-  referenced by fields, and produces formatted `.grid` strings.
+  Takes compiled codec modules' `__schema__/0` data, detects enum and custom
+  types referenced by top-level fields and inline group fields, and produces
+  formatted `.grid` strings with short schema type names.
 
   ## Output Modes
 
@@ -42,7 +43,8 @@ defmodule GridCodec.Schema.Formatter do
   @spec format(String.t(), integer(), integer(), [codec_entry()], keyword()) :: String.t()
   def format(schema_name, schema_id, schema_version, codecs, opts \\ []) do
     enums = detect_enums(codecs)
-    type_aliases = build_type_aliases(codecs, enums)
+    custom_types = detect_custom_types(codecs)
+    type_aliases = build_type_aliases(codecs, enums, custom_types)
 
     lines = [
       file_header(opts),
@@ -58,6 +60,13 @@ defmodule GridCodec.Schema.Formatter do
         [format_enum_block(info), ""]
       end)
 
+    custom_type_lines =
+      custom_types
+      |> Enum.sort_by(fn {_mod, info} -> info.short_name end)
+      |> Enum.flat_map(fn {_mod, info} ->
+        [format_custom_type_block(info), ""]
+      end)
+
     struct_lines =
       codecs
       |> Enum.sort_by(fn {_mod, schema} -> struct_name(schema) end)
@@ -65,7 +74,7 @@ defmodule GridCodec.Schema.Formatter do
         [format_struct_block(schema, type_aliases), ""]
       end)
 
-    (lines ++ enum_lines ++ struct_lines)
+    (lines ++ enum_lines ++ custom_type_lines ++ struct_lines)
     |> Enum.join("\n")
     |> String.trim_trailing()
     |> Kernel.<>("\n")
@@ -165,9 +174,8 @@ defmodule GridCodec.Schema.Formatter do
   def detect_enums(codecs) do
     codecs
     |> Enum.flat_map(fn {_mod, schema} ->
-      Enum.map(schema.fields, fn {_name, type_spec, _opts} ->
-        normalize_type_module(type_spec)
-      end)
+      schema_type_specs(schema)
+      |> Enum.map(&normalize_type_module/1)
     end)
     |> Enum.uniq()
     |> Enum.filter(&enum_module?/1)
@@ -188,12 +196,13 @@ defmodule GridCodec.Schema.Formatter do
   end
 
   @doc """
-  Returns the set of enum modules referenced by a single struct's fields.
+  Returns the set of enum modules referenced by a single struct's fields and
+  inline group fields.
   """
   @spec referenced_enums(map(), map()) :: [module()]
   def referenced_enums(schema, all_enums) do
-    schema.fields
-    |> Enum.map(fn {_name, type_spec, _opts} -> normalize_type_module(type_spec) end)
+    schema_type_specs(schema)
+    |> Enum.map(&normalize_type_module/1)
     |> Enum.uniq()
     |> Enum.filter(fn mod -> Map.has_key?(all_enums, mod) end)
   end
@@ -266,7 +275,8 @@ defmodule GridCodec.Schema.Formatter do
             framing_line =
               if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
-            ["", "  group #{gname} : #{scalar_of} {"] ++ framing_line ++ ["  }"]
+            scalar_type = format_type(scalar_of, type_aliases)
+            ["", "  group #{gname} : #{scalar_type} {"] ++ framing_line ++ ["  }"]
 
           gfields == [] ->
             []
@@ -276,7 +286,9 @@ defmodule GridCodec.Schema.Formatter do
               if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
             field_strs =
-              Enum.map(gfields, fn {fname, type_atom} -> "    #{fname}: #{type_atom}" end)
+              Enum.map(gfields, fn {fname, type_spec} ->
+                "    #{fname}: #{format_type(type_spec, type_aliases)}"
+              end)
 
             ["", "  group #{gname} {"] ++ framing_line ++ field_strs ++ ["  }"]
         end
@@ -331,15 +343,15 @@ defmodule GridCodec.Schema.Formatter do
   end
 
   @doc """
-  Detects all custom types (PrefixedId, CharArray, Bitset) referenced by codec fields.
+  Detects all custom types (PrefixedId, CharArray, Bitset) referenced by codec
+  fields and inline group fields.
   """
   @spec detect_custom_types([codec_entry()]) :: map()
   def detect_custom_types(codecs) do
     codecs
     |> Enum.flat_map(fn {_mod, schema} ->
-      Enum.map(schema.fields, fn {_name, type_spec, _opts} ->
-        normalize_type_module(type_spec)
-      end)
+      schema_type_specs(schema)
+      |> Enum.map(&normalize_type_module/1)
     end)
     |> Enum.uniq()
     |> Enum.filter(&custom_type_module?/1)
@@ -358,12 +370,13 @@ defmodule GridCodec.Schema.Formatter do
   end
 
   @doc """
-  Returns the set of custom type modules referenced by a single struct's fields.
+  Returns the set of custom type modules referenced by a single struct's fields
+  and inline group fields.
   """
   @spec referenced_custom_types(map(), map()) :: [module()]
   def referenced_custom_types(schema, all_custom_types) do
-    schema.fields
-    |> Enum.map(fn {_name, type_spec, _opts} -> normalize_type_module(type_spec) end)
+    schema_type_specs(schema)
+    |> Enum.map(&normalize_type_module/1)
     |> Enum.uniq()
     |> Enum.filter(fn mod -> Map.has_key?(all_custom_types, mod) end)
   end
@@ -477,6 +490,23 @@ defmodule GridCodec.Schema.Formatter do
         params = Enum.map_join(type_opts, ", ", fn {k, v} -> "#{k}: #{v}" end)
         "#{base}(#{params})"
     end
+  end
+
+  defp schema_type_specs(schema) do
+    field_specs =
+      Enum.map(schema.fields || [], fn {_name, type_spec, _opts} -> type_spec end)
+
+    group_specs =
+      schema.group_fields
+      |> Kernel.||(%{})
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(fn
+        {_name, type_spec} -> type_spec
+        {_name, type_spec, _opts} -> type_spec
+      end)
+
+    field_specs ++ group_specs
   end
 
   defp resolve_type_name(type, type_aliases) do
