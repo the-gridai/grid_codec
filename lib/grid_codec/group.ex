@@ -1,12 +1,17 @@
 defmodule GridCodec.Group do
   @moduledoc """
-  Repeating groups for arrays of fixed-size entries.
+  Repeating groups for arrays of entries.
 
-  Groups enable encoding variable-length arrays where each entry has
-  the same structure. This is ideal for collections, batch events,
-  nested lists, and similar use cases.
+  Groups encode variable-length arrays where each entry has the same
+  structure. Three group styles are supported:
 
-  ## Wire Format
+  | Style | DSL | Wire Format | Decode |
+  |-------|-----|-------------|--------|
+  | Fixed | `group :g do ... end` or `group :g, of: M` | blockLength/numInGroup header, uniform entries | Lazy `%Group{}` with O(1) random access |
+  | Framed | `group :g, of: M, framing: :length_prefixed` | numEntries (u32) + length-prefixed payloads | Eager list |
+  | Scalar | `group :g, of: :uuid` | Fixed or framed depending on type | Eager list |
+
+  ## Fixed Group Wire Format
 
       ┌─────────────────────────────────────────────────────────┐
       │ Group Header (4 bytes)                                  │
@@ -23,14 +28,34 @@ defmodule GridCodec.Group do
       │ Entry[N-1] (blockLength bytes)                          │
       └─────────────────────────────────────────────────────────┘
 
-  ## Header Format (4 bytes)
+  Header: `blockLength` (u16 LE) + `numInGroup` (u16 LE).
+  Entries must be fixed-size only (no variable-length fields).
 
-  - `blockLength` (u16 LE): Size of each entry in bytes (max 65,535)
-  - `numInGroup` (u16 LE): Number of entries (max 65,535)
+  ## Framed Group Wire Format
 
-  ## Zero-Copy Access
+      ┌─────────────────────────────────────────────────────────┐
+      │ numEntries (u32 LE)                                     │
+      ├─────────────────────────────────────────────────────────┤
+      │ payloadLen[0] (u16 LE) │ payload[0]                    │
+      ├─────────────────────────────────────────────────────────┤
+      │ payloadLen[1] (u16 LE) │ payload[1]                    │
+      ├─────────────────────────────────────────────────────────┤
+      │ ...                                                     │
+      └─────────────────────────────────────────────────────────┘
 
-  Groups support O(1) random access to any entry:
+  Each entry is length-prefixed, allowing variable-length payloads.
+  Entries are eagerly decoded to a plain list (no lazy `%Group{}`).
+
+  ## Scalar Group Wire Format
+
+  Scalar groups store homogeneous lists of single values (UUIDs,
+  integers, strings). Fixed-size scalars use the fixed group wire
+  format; variable-length scalars auto-select framed encoding.
+  Both eagerly decode to a plain list.
+
+  ## Zero-Copy Access (Fixed Groups)
+
+  Fixed groups support O(1) random access to any entry:
 
       {:ok, group} = GridCodec.Group.parse(binary, entry_decoder)
 
@@ -43,11 +68,10 @@ defmodule GridCodec.Group do
       # Access field within entry at index
       {:ok, price} = GridCodec.Group.get_field(group, 42, :price)
 
-  ## Lazy Iteration
+  ## Lazy Iteration (Fixed Groups)
 
-  Groups are lazy - entries are only decoded when accessed:
+  Fixed groups are lazy — entries are only decoded when accessed:
 
-      # Stream interface for lazy iteration
       group
       |> GridCodec.Group.stream()
       |> Stream.filter(fn entry -> entry.price > 100 end)
@@ -67,39 +91,29 @@ defmodule GridCodec.Group do
         max_bytes: 1_000_000
       )
 
-  ## Usage Example
+  ## Usage Examples
 
-      defmodule OrderBook do
-        use GridCodec.Struct, template_id: 1, schema_id: 100
+  ### Fixed group (inline fields)
 
-        defcodec do
-          field :symbol, :uuid
-          field :timestamp, :u64
-
-          group :bids, entry_encoder: &encode_level/1, entry_decoder: &decode_level/1 do
-            field :price, :u64
-            field :quantity, :u32
-          end
-
-          group :asks, entry_encoder: &encode_level/1, entry_decoder: &decode_level/1 do
-            field :price, :u64
-            field :quantity, :u32
-          end
+      defcodec do
+        group :bids do
+          field :price, :u64
+          field :quantity, :u32
         end
-
-        defp encode_level(%{price: p, quantity: q}), do: <<p::little-64, q::little-32>>
-        defp decode_level(<<p::little-64, q::little-32>>), do: {:ok, %{price: p, quantity: q}}
       end
 
-      # Decode fully to access groups
-      {:ok, order_book} = OrderBook.decode(binary)
-      bids = order_book.bids
+  ### Framed group (variable-length entries)
 
-      # Count without full iteration
-      count = GridCodec.Group.count(bids)
+      defcodec do
+        group :bills, of: Bill, framing: :length_prefixed
+      end
 
-      # Random access to entries
-      {:ok, top_bid} = GridCodec.Group.get_entry(bids, 0)
+  ### Scalar group
+
+      defcodec do
+        group :tag_ids, of: :uuid
+        group :labels, of: :string16
+      end
   """
 
   @header_size 4
@@ -221,6 +235,118 @@ defmodule GridCodec.Group do
       :lists.mapfoldl(fn entry, n -> {entry_encoder.(entry), n + 1} end, 0, entries)
 
     :erlang.iolist_to_binary([<<block_length::little-16, count::little-16>> | encoded])
+  end
+
+  # ============================================================================
+  # Framed (length-prefixed) encoding for variable-length entries
+  # ============================================================================
+
+  @doc """
+  Encodes a list of entries using length-prefixed framing.
+
+  Each entry is encoded via `entry_encoder`, then wrapped with a u16 LE length
+  prefix. The header is a u32 LE entry count.
+
+  Wire format:
+
+      numEntries (u32 LE) | [payload_length (u16 LE) | payload]*
+
+  ## Limits
+
+  - Max entries: 4,294,967,295 (u32)
+  - Max per-entry payload: 65,535 bytes (u16)
+  """
+  @spec encode_framed(list(), (term() -> binary())) :: binary()
+  def encode_framed([], _entry_encoder) do
+    <<0::little-32>>
+  end
+
+  def encode_framed(entries, entry_encoder)
+      when is_list(entries) and is_function(entry_encoder, 1) do
+    count = length(entries)
+
+    frames =
+      Enum.map(entries, fn entry ->
+        payload = entry_encoder.(entry)
+        payload_len = byte_size(payload)
+
+        if payload_len > @max_u16 do
+          raise ArgumentError,
+                "Framed group entry payload #{payload_len} bytes exceeds u16 max (#{@max_u16})"
+        end
+
+        <<payload_len::little-16, payload::binary>>
+      end)
+
+    :erlang.iolist_to_binary([<<count::little-32>> | frames])
+  end
+
+  @doc """
+  Parses a framed (length-prefixed) group and returns `{entries_list, rest_binary}`.
+
+  Eagerly decodes all entries into a list. Used for variable-length group entries
+  where O(1) random access is not applicable.
+
+  Raises on malformed data.
+  """
+  @spec parse_framed_with_rest!(binary(), (binary() -> {:ok, map()} | {:error, term()})) ::
+          {list(), binary()}
+  def parse_framed_with_rest!(<<num_entries::little-32, rest::binary>>, entry_decoder) do
+    decode_framed_entries(rest, num_entries, entry_decoder, [])
+  end
+
+  def parse_framed_with_rest!(binary, _entry_decoder) do
+    raise ArgumentError,
+          "Framed group binary too short: #{byte_size(binary)} bytes, need at least 4"
+  end
+
+  defp decode_framed_entries(rest, 0, _decoder, acc) do
+    {:lists.reverse(acc), rest}
+  end
+
+  defp decode_framed_entries(
+         <<payload_len::little-16, payload::binary-size(payload_len), rest::binary>>,
+         remaining,
+         decoder,
+         acc
+       ) do
+    {:ok, entry} = decoder.(payload)
+    decode_framed_entries(rest, remaining - 1, decoder, [entry | acc])
+  end
+
+  defp decode_framed_entries(rest, remaining, _decoder, _acc) do
+    raise ArgumentError,
+          "Insufficient framed group data: #{remaining} entries remaining, #{byte_size(rest)} bytes left"
+  end
+
+  @doc """
+  Parses a fixed-size scalar group eagerly into a list and returns `{list, rest}`.
+
+  Uses the standard group header (blockLength u16, numInGroup u16), then eagerly
+  decodes all entries via the batch_decoder, returning a plain list of values.
+  """
+  @spec parse_scalar_fixed_with_rest!(binary(), term(), (binary(), list() -> list())) ::
+          {list(), binary()}
+  def parse_scalar_fixed_with_rest!(
+        <<block_length::little-16, num_in_group::little-16, rest::binary>>,
+        _entry_decoder,
+        batch_decoder
+      ) do
+    total_data = num_in_group * block_length
+
+    if byte_size(rest) < total_data do
+      raise ArgumentError,
+            "Insufficient scalar group data: need #{total_data} bytes, have #{byte_size(rest)}"
+    end
+
+    <<entries_bin::binary-size(total_data), group_rest::binary>> = rest
+    entries = batch_decoder.(entries_bin, [])
+    {entries, group_rest}
+  end
+
+  def parse_scalar_fixed_with_rest!(binary, _entry_decoder, _batch_decoder) do
+    raise ArgumentError,
+          "Scalar group binary too short: #{byte_size(binary)} bytes, need at least 4"
   end
 
   # ============================================================================

@@ -297,6 +297,36 @@ defmodule GridCodec do
   end
 
   @doc """
+  Declares a virtual field that exists in the struct but is excluded from the wire format.
+
+  Virtual fields are not encoded, not decoded, and not exported to `.grid` schema files.
+  They are useful for runtime-only state such as caches, indices, or data that is derived
+  from other fields.
+
+  ## Options
+
+  - `:default` - Default value for the struct field (default: `nil`)
+  - `:validate` - When `true`, `new/1` accepts and passes through this field from
+    input attrs. When `false`, `new/1` ignores this field and uses the struct default.
+    (default: `true`)
+
+  ## Examples
+
+      defcodec do
+        field :id, :u64
+        field :name, :string16
+
+        virtual :metadata, default: %{}
+        virtual :cache, default: nil, validate: false
+      end
+  """
+  defmacro virtual(name, opts \\ []) when is_atom(name) do
+    quote do
+      @gridcodec_virtuals {unquote(name), unquote(opts)}
+    end
+  end
+
+  @doc """
   Defines a repeating group of fields.
 
   Groups encode variable-length collections where each entry has

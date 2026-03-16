@@ -191,7 +191,9 @@ defmodule GridCodec.Schema.Parser do
 
   ### Group
 
-      groupBlock   = "group" ident "{" { field } "}"
+      groupBlock   = "group" ident "{" [groupProp] { field } "}"
+                   | "group" ident ":" typeRef "{" [groupProp] "}"
+      groupProp    = "framing" ":" "length_prefixed"
 
   ### Batch
 
@@ -303,11 +305,15 @@ defmodule GridCodec.Schema.Parser do
   defmodule Group do
     @moduledoc "Parsed group structure"
     defstruct name: nil,
-              fields: []
+              fields: [],
+              framing: nil,
+              of_type: nil
 
     @type t :: %__MODULE__{
             name: atom() | nil,
-            fields: [Field.t()]
+            fields: [Field.t()],
+            framing: :length_prefixed | nil,
+            of_type: atom() | nil
           }
   end
 
@@ -430,7 +436,7 @@ defmodule GridCodec.Schema.Parser do
   defp tokenize(content) do
     content
     |> String.replace(~r/#[^\n]*/, "")
-    |> String.replace(~r/([\[\]\(\),])/, " \\1 ")
+    |> String.replace(~r/([\[\]\(\),\{\}])/, " \\1 ")
     |> String.split(~r/\s+/, trim: true)
     |> tokenize_stream([])
   end
@@ -892,14 +898,37 @@ defmodule GridCodec.Schema.Parser do
   end
 
   defp parse_struct_body(
+         [{:word, "group"}, {:word, name}, :colon, {:word, scalar_type}, :lbrace | rest],
+         fields,
+         groups,
+         batches
+       ) do
+    {framing, rest2} = extract_group_framing(rest)
+
+    case rest2 do
+      [:rbrace | remaining] ->
+        group = %Group{
+          name: String.to_atom(name),
+          of_type: String.to_atom(scalar_type),
+          framing: framing
+        }
+
+        parse_struct_body(remaining, fields, [group | groups], batches)
+
+      _ ->
+        {:error, {:expected_closing_brace_for_scalar_group, name}}
+    end
+  end
+
+  defp parse_struct_body(
          [{:word, "group"}, {:word, name}, :lbrace | rest],
          fields,
          groups,
          batches
        ) do
-    case parse_fields_block(rest, []) do
-      {:ok, group_fields, remaining} ->
-        group = %Group{name: String.to_atom(name), fields: group_fields}
+    case parse_group_block(rest) do
+      {:ok, group, remaining} ->
+        group = %{group | name: String.to_atom(name)}
         parse_struct_body(remaining, fields, [group | groups], batches)
 
       {:error, _} = err ->
@@ -909,10 +938,27 @@ defmodule GridCodec.Schema.Parser do
 
   defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups, batches) do
     case rest do
+      [:colon, {:word, scalar_type}, :lbrace | rest2] ->
+        {framing, rest3} = extract_group_framing(rest2)
+
+        case rest3 do
+          [:rbrace | remaining] ->
+            group = %Group{
+              name: String.to_atom(name),
+              of_type: String.to_atom(scalar_type),
+              framing: framing
+            }
+
+            parse_struct_body(remaining, fields, [group | groups], batches)
+
+          _ ->
+            {:error, {:expected_closing_brace_for_scalar_group, name}}
+        end
+
       [:lbrace | rest2] ->
-        case parse_fields_block(rest2, []) do
-          {:ok, group_fields, remaining} ->
-            group = %Group{name: String.to_atom(name), fields: group_fields}
+        case parse_group_block(rest2) do
+          {:ok, group, remaining} ->
+            group = %{group | name: String.to_atom(name)}
             parse_struct_body(remaining, fields, [group | groups], batches)
 
           {:error, _} = err ->
@@ -1045,6 +1091,29 @@ defmodule GridCodec.Schema.Parser do
   end
 
   defp parse_list(tokens, _acc), do: {:error, {:invalid_list, tokens}}
+
+  # Parse group block: extract optional properties (framing) then delegate to parse_fields_block
+  defp parse_group_block(tokens) do
+    {framing, rest} = extract_group_framing(tokens)
+
+    case parse_fields_block(rest, []) do
+      {:ok, group_fields, remaining} ->
+        {:ok, %Group{fields: group_fields, framing: framing}, remaining}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp extract_group_framing([
+         {:word, "framing"},
+         :colon,
+         {:word, "length_prefixed"} | rest
+       ]) do
+    {:length_prefixed, rest}
+  end
+
+  defp extract_group_framing(tokens), do: {nil, tokens}
 
   # Parse fields block for types and groups
   defp parse_fields_block([:rbrace | rest], acc) do

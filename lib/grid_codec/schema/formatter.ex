@@ -248,18 +248,37 @@ defmodule GridCodec.Schema.Formatter do
       (schema.groups || [])
       |> Enum.map(fn {gname, _block, _opts} -> gname end)
 
+    group_opts_by_name =
+      (schema.groups || [])
+      |> Map.new(fn {gname, _block, gopts} -> {gname, gopts} end)
+
     group_lines =
       original_groups
       |> Enum.flat_map(fn gname ->
         gfields = Map.get(schema.group_fields || %{}, gname, [])
+        gopts = Map.get(group_opts_by_name, gname, [])
+        framing = Keyword.get(gopts, :framing)
+        scalar_of = Keyword.get(gopts, :of)
+        is_scalar = scalar_of != nil and gfields == []
 
-        if gfields == [] do
-          []
-        else
-          field_strs =
-            Enum.map(gfields, fn {fname, type_atom} -> "    #{fname}: #{type_atom}" end)
+        cond do
+          is_scalar ->
+            framing_line =
+              if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
-          ["", "  group #{gname} {"] ++ field_strs ++ ["  }"]
+            ["", "  group #{gname} : #{scalar_of} {"] ++ framing_line ++ ["  }"]
+
+          gfields == [] ->
+            []
+
+          true ->
+            framing_line =
+              if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
+
+            field_strs =
+              Enum.map(gfields, fn {fname, type_atom} -> "    #{fname}: #{type_atom}" end)
+
+            ["", "  group #{gname} {"] ++ framing_line ++ field_strs ++ ["  }"]
         end
       end)
 
