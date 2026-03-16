@@ -2,8 +2,8 @@ defmodule GridCodec.Types.StringTest do
   use ExUnit.Case
   use ExUnitProperties
 
-  alias GridCodec.Types.String, as: StringType
   alias GridCodec.Generators
+  alias GridCodec.Types.String, as: StringType
 
   describe "encode/1" do
     test "encodes nil as zero-length" do

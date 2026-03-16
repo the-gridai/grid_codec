@@ -39,3 +39,5 @@ coverage_output.txt
 /example_app/_build/
 /example_app/deps/
 /example_app/cover/
+
+.DS_Store

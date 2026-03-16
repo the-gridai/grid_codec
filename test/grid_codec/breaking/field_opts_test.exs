@@ -1,8 +1,8 @@
 defmodule GridCodec.Breaking.FieldOptsTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Schema.Parser
   alias GridCodec.Breaking.Checker
+  alias GridCodec.Schema.Parser
 
   @path "test.grid"
 

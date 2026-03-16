@@ -160,7 +160,7 @@ defmodule GridCodec.Types.Enum do
     known_type_ast = known_union_ast(values)
     encoded_type_ast = quote(do: <<_::unquote(size * 8)>>)
     known_names = Enum.map(values, fn {name, _} -> name end)
-    known_names_doc = known_names |> Enum.map(&inspect/1) |> Enum.join(", ")
+    known_names_doc = Enum.map_join(known_names, ", ", &inspect/1)
 
     value_doc = """
     Decoded enum value.

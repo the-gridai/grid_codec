@@ -20,6 +20,10 @@ defmodule ExampleApp.Types.UserId do
 
   use GridCodec.Types.PrefixedId, prefix: "user", tag: 0x02
 
+  alias GridCodec.Types.PrefixedId
+  alias GridCodec.Types.UUID
+  alias GridCodec.Types.UUIDString
+
   @typedoc "A prefixed ID string of the form `user-<uuid>`."
   @type t() :: String.t()
 
@@ -36,8 +40,8 @@ defmodule ExampleApp.Types.UserId do
   """
   @spec generate() :: t()
   def generate do
-    raw = GridCodec.Types.UUID.generate_v4()
-    "user-" <> GridCodec.Types.UUIDString.format_uuid(raw)
+    raw = UUID.generate_v4()
+    "user-" <> UUIDString.format_uuid(raw)
   end
 
   @doc """
@@ -73,7 +77,7 @@ defmodule ExampleApp.Types.UserId do
   @spec valid?(t() | term()) :: boolean()
   def valid?(<<prefix::binary-size(5), uuid_str::binary-size(36)>>)
       when prefix == "user-" do
-    GridCodec.Types.PrefixedId.valid_uuid_string?(uuid_str)
+    PrefixedId.valid_uuid_string?(uuid_str)
   end
 
   def valid?(_), do: false

@@ -1,4 +1,6 @@
 defmodule ExampleApp.ProfileRunner do
+  alias ExampleApp.Events.OrderCreated
+
   @moduledoc """
   Production-representative profiler for GridCodec.
 
@@ -195,7 +197,7 @@ defmodule ExampleApp.ProfileRunner do
       flags: 7
     }
 
-    {:ok, order_bin} = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, order_bin} = OrderCreated.encode(order)
     {order, order_bin}
   end
 
@@ -215,22 +217,22 @@ defmodule ExampleApp.ProfileRunner do
   defp do_warmup_both(0, _order, _order_bin), do: :ok
 
   defp do_warmup_both(n, order, order_bin) do
-    {:ok, encoded} = ExampleApp.Events.OrderCreated.encode(order)
-    {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(encoded)
+    {:ok, encoded} = OrderCreated.encode(order)
+    {:ok, _decoded} = OrderCreated.decode(encoded)
     do_warmup_both(n - 1, order, order_bin)
   end
 
   defp do_warmup_encode(0, _order), do: :ok
 
   defp do_warmup_encode(n, order) do
-    {:ok, _} = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, _} = OrderCreated.encode(order)
     do_warmup_encode(n - 1, order)
   end
 
   defp do_warmup_decode(0, _order_bin), do: :ok
 
   defp do_warmup_decode(n, order_bin) do
-    {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(order_bin)
+    {:ok, _decoded} = OrderCreated.decode(order_bin)
     do_warmup_decode(n - 1, order_bin)
   end
 
@@ -243,11 +245,11 @@ defmodule ExampleApp.ProfileRunner do
     Markers.mark :roundtrip do
       {:ok, encoded} =
         Markers.mark :encode_order do
-          ExampleApp.Events.OrderCreated.encode(order)
+          OrderCreated.encode(order)
         end
 
       Markers.mark :decode_order do
-        {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(encoded)
+        {:ok, _decoded} = OrderCreated.decode(encoded)
       end
     end
 
@@ -258,7 +260,7 @@ defmodule ExampleApp.ProfileRunner do
 
   defp do_profile_encode(n, order) do
     Markers.mark :encode_order do
-      {:ok, _} = ExampleApp.Events.OrderCreated.encode(order)
+      {:ok, _} = OrderCreated.encode(order)
     end
 
     do_profile_encode(n - 1, order)
@@ -268,7 +270,7 @@ defmodule ExampleApp.ProfileRunner do
 
   defp do_profile_decode(n, order_bin) do
     Markers.mark :decode_order do
-      {:ok, _decoded} = ExampleApp.Events.OrderCreated.decode(order_bin)
+      {:ok, _decoded} = OrderCreated.decode(order_bin)
     end
 
     do_profile_decode(n - 1, order_bin)

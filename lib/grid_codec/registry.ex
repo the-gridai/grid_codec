@@ -105,9 +105,8 @@ defmodule GridCodec.Registry do
 
     :code.all_loaded()
     |> Enum.map(fn {mod, _} -> mod end)
-    |> Enum.filter(&is_gridcodec?/1)
     |> Enum.filter(fn mod ->
-      passes_namespace?(mod, namespace) and filter_fn.(mod)
+      is_gridcodec?(mod) and passes_namespace?(mod, namespace) and filter_fn.(mod)
     end)
     |> Enum.sort()
   end

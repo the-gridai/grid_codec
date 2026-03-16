@@ -1,4 +1,6 @@
 defmodule ExampleApp do
+  alias ExampleApp.Events.OrderCreated
+
   @moduledoc """
   Example application demonstrating GridCodec features.
 
@@ -52,17 +54,17 @@ defmodule ExampleApp do
     }
 
     # Encode with header (default)
-    {:ok, binary} = ExampleApp.Events.OrderCreated.encode(order)
+    {:ok, binary} = OrderCreated.encode(order)
     IO.puts("Encoded to #{byte_size(binary)} bytes (with 8-byte header)")
 
     # Decode (expects header by default)
-    {:ok, decoded} = ExampleApp.Events.OrderCreated.decode(binary)
+    {:ok, decoded} = OrderCreated.decode(binary)
     IO.puts("Decoded: #{inspect(decoded.symbol)}")
 
     # Payload only (no header)
-    {:ok, payload} = ExampleApp.Events.OrderCreated.encode(order, header: false)
+    {:ok, payload} = OrderCreated.encode(order, header: false)
     IO.puts("Payload only: #{byte_size(payload)} bytes")
-    {:ok, decoded2} = ExampleApp.Events.OrderCreated.decode(payload, header: false)
+    {:ok, decoded2} = OrderCreated.decode(payload, header: false)
     IO.puts("Decoded payload: #{inspect(decoded2.symbol)}")
 
     # Dispatch via GridCodec (always uses header)
@@ -77,7 +79,9 @@ defmodule ExampleApp do
   Example usage of typed groups and generated lookups.
   """
   def lookup_usage do
-    alias ExampleApp.Views.{CommandEnvelope, CurrencyAccount, Fixtures}
+    alias ExampleApp.Views.CommandEnvelope
+    alias ExampleApp.Views.CurrencyAccount
+    alias ExampleApp.Views.Fixtures
 
     account = Fixtures.account(3)
     {:ok, account_binary} = CurrencyAccount.encode(account)

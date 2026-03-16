@@ -1,13 +1,12 @@
-# .credo.exs
+# .credo.exs — Example app uses strict defaults to simulate a real consumer.
+# Any issue here means grid_codec is generating or requiring code patterns
+# that would break a consumer's CI.
 %{
   configs: [
     %{
       name: "default",
       files: %{
-        included: [
-          "lib/",
-          "test/"
-        ],
+        included: ["lib/"],
         excluded: [~r"/_build/", ~r"/deps/", ~r"/benchmarks/"]
       },
       plugins: [],
@@ -17,7 +16,6 @@
       color: true,
       checks: %{
         enabled: [
-          # Consistency Checks
           {Credo.Check.Consistency.ExceptionNames, []},
           {Credo.Check.Consistency.LineEndings, []},
           {Credo.Check.Consistency.ParameterPatternMatching, []},
@@ -25,24 +23,21 @@
           {Credo.Check.Consistency.SpaceInParentheses, []},
           {Credo.Check.Consistency.TabsOrSpaces, []},
 
-          # Design Checks
-          {Credo.Check.Design.AliasUsage, [if_nested_deeper_than: 3]},
+          {Credo.Check.Design.AliasUsage, [if_nested_deeper_than: 2]},
           {Credo.Check.Design.TagTODO, [exit_status: 0]},
           {Credo.Check.Design.TagFIXME, []},
 
-          # Readability Checks
           {Credo.Check.Readability.AliasOrder, []},
-          {Credo.Check.Readability.MultiAlias, []},
           {Credo.Check.Readability.FunctionNames, []},
           {Credo.Check.Readability.LargeNumbers, [only_greater_than: 99_999]},
           {Credo.Check.Readability.MaxLineLength, [priority: :low, max_length: 120]},
           {Credo.Check.Readability.ModuleAttributeNames, []},
-          {Credo.Check.Readability.ModuleDoc, []},
+          {Credo.Check.Readability.ModuleDoc, false},
           {Credo.Check.Readability.ModuleNames, []},
+          {Credo.Check.Readability.MultiAlias, []},
           {Credo.Check.Readability.ParenthesesInCondition, []},
           {Credo.Check.Readability.ParenthesesOnZeroArityDefs, []},
-          # Disable predicate naming check - we use is_gridcodec? internally
-          {Credo.Check.Readability.PredicateFunctionNames, false},
+          {Credo.Check.Readability.PredicateFunctionNames, []},
           {Credo.Check.Readability.PreferImplicitTry, []},
           {Credo.Check.Readability.RedundantBlankLines, []},
           {Credo.Check.Readability.Semicolons, []},
@@ -53,32 +48,28 @@
           {Credo.Check.Readability.UnnecessaryAliasExpansion, []},
           {Credo.Check.Readability.VariableNames, []},
 
-          # Refactoring Opportunities - relaxed for macro-heavy codec library
           {Credo.Check.Refactor.Apply, []},
           {Credo.Check.Refactor.CondStatements, []},
-          # Codec macros require complex cyclomatic complexity
-          {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 50]},
+          {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 15]},
+          {Credo.Check.Refactor.FilterFilter, []},
           {Credo.Check.Refactor.FunctionArity, []},
           {Credo.Check.Refactor.LongQuoteBlocks, false},
-          {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.MapJoin, []},
+          {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
-          # Codec macros require deep nesting for binary pattern generation
-          {Credo.Check.Refactor.Nesting, [max_nesting: 4]},
-          {Credo.Check.Refactor.FilterFilter, []},
+          {Credo.Check.Refactor.Nesting, [max_nesting: 3]},
           {Credo.Check.Refactor.PipeChainStart, false},
           {Credo.Check.Refactor.UnlessWithElse, []},
           {Credo.Check.Refactor.WithClauses, []},
 
-          # Warnings
           {Credo.Check.Warning.ApplicationConfigInModuleAttribute, []},
           {Credo.Check.Warning.BoolOperationOnSameValues, []},
           {Credo.Check.Warning.ExpensiveEmptyEnumCheck, []},
           {Credo.Check.Warning.IExPry, []},
           {Credo.Check.Warning.IoInspect, []},
           {Credo.Check.Warning.LazyLogging, []},
-          {Credo.Check.Warning.MixEnv, []},
+          {Credo.Check.Warning.MixEnv, false},
           {Credo.Check.Warning.OperationOnSameValues, []},
           {Credo.Check.Warning.OperationWithConstantResult, []},
           {Credo.Check.Warning.RaiseInsideRescue, []},

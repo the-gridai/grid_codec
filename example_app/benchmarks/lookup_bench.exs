@@ -6,7 +6,9 @@
 # Run with: MIX_ENV=prod mix run benchmarks/lookup_bench.exs
 
 defmodule LookupBench do
-  alias ExampleApp.Views.{CommandEnvelope, CurrencyAccount, Fixtures}
+  alias ExampleApp.Views.CommandEnvelope
+  alias ExampleApp.Views.CurrencyAccount
+  alias ExampleApp.Views.Fixtures
 
   def run do
     IO.puts("Typed Groups & Lookups Benchmark")

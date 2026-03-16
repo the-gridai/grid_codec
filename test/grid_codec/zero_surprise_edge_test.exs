@@ -8,14 +8,12 @@ defmodule GridCodec.ZeroSurpriseEdgeTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias GridCodec.ZSEdge.{
-    EnumCodec,
-    BitsetCodec,
-    CharCodec,
-    AllNilCodec,
-    PosdecCodec,
-    F64Codec
-  }
+  alias GridCodec.ZSEdge.AllNilCodec
+  alias GridCodec.ZSEdge.BitsetCodec
+  alias GridCodec.ZSEdge.CharCodec
+  alias GridCodec.ZSEdge.EnumCodec
+  alias GridCodec.ZSEdge.F64Codec
+  alias GridCodec.ZSEdge.PosdecCodec
 
   # ============================================================================
   # ENUM edge cases

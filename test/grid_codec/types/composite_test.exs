@@ -2,7 +2,9 @@ defmodule GridCodec.Types.CompositeTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias GridCodec.Types.{Decimal, TimestampMicros, TimestampNanos}
+  alias GridCodec.Types.Decimal
+  alias GridCodec.Types.TimestampMicros
+  alias GridCodec.Types.TimestampNanos
 
   # ============================================================================
   # Decimal Type Tests

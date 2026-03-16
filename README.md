@@ -16,7 +16,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
 - **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
-- **Schema evolution** – `.grid` declarative schema files, breaking change detection (22 wire + 8 source rules), `--check` CI modes
+- **Schema evolution** – `.grid` declarative schema files, breaking change detection (27 wire + 9 source rules), `--check` CI modes
 - **SQL generation** – PostgreSQL decode functions from GridCodec binaries stored as `bytea`
 - **Telemetry** – Optional `[:grid_codec, :encode]` and `[:grid_codec, :decode]` event emission with PromEx integration
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
@@ -55,9 +55,20 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.30.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.33.0"}
   ]
 end
+```
+
+Then add `import_deps` to your `.formatter.exs` so the DSL macros (`field`, `group`,
+`batch`, `virtual`, `defcodec`, `lookups`) format without parentheses:
+
+```elixir
+# .formatter.exs
+[
+  import_deps: [:grid_codec],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+]
 ```
 
 ## Quick Start

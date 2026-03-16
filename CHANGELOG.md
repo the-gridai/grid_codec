@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-03-16
+
 ### Added
 - **Virtual fields** — `virtual :name, default: value` declares struct fields excluded
   from the wire format. Useful for transient metadata, caches, or derived state.
@@ -20,6 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scalar values (UUIDs, integers, strings) using the same `of:` keyword as typed
   groups. Fixed-size types use the standard group wire format; variable-length types
   (strings) auto-select framed encoding. Eagerly decodes to a plain list.
+- **`.grid` schema support for scalar groups** — scalar group fields are now
+  exported and parsed in `.grid` schema files.
+- **Example app quality gate** — `example_app` now has its own `.credo.exs` with
+  strict checks, a `credo` dependency, and a `mix check` alias that runs
+  `compile --warnings-as-errors`, `format --check-formatted`, and `credo --strict`.
+- **CI: example-app-quality job** — new GitHub Actions job runs compile, format,
+  and credo checks on `example_app/` in every push and PR, catching consumer-facing
+  issues like missing aliases in generated code.
+- **README: `import_deps` documentation** — installation section now documents the
+  `.formatter.exs` setup so DSL macros format correctly out of the box.
+- **Version consistency test** — `VersionConsistencyTest` verifies the README
+  installation tag and CHANGELOG entries stay in sync with `mix.exs` version.
+
+### Fixed
+- **PrefixedId generator aliases** — `mix grid_codec.gen.prefixed_id` now generates
+  `alias GridCodec.Types.{PrefixedId, UUID, UUIDString}` and uses short-form calls,
+  preventing Credo `AliasUsage` warnings in consumer projects.
+- **Formatter export completeness** — `.formatter.exs` export block now includes
+  `batch`, `lookups`, and `virtual` macros alongside `field`, `group`, and `defcodec`.
+  Consumers with `import_deps: [:grid_codec]` get correct formatting for all DSL
+  macros without manual `locals_without_parens` configuration.
+
+### Changed
+- **Strict Credo configuration** — enabled `AliasUsage` (4+ segments),
+  `AliasOrder`, `MultiAlias` (bans grouped `alias Foo.{Bar, Baz}` syntax),
+  `MapJoin`, `FilterFilter`, `LazyLogging`, and `MixEnv` checks. All grouped aliases
+  expanded to individual lines across `lib/`, `test/`, and `example_app/`.
+- **Registry filter optimization** — combined chained `Enum.filter` calls into a
+  single predicate in `GridCodec.Registry`.
+- **Enum type error message** — replaced `Enum.map |> Enum.join` with
+  `Enum.map_join` in `GridCodec.Types.Enum`.
 
 ## [0.32.0] - 2026-03-13
 

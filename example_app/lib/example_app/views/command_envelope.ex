@@ -8,7 +8,8 @@ defmodule ExampleApp.Views.CommandEnvelope do
     schema_id: 300,
     name: "ExampleApp.Views.CommandEnvelope"
 
-  alias ExampleApp.Views.{PlaceReservation, ReleaseReservation}
+  alias ExampleApp.Views.PlaceReservation
+  alias ExampleApp.Views.ReleaseReservation
 
   defcodec do
     field :account_id, :u64

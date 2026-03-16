@@ -170,6 +170,10 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
 
       use GridCodec.Types.PrefixedId, prefix: "#{prefix}", tag: #{tag_hex}#{use_schema_opt(schema)}
 
+      alias GridCodec.Types.PrefixedId
+      alias GridCodec.Types.UUID
+      alias GridCodec.Types.UUIDString
+
       @typedoc "A prefixed ID string of the form `#{fp}<uuid>`."
       @type t() :: String.t()
 
@@ -186,8 +190,8 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
       \"""
       @spec generate() :: t()
       def generate do
-        raw = GridCodec.Types.UUID.generate_v4()
-        "#{fp}" <> GridCodec.Types.UUIDString.format_uuid(raw)
+        raw = UUID.generate_v4()
+        "#{fp}" <> UUIDString.format_uuid(raw)
       end
 
       @doc \"""
@@ -223,7 +227,7 @@ defmodule Mix.Tasks.GridCodec.Gen.PrefixedId do
       @spec valid?(t() | term()) :: boolean()
       def valid?(<<prefix::binary-size(#{prefix_len}), uuid_str::binary-size(36)>>)
           when prefix == "#{fp}" do
-        GridCodec.Types.PrefixedId.valid_uuid_string?(uuid_str)
+        PrefixedId.valid_uuid_string?(uuid_str)
       end
 
       def valid?(_), do: false

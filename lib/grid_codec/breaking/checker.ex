@@ -6,8 +6,10 @@ defmodule GridCodec.Breaking.Checker do
   category, filters out excluded rules, and returns sorted issues.
   """
 
-  alias GridCodec.Breaking.{Differ, Issue}
-  alias GridCodec.Breaking.Rules.{Wire, Source}
+  alias GridCodec.Breaking.Differ
+  alias GridCodec.Breaking.Issue
+  alias GridCodec.Breaking.Rules.Source
+  alias GridCodec.Breaking.Rules.Wire
   alias GridCodec.Schema.Parser
   alias GridCodec.Schema.Parser.Schema
 

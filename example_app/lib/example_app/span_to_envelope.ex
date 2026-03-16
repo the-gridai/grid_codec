@@ -24,7 +24,8 @@ defmodule ExampleApp.SpanToEnvelope do
   ## Usage
 
       alias ExampleApp.SpanToEnvelope
-      alias ExampleApp.Bench.{BinaryTraceContext, BinaryEnvelope}
+      alias ExampleApp.Bench.BinaryEnvelope
+      alias ExampleApp.Bench.BinaryTraceContext
 
       {:ok, span_bin} = BinaryTraceContext.encode(span)
       {:ok, envelope_bin} = SpanToEnvelope.transcode(span_bin)

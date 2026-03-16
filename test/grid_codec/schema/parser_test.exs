@@ -2,7 +2,8 @@ defmodule GridCodec.Schema.ParserTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Schema.Parser
-  alias GridCodec.Schema.Parser.{TypeDef, EnumDef}
+  alias GridCodec.Schema.Parser.EnumDef
+  alias GridCodec.Schema.Parser.TypeDef
 
   describe "parse/1" do
     test "parses empty schema block" do
@@ -359,8 +360,7 @@ defmodule GridCodec.Schema.ParserTest do
     test "returns error when identifier count exceeds max_identifiers" do
       fields =
         1..20
-        |> Enum.map(fn idx -> "field_#{idx}: u64" end)
-        |> Enum.join("\n")
+        |> Enum.map_join("\n", fn idx -> "field_#{idx}: u64" end)
 
       content = """
       schema { id: 1 }

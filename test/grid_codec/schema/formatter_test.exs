@@ -1,7 +1,8 @@
 defmodule GridCodec.Schema.FormatterTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.Schema.{Formatter, Parser}
+  alias GridCodec.Schema.Formatter
+  alias GridCodec.Schema.Parser
 
   defmodule TestEnum do
     @moduledoc false

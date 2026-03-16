@@ -56,6 +56,7 @@ defmodule GridCodec.TypeNameTest do
     end
 
     test "deeply nested module uses full path" do
+      # credo:disable-for-next-line Credo.Check.Design.AliasUsage
       assert Deep.Nested.Module.EventCreated.__type__() ==
                "GridCodec.TypeNameTest.Deep.Nested.Module.EventCreated"
     end

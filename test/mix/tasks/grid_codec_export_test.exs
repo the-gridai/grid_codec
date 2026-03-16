@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.GridCodec.ExportTest do
   use ExUnit.Case, async: true
 
+  alias Mix.Tasks.GridCodec.Export
+
   @tmp_base Path.join(System.tmp_dir!(), "grid_codec_export_check_test")
 
   setup do
@@ -26,13 +28,13 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "--check with up-to-date files" do
     test "exits 0 when files match generated output", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       assert all_grid_files(dir) != []
 
       assert capture_task(fn ->
-               Mix.Tasks.GridCodec.Export.run(["--check", "--output-dir", dir])
+               Export.run(["--check", "--output-dir", dir])
              end) =~ "up to date"
     end
   end
@@ -40,7 +42,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "--check with stale files" do
     test "exits non-zero when a file differs", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       [first | _] = individual_files(dir)
@@ -48,7 +50,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
       assert catch_exit(
                capture_task(fn ->
-                 Mix.Tasks.GridCodec.Export.run(["--check", "--output-dir", dir])
+                 Export.run(["--check", "--output-dir", dir])
                end)
              ) == {:shutdown, 1}
     end
@@ -57,14 +59,14 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "--check with missing files" do
     test "exits non-zero when files do not exist", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       all_grid_files(dir) |> Enum.each(&File.rm!/1)
 
       assert catch_exit(
                capture_task(fn ->
-                 Mix.Tasks.GridCodec.Export.run(["--check", "--output-dir", dir])
+                 Export.run(["--check", "--output-dir", dir])
                end)
              ) == {:shutdown, 1}
     end
@@ -73,7 +75,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "generate mode" do
     test "creates schema directories with schema.grid master files", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       masters = master_files(dir)
@@ -88,7 +90,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
     test "creates individual struct/enum files", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       individuals = individual_files(dir)
@@ -100,7 +102,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
     test "master imports match individual files", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       Enum.each(master_files(dir), fn master_path ->
@@ -120,7 +122,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
     test "produces distinct files per schema_id (no silent drops)", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       struct_count =
@@ -136,7 +138,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
     test "structs sorted alphabetically in master imports", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       Enum.each(master_files(dir), fn master_path ->
@@ -154,7 +156,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "@syntax directive" do
     test "all generated files include @syntax", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       Enum.each(all_grid_files(dir), fn path ->
@@ -165,7 +167,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
     test "@syntax appears before schema block in master files", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       Enum.each(master_files(dir), fn path ->
@@ -186,7 +188,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "self-contained individual files" do
     test "struct files referencing enums include import directives", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       files_with_enum_refs =
@@ -209,7 +211,7 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   describe "cross-schema enum imports" do
     test "bench schema imports enum from events schema", %{output_dir: dir} do
       capture_task(fn ->
-        Mix.Tasks.GridCodec.Export.run(["--output-dir", dir])
+        Export.run(["--output-dir", dir])
       end)
 
       bench_masters = master_files(dir) |> Enum.filter(&(&1 =~ "bench"))
@@ -230,17 +232,17 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
   describe "path derivation" do
     test "simple name becomes snake_case.grid" do
-      assert Mix.Tasks.GridCodec.Export.type_to_relative_path("OrderCreated") ==
+      assert Export.type_to_relative_path("OrderCreated") ==
                "order_created.grid"
     end
 
     test "dotted name becomes nested path" do
-      assert Mix.Tasks.GridCodec.Export.type_to_relative_path("ExampleApp.Bench.SmallStruct") ==
+      assert Export.type_to_relative_path("ExampleApp.Bench.SmallStruct") ==
                "example_app/bench/small_struct.grid"
     end
 
     test "single segment name" do
-      assert Mix.Tasks.GridCodec.Export.type_to_relative_path("Trade") == "trade.grid"
+      assert Export.type_to_relative_path("Trade") == "trade.grid"
     end
   end
 

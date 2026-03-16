@@ -119,6 +119,42 @@ jobs:
       - name: Run Dialyzer
         run: mix dialyzer --format github
 
+  example-app-quality:
+    name: Example App Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          otp-version: ${{ env.OTP_VERSION }}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            example_app/deps
+            example_app/_build
+          key: ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('example_app/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-example-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
+
+      - name: Install dependencies
+        run: cd example_app && mix deps.get
+
+      - name: Compile with warnings as errors
+        run: cd example_app && mix compile --warnings-as-errors
+
+      - name: Check formatting
+        run: cd example_app && mix format --check-formatted
+
+      - name: Run Credo
+        run: cd example_app && mix credo --strict
+
   breaking:
     name: Breaking Change Detection
     runs-on: ubuntu-latest

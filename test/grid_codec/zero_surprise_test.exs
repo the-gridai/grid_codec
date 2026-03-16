@@ -97,14 +97,14 @@ defmodule GridCodec.ZeroSurpriseTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias GridCodec.ZS.IntegerCodec
-  alias GridCodec.ZS.FloatCodec
-  alias GridCodec.ZS.StringCodec
-  alias GridCodec.ZS.UUIDCodec
-  alias GridCodec.ZS.TimestampCodec
-  alias GridCodec.ZS.DecimalCodec
   alias GridCodec.ZS.BoolCodec
+  alias GridCodec.ZS.DecimalCodec
+  alias GridCodec.ZS.FloatCodec
+  alias GridCodec.ZS.IntegerCodec
   alias GridCodec.ZS.KitchenSink
+  alias GridCodec.ZS.StringCodec
+  alias GridCodec.ZS.TimestampCodec
+  alias GridCodec.ZS.UUIDCodec
 
   require IntegerCodec
   require UUIDCodec

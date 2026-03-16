@@ -1,9 +1,9 @@
 defmodule GridCodec.BatchDslTest do
   use ExUnit.Case, async: true
 
-  alias GridCodec.TestSupport.Batch.SmallCommand
-  alias GridCodec.TestSupport.Batch.MediumCommand
   alias GridCodec.TestSupport.Batch.LargeCommand
+  alias GridCodec.TestSupport.Batch.MediumCommand
+  alias GridCodec.TestSupport.Batch.SmallCommand
 
   defmodule MarketCommands do
     use GridCodec.Struct, template_id: 750, schema_id: 70, version: 1

@@ -67,7 +67,9 @@ defmodule Bench.AC.ReactionEvent do
 end
 
 defmodule Bench.AgentChat do
-  alias Bench.AC.{ChatMessage, TypingEvent, ReactionEvent}
+  alias Bench.AC.ChatMessage
+  alias Bench.AC.ReactionEvent
+  alias Bench.AC.TypingEvent
 
   require ChatMessage
   require TypingEvent

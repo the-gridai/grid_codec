@@ -2,12 +2,12 @@ defmodule GridCodec.BatchTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Batch.PaddedUnion
-  alias GridCodec.Batch.TypedFrames
   alias GridCodec.Batch.PerTypeGroups
+  alias GridCodec.Batch.TypedFrames
 
-  alias GridCodec.TestSupport.Batch.SmallCommand
-  alias GridCodec.TestSupport.Batch.MediumCommand
   alias GridCodec.TestSupport.Batch.LargeCommand
+  alias GridCodec.TestSupport.Batch.MediumCommand
+  alias GridCodec.TestSupport.Batch.SmallCommand
 
   @small_bl SmallCommand.block_length()
   @medium_bl MediumCommand.block_length()

@@ -28,8 +28,10 @@ defmodule GridCodec.Breaking.Rules.Source do
   `mix grid_codec.breaking`.
   """
 
-  alias GridCodec.Breaking.{Issue, Differ}
-  alias GridCodec.Schema.Parser.{StructDef, EnumDef}
+  alias GridCodec.Breaking.Differ
+  alias GridCodec.Breaking.Issue
+  alias GridCodec.Schema.Parser.EnumDef
+  alias GridCodec.Schema.Parser.StructDef
 
   @doc "Runs all SOURCE rules against a schema diff and returns a list of issues."
   @spec check(Differ.schema_diff(), String.t()) :: [Issue.t()]

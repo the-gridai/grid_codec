@@ -3,6 +3,8 @@ defmodule Mix.Tasks.Gridcodec.SqlTest do
   # as other async test files define inline GridCodec modules
   use ExUnit.Case, async: false
 
+  alias Mix.Tasks.Gridcodec.Sql
+
   @tmp_base Path.join(System.tmp_dir!(), "gridcodec_sql_check_test")
 
   setup do
@@ -18,7 +20,7 @@ defmodule Mix.Tasks.Gridcodec.SqlTest do
       {:ok, _} = GridCodec.SQL.generate_all_to_file(path)
 
       assert capture_task(fn ->
-               Mix.Tasks.Gridcodec.Sql.run(["--check", "--output", path])
+               Sql.run(["--check", "--output", path])
              end) =~ "up to date"
     end
   end
@@ -30,7 +32,7 @@ defmodule Mix.Tasks.Gridcodec.SqlTest do
 
       assert catch_exit(
                capture_task(fn ->
-                 Mix.Tasks.Gridcodec.Sql.run(["--check", "--output", path])
+                 Sql.run(["--check", "--output", path])
                end)
              ) == {:shutdown, 1}
     end
@@ -42,7 +44,7 @@ defmodule Mix.Tasks.Gridcodec.SqlTest do
 
       assert catch_exit(
                capture_task(fn ->
-                 Mix.Tasks.Gridcodec.Sql.run(["--check", "--output", path])
+                 Sql.run(["--check", "--output", path])
                end)
              ) == {:shutdown, 1}
     end
@@ -51,7 +53,7 @@ defmodule Mix.Tasks.Gridcodec.SqlTest do
   describe "generate mode (no --check)" do
     test "writes file to disk", %{output_path: path} do
       capture_task(fn ->
-        Mix.Tasks.Gridcodec.Sql.run(["--output", path])
+        Sql.run(["--output", path])
       end)
 
       assert File.exists?(path)

@@ -8,7 +8,8 @@ defmodule ExampleApp.Events.TradeSettled do
     schema_id: 100,
     name: "ExampleApp.Events.TradeSettled"
 
-  alias ExampleApp.Types.{OrderSide, OrderStatus}
+  alias ExampleApp.Types.OrderSide
+  alias ExampleApp.Types.OrderStatus
 
   defcodec do
     field :trade_id, :uuid, presence: :required

@@ -45,7 +45,9 @@ defmodule Bench.MapsVsCodec do
       mix run benchmarks/maps_vs_codec.exs
   """
 
-  alias ExampleApp.Bench.{SmallStruct, MediumStruct, LargeStruct}
+  alias ExampleApp.Bench.LargeStruct
+  alias ExampleApp.Bench.MediumStruct
+  alias ExampleApp.Bench.SmallStruct
 
   require SmallStruct
   require MediumStruct

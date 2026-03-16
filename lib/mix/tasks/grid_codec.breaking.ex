@@ -53,7 +53,8 @@ defmodule Mix.Tasks.GridCodec.Breaking do
 
   use Mix.Task
 
-  alias GridCodec.Breaking.{Checker, Config}
+  alias GridCodec.Breaking.Checker
+  alias GridCodec.Breaking.Config
 
   @switches [
     against: :string,

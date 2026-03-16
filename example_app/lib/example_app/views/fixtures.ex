@@ -3,13 +3,11 @@ defmodule ExampleApp.Views.Fixtures do
   Shared sample data builders for typed-group and lookup examples.
   """
 
-  alias ExampleApp.Views.{
-    CommandEnvelope,
-    CurrencyAccount,
-    PlaceReservation,
-    ReleaseReservation,
-    Reservation
-  }
+  alias ExampleApp.Views.CommandEnvelope
+  alias ExampleApp.Views.CurrencyAccount
+  alias ExampleApp.Views.PlaceReservation
+  alias ExampleApp.Views.ReleaseReservation
+  alias ExampleApp.Views.Reservation
 
   @base_us 1_763_000_000_000_000
 

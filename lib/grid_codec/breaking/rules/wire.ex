@@ -75,8 +75,11 @@ defmodule GridCodec.Breaking.Rules.Wire do
   field type.
   """
 
-  alias GridCodec.Breaking.{Issue, Differ, WireSizes}
-  alias GridCodec.Schema.Parser.{StructDef, EnumDef}
+  alias GridCodec.Breaking.Differ
+  alias GridCodec.Breaking.Issue
+  alias GridCodec.Breaking.WireSizes
+  alias GridCodec.Schema.Parser.EnumDef
+  alias GridCodec.Schema.Parser.StructDef
 
   @doc "Runs all WIRE rules against a schema diff and returns a list of issues."
   @spec check(Differ.schema_diff(), String.t()) :: [Issue.t()]

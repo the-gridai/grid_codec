@@ -6,7 +6,10 @@ defmodule GridCodec.Breaking.Differ do
   added/removed/changed sets for the breaking change rules to evaluate.
   """
 
-  alias GridCodec.Schema.Parser.{Schema, Field, Group, BatchDef}
+  alias GridCodec.Schema.Parser.BatchDef
+  alias GridCodec.Schema.Parser.Field
+  alias GridCodec.Schema.Parser.Group
+  alias GridCodec.Schema.Parser.Schema
 
   @type entity_diff :: %{
           added: map(),

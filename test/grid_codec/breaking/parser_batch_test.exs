@@ -2,7 +2,8 @@ defmodule GridCodec.Breaking.ParserBatchTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Schema.Parser
-  alias GridCodec.Schema.Parser.{BatchDef, StructDef}
+  alias GridCodec.Schema.Parser.BatchDef
+  alias GridCodec.Schema.Parser.StructDef
 
   describe "batch parsing" do
     test "parses batch block with any_of and strategy" do

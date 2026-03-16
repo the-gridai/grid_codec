@@ -2,8 +2,8 @@ defmodule GridCodec.GroupTest do
   use ExUnit.Case
   use ExUnitProperties
 
-  alias GridCodec.Group
   alias GridCodec.Generators
+  alias GridCodec.Group
 
   def encode_entry(%{price: price, qty: qty}) do
     <<price::little-64, qty::little-32>>

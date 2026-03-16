@@ -40,7 +40,10 @@ defmodule ExampleApp.MixProject do
       {:benchee, "~> 1.3"},
 
       # Docs
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+
+      # Code quality
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -48,7 +51,12 @@ defmodule ExampleApp.MixProject do
     [
       bench: "run benchmarks/run_all.exs",
       "bench.quick": "run benchmarks/quick_bench.exs",
-      "bench.parameterized": "run benchmarks/parameterized_bench.exs"
+      "bench.parameterized": "run benchmarks/parameterized_bench.exs",
+      check: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo --strict"
+      ]
     ]
   end
 end

@@ -1,6 +1,9 @@
 defmodule Mix.Tasks.Compile.GridCodecTest do
   use ExUnit.Case, async: false
 
+  alias GridCodec.TestSupport.OrderEvent
+  alias Mix.Tasks.Compile.GridCodec, as: CompileGridCodec
+
   # credo:disable-for-this-file Credo.Check.Refactor.Apply
   # Dynamically-compiled registry modules use apply/3 to avoid
   # "module is not available or is yet to be defined" compiler warnings.
@@ -8,19 +11,19 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
   describe "build_registry_ast/1" do
     test "generates valid, compilable registry with single codec" do
       codecs = [
-        %{module: GridCodec.TestSupport.OrderEvent, schema_id: 60, template_id: 600}
+        %{module: OrderEvent, schema_id: 60, template_id: 600}
       ]
 
       reg = GridCodec.TestRegistry
-      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, reg)
+      ast = CompileGridCodec.build_registry_ast(codecs, reg)
       assert [{^reg, _binary}] = Code.compile_quoted(ast)
 
-      assert {:ok, GridCodec.TestSupport.OrderEvent} = apply(reg, :lookup, [60, 600])
+      assert {:ok, OrderEvent} = apply(reg, :lookup, [60, 600])
       assert {:error, :unknown_codec} = apply(reg, :lookup, [99, 99])
       assert apply(reg, :consolidated?, [])
-      assert apply(reg, :list_codecs, []) == [GridCodec.TestSupport.OrderEvent]
+      assert apply(reg, :list_codecs, []) == [OrderEvent]
 
-      assert {:ok, GridCodec.TestSupport.OrderEvent} =
+      assert {:ok, OrderEvent} =
                apply(reg, :lookup_by_type, ["OrderEvent"])
 
       assert {:error, :unknown_type} = apply(reg, :lookup_by_type, ["NonExistent"])
@@ -50,7 +53,7 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       ]
 
       reg = GridCodec.TestRegistry2
-      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, reg)
+      ast = CompileGridCodec.build_registry_ast(codecs, reg)
       assert [{^reg, _binary}] = Code.compile_quoted(ast)
 
       assert {:ok, RegCodecA} = apply(reg, :lookup, [9500, 9501])
@@ -60,14 +63,14 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
 
     test "encode and decode dispatch correctly on generated registry" do
       codecs = [
-        %{module: GridCodec.TestSupport.OrderEvent, schema_id: 60, template_id: 600}
+        %{module: OrderEvent, schema_id: 60, template_id: 600}
       ]
 
       reg = GridCodec.TestRegistry3
-      ast = Mix.Tasks.Compile.GridCodec.build_registry_ast(codecs, reg)
+      ast = CompileGridCodec.build_registry_ast(codecs, reg)
       [{^reg, _}] = Code.compile_quoted(ast)
 
-      event = %GridCodec.TestSupport.OrderEvent{
+      event = %OrderEvent{
         order_id: <<1::128>>,
         side: :buy,
         status: :open,
@@ -91,7 +94,7 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       ]
 
       assert {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}} =
-               Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+               CompileGridCodec.validate_codecs(codecs)
 
       assert length(id_conflicts) == 1
       assert type_conflicts == []
@@ -103,7 +106,7 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
         %{module: ModB, schema_id: 100, template_id: 2}
       ]
 
-      assert :ok = Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+      assert :ok = CompileGridCodec.validate_codecs(codecs)
     end
 
     test "validate_codecs detects duplicate type names" do
@@ -121,7 +124,7 @@ defmodule Mix.Tasks.Compile.GridCodecTest do
       ]
 
       assert {:error, %{id_conflicts: id_conflicts, type_conflicts: type_conflicts}} =
-               Mix.Tasks.Compile.GridCodec.validate_codecs(codecs)
+               CompileGridCodec.validate_codecs(codecs)
 
       assert id_conflicts == []
       assert [{"DuplicateTypeName", modules}] = type_conflicts
