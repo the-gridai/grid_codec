@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.3] - 2026-03-16
+
+### Changed
+- **Example app quality gate** — CI now compiles `example_app` in both `dev` and
+  `test` environments with `--warnings-as-errors` and runs `example_app` tests,
+  so consumer-side generated-code warnings are caught on the same boundary that
+  downstream apps hit.
+- **Example app consumer fixtures** — added `CharArray` wrapper modules and
+  coverage in `example_app` so consumer-style fixed-width wrapper usage is
+  exercised continuously as part of the consumer surface.
+
+### Fixed
+- **PrefixedId test-env compile warning** — generated `PrefixedId` wrapper
+  modules no longer depend on `GridCodec.Generators.uuid/0` during consumer test
+  compilation, avoiding `mix test --warnings-as-errors` failures in downstream
+  apps with StreamData available.
+
 ## [0.33.2] - 2026-03-16
 
 ### Fixed

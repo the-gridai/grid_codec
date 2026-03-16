@@ -26,7 +26,8 @@ defmodule ExampleApp.MixProject do
   def cli do
     [
       preferred_envs: [
-        check: :test
+        check: :test,
+        "compile.test": :test
       ]
     ]
   end
@@ -64,10 +65,12 @@ defmodule ExampleApp.MixProject do
       bench: "run benchmarks/run_all.exs",
       "bench.quick": "run benchmarks/quick_bench.exs",
       "bench.parameterized": "run benchmarks/parameterized_bench.exs",
+      "compile.test": "compile --warnings-as-errors",
       check: [
         "compile --warnings-as-errors",
         "format --check-formatted",
         "credo --strict",
+        "test",
         "dialyzer"
       ]
     ]

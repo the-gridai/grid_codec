@@ -152,11 +152,17 @@ jobs:
       - name: Compile with warnings as errors
         run: cd example_app && mix compile --warnings-as-errors
 
+      - name: Compile test environment with warnings as errors
+        run: cd example_app && MIX_ENV=test mix compile --warnings-as-errors
+
       - name: Check formatting
         run: cd example_app && mix format --check-formatted
 
       - name: Run Credo
         run: cd example_app && mix credo --strict
+
+      - name: Run example app tests
+        run: cd example_app && mix test
 
   example-app-dialyzer:
     name: Example App Dialyzer

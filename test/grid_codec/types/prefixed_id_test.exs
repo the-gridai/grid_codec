@@ -1,6 +1,7 @@
 defmodule GridCodec.Types.PrefixedIdTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
+  import ExUnit.CaptureIO
 
   # ================================================================
   # Test type definitions
@@ -97,6 +98,25 @@ defmodule GridCodec.Types.PrefixedIdTest do
       assert meta.prefix == "bound-"
       assert meta.tag == 0x05
       assert meta.schema == "my_schema"
+    end
+  end
+
+  describe "compile-time code generation" do
+    test "wrapper module does not warn about GridCodec.Generators during compile" do
+      module_name = Module.concat(__MODULE__, :"GenProbe#{System.unique_integer([:positive])}")
+
+      warning_output =
+        capture_io(:stderr, fn ->
+          Code.compiler_options(ignore_module_conflict: true)
+
+          Code.compile_string("""
+          defmodule #{inspect(module_name)} do
+            use GridCodec.Types.PrefixedId, prefix: "probe", tag: 0x2A
+          end
+          """)
+        end)
+
+      refute warning_output =~ "GridCodec.Generators.uuid/0 is undefined"
     end
   end
 

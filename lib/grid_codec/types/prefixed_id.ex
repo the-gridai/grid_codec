@@ -235,7 +235,7 @@ defmodule GridCodec.Types.PrefixedId do
         def generator do
           prefix = @__full_prefix
 
-          StreamData.map(GridCodec.Generators.uuid(), fn raw_bytes ->
+          StreamData.map(StreamData.binary(length: 16), fn raw_bytes ->
             prefix <> GridCodec.Types.UUIDString.format_uuid(raw_bytes)
           end)
         end

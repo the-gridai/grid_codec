@@ -39,7 +39,7 @@ mix dialyzer
 ```
 
 `mix check` mirrors the example app quality gate in CI: compile with warnings as
-errors, format check, Credo, and Dialyzer.
+errors, run tests, format check, Credo, and Dialyzer.
 
 ### Run Benchmarks
 
