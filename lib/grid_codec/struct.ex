@@ -88,6 +88,9 @@ defmodule GridCodec.Struct do
   - `:message` - Message name in schema file (required with `:grid_file`)
   - `:types` - Explicit mapping from `.grid` type names to Elixir modules when loading
     from `:grid_file` / `:grid_schema` (optional)
+  - `:field_defaults` - A keyword list of default options applied to every `field`
+    declaration. Explicit options on individual fields take precedence. Useful when
+    most fields share a common option like `presence: :required`.
 
   Options can also be set globally via application config:
 
@@ -686,7 +689,12 @@ defmodule GridCodec.Struct do
           Module.get_attribute(__MODULE__, :gridcodec_fields) || [],
           Module.get_attribute(__MODULE__, :gridcodec_groups) || [],
           Module.get_attribute(__MODULE__, :gridcodec_batches) || [],
-          Module.get_attribute(__MODULE__, :gridcodec_virtuals) || []
+          Module.get_attribute(__MODULE__, :gridcodec_virtuals) || [],
+          Keyword.get(
+            Module.get_attribute(__MODULE__, :gridcodec_opts) || [],
+            :field_defaults,
+            []
+          )
         )
 
       if gridcodec_ek__ != [] do

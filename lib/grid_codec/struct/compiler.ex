@@ -4,9 +4,9 @@ defmodule GridCodec.Struct.Compiler do
   import Bitwise
 
   @doc false
-  def compute_struct_fields(fields, groups, batches, virtuals \\ []) do
+  def compute_struct_fields(fields, groups, batches, virtuals \\ [], field_defaults \\ []) do
     build_struct_fields(
-      Enum.reverse(fields),
+      fields |> Enum.reverse() |> apply_field_defaults(field_defaults),
       Enum.reverse(groups),
       Enum.reverse(batches),
       Enum.reverse(virtuals)
@@ -28,6 +28,8 @@ defmodule GridCodec.Struct.Compiler do
       (Module.get_attribute(env.module, :gridcodec_from_blocks) || []) |> Enum.reverse()
 
     opts = Module.get_attribute(env.module, :gridcodec_opts) || []
+    field_defaults = Keyword.get(opts, :field_defaults, [])
+    fields = apply_field_defaults(fields, field_defaults)
 
     validate_virtual_names!(virtuals, fields, groups, batches)
 
@@ -625,6 +627,14 @@ defmodule GridCodec.Struct.Compiler do
   # ============================================================================
   # Struct Field Generation
   # ============================================================================
+
+  defp apply_field_defaults(fields, []), do: fields
+
+  defp apply_field_defaults(fields, defaults) do
+    Enum.map(fields, fn {name, type, opts} ->
+      {name, type, Keyword.merge(defaults, opts)}
+    end)
+  end
 
   defp build_struct_fields(fields, groups, batches, virtuals) do
     struct_fields =

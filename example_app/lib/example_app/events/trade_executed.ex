@@ -2,7 +2,11 @@ defmodule ExampleApp.Events.TradeExecuted do
   @moduledoc """
   Example trade execution event with custom type modules.
   """
-  use GridCodec.Struct, template_id: 2, schema_id: 100, name: "TradeExecuted"
+  use GridCodec.Struct,
+    template_id: 2,
+    schema_id: 100,
+    name: "TradeExecuted",
+    field_defaults: [presence: :required]
 
   alias ExampleApp.Types.OrderSide
 

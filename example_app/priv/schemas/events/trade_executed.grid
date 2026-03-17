@@ -6,10 +6,10 @@
 import "order_side.grid"
 
 struct TradeExecuted (template_id: 2) {
-  trade_id: uuid
-  order_id: uuid
-  side: OrderSide
-  price: u64
-  quantity: u32
-  timestamp: timestamp_us
+  trade_id: uuid, presence: required
+  order_id: uuid, presence: required
+  side: OrderSide, presence: required
+  price: u64, presence: required
+  quantity: u32, presence: required
+  timestamp: timestamp_us, presence: required
 }
