@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-03-18
+
+### Added
+- **Transcoder validation modes** — `GridCodec.Transcoder` now supports
+  `validate: false | :source | :target | :both` (plus `true` as `:both`) so
+  binary-first transcoding can opt into source-side binary validation,
+  validated target encoding via `new_binary/1`, or both without forcing an
+  intermediate source struct decode.
+
+### Changed
+- **Native validation/invariant coverage** — string, char array, and bitset
+  native types now participate in the generated validation pipeline, and
+  timestamp/date-time compare-based invariants now use explicit type-aware
+  comparisons instead of relying on generic term ordering.
+
+### Documentation
+- **Transcoder validation guidance** — updated `GridCodec.Transcoder`,
+  `README.md`, and `docs/binary-filtering.md` with the new validation modes,
+  target `new_binary/1` fast path, and the boundary between binary-capable and
+  decoded-only source validators.
+
 ## [0.36.0] - 2026-03-18
 
 ### Added

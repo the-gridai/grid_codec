@@ -162,6 +162,11 @@ defmodule GridCodec.Types.TimestampMicros do
     end
   end
 
+  @impl true
+  def compare_values(left, right) do
+    compare_integer_values(coerce_compare_value(left), coerce_compare_value(right))
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
@@ -196,6 +201,19 @@ defmodule GridCodec.Types.TimestampMicros do
   @spec from_datetime(DateTime.t() | nil) :: integer()
   def from_datetime(nil), do: 0
   def from_datetime(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+
+  defp coerce_compare_value(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+  defp coerce_compare_value(value) when is_integer(value), do: value
+
+  defp coerce_compare_value(other) do
+    raise ArgumentError,
+          "unsupported timestamp_us compare value: #{inspect(other)}. " <>
+            "Expected DateTime.t or integer"
+  end
+
+  defp compare_integer_values(left, right) when left == right, do: :eq
+  defp compare_integer_values(left, right) when left < right, do: :lt
+  defp compare_integer_values(_left, _right), do: :gt
 end
 
 # ============================================================================
@@ -365,6 +383,11 @@ defmodule GridCodec.Types.TimestampNanos do
     end
   end
 
+  @impl true
+  def compare_values(left, right) do
+    compare_integer_values(coerce_compare_value(left), coerce_compare_value(right))
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
@@ -401,4 +424,17 @@ defmodule GridCodec.Types.TimestampNanos do
   @spec from_datetime(DateTime.t() | nil) :: integer()
   def from_datetime(nil), do: 0
   def from_datetime(%DateTime{} = dt), do: DateTime.to_unix(dt, :nanosecond)
+
+  defp coerce_compare_value(%DateTime{} = dt), do: DateTime.to_unix(dt, :nanosecond)
+  defp coerce_compare_value(value) when is_integer(value), do: value
+
+  defp coerce_compare_value(other) do
+    raise ArgumentError,
+          "unsupported timestamp_ns compare value: #{inspect(other)}. " <>
+            "Expected DateTime.t or integer"
+  end
+
+  defp compare_integer_values(left, right) when left == right, do: :eq
+  defp compare_integer_values(left, right) when left < right, do: :lt
+  defp compare_integer_values(_left, _right), do: :gt
 end

@@ -449,6 +449,7 @@ This generates:
 
 - `GridCodec.Struct.Compiler` - Generates encode/decode AST
 - `GridCodec.Types.*` - Type implementations (includes `:datetime_us`/`:datetime_ns` for DateTime-domain timestamps, `PrefixedId` for tagged entity IDs)
+- `GridCodec.Transcoder` - Compile-time codec-to-codec field extraction with `validate: false | :source | :target | :both`, source `validate_binary/1` support, and target `new_binary/1` fast-path integration
 - `GridCodec.Header` - Binary header handling
 - `GridCodec.Binary` - Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
 - `GridCodec.Lookup` - Runtime engine for Elixir-side `lookups do` accessors over decoded `group` and `batch` fields (not part of `.grid`)
@@ -501,6 +502,12 @@ GridCodec supports three validation layers:
 Use `GridCodec.Type.Refined` for field-local rules like non-negative values or
 non-empty strings. Use `validations do` for cross-field state invariants like
 `end_time >= start_time`.
+
+Binary-capable validators are a subset: they require fixed-size getter-based
+field access and are what power `validate_binary/1`, `decode(validate: :binary | :both)`,
+and `GridCodec.Transcoder` source-side validation. Decoded-only validators
+(for example callback validators and expression invariants over variable-width
+fields) still require a decoded struct.
 
 Important boundary: validation declarations are **runtime-only Elixir metadata**.
 They are not exported to `.grid`, not parsed from `.grid`, and do not affect the
@@ -561,6 +568,9 @@ Each type implements callbacks:
 - `encode_ast/4` - Generate encoding AST
 - `decode_pattern_ast/2` - Generate decode pattern
 - `size/0` - Fixed size (if known)
+- `validate_ast/3` - (optional) Pre-encode type validation used by `validate: true`
+- `coerce_ast/1` - (optional) External-input coercion used by `new/1` / `new_binary/1`
+- `compare_values/2` - (optional) Type-aware comparisons for invariants and binary validation
 - `encode_to_wire_ast/2` - (optional) Convert domain value to wire type value
 - `decode_as_ast/2` - (optional) Decode-time wire→domain type transformation (used by `wire_format:`)
 

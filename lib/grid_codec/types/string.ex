@@ -232,6 +232,37 @@ defmodule GridCodec.Types.String do
     end
   end
 
+  @doc false
+  def gen_validate_ast(var, field, mod, type, max_length) do
+    quote do
+      case unquote(var) do
+        nil ->
+          :ok
+
+        v when is_binary(v) and byte_size(v) <= unquote(max_length) ->
+          :ok
+
+        v when is_binary(v) ->
+          raise GridCodec.ValidationError.out_of_range(
+                  unquote(mod),
+                  unquote(field),
+                  unquote(type),
+                  byte_size(v),
+                  "string length <= #{unquote(max_length)} bytes"
+                )
+
+        v ->
+          raise GridCodec.ValidationError.type_mismatch(
+                  unquote(mod),
+                  unquote(field),
+                  unquote(type),
+                  v,
+                  "binary() or nil"
+                )
+      end
+    end
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string16()
@@ -303,6 +334,17 @@ defmodule GridCodec.Types.String8 do
   @impl true
   def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
 
+  @impl true
+  def validate_ast(var, field, mod) do
+    GridCodec.Types.String.gen_validate_ast(
+      var,
+      field,
+      mod,
+      :string8,
+      GridCodec.Types.String.max_length8()
+    )
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator, do: GridCodec.Generators.string8()
@@ -355,6 +397,17 @@ defmodule GridCodec.Types.String16 do
 
   @impl true
   def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
+
+  @impl true
+  def validate_ast(var, field, mod) do
+    GridCodec.Types.String.gen_validate_ast(
+      var,
+      field,
+      mod,
+      :string16,
+      GridCodec.Types.String.max_length16()
+    )
+  end
 
   if Code.ensure_loaded?(StreamData) do
     @impl true
@@ -410,6 +463,17 @@ defmodule GridCodec.Types.String32 do
 
   @impl true
   def coerce_ast(var), do: GridCodec.Types.String.gen_coerce_ast(var)
+
+  @impl true
+  def validate_ast(var, field, mod) do
+    GridCodec.Types.String.gen_validate_ast(
+      var,
+      field,
+      mod,
+      :string32,
+      GridCodec.Types.String.max_length32()
+    )
+  end
 
   if Code.ensure_loaded?(StreamData) do
     @impl true

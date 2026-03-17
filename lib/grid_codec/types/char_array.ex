@@ -268,6 +268,74 @@ defmodule GridCodec.Types.CharArray do
         end
       end
 
+      unquote(
+        case on_overflow do
+          :truncate ->
+            quote do
+              @impl GridCodec.Type
+              def validate_ast(var, field, mod) do
+                type_module = __MODULE__
+
+                quote do
+                  case unquote(var) do
+                    nil ->
+                      :ok
+
+                    v when is_binary(v) ->
+                      :ok
+
+                    v ->
+                      raise GridCodec.ValidationError.type_mismatch(
+                              unquote(mod),
+                              unquote(field),
+                              unquote(type_module),
+                              v,
+                              "binary() or nil"
+                            )
+                  end
+                end
+              end
+            end
+
+          :error ->
+            quote do
+              @impl GridCodec.Type
+              def validate_ast(var, field, mod) do
+                len = @char_array_length
+                type_module = __MODULE__
+
+                quote do
+                  case unquote(var) do
+                    nil ->
+                      :ok
+
+                    v when is_binary(v) and byte_size(v) <= unquote(len) ->
+                      :ok
+
+                    v when is_binary(v) ->
+                      raise GridCodec.ValidationError.out_of_range(
+                              unquote(mod),
+                              unquote(field),
+                              unquote(type_module),
+                              byte_size(v),
+                              "char array length <= #{unquote(len)} bytes"
+                            )
+
+                    v ->
+                      raise GridCodec.ValidationError.type_mismatch(
+                              unquote(mod),
+                              unquote(field),
+                              unquote(type_module),
+                              v,
+                              "binary() or nil"
+                            )
+                  end
+                end
+              end
+            end
+        end
+      )
+
       @impl GridCodec.Type
       def decode_pattern_ast(var, _endian) do
         quote do: unquote(var) :: binary - size(unquote(@char_array_length))

@@ -126,7 +126,8 @@ The source binary is never fully decoded and no intermediate struct is created.
 defmodule SpanToProto do
   use GridCodec.Transcoder,
     source: MyApp.BinaryTraceContext,
-    target: MyApp.ProtoTarget
+    target: MyApp.ProtoTarget,
+    validate: :target
 
   field :trace_id
   field :flags
@@ -137,13 +138,18 @@ end
 
 ### Target module
 
-The target must implement `encode/1` that accepts a map of field values:
+The target must implement `encode/1` that accepts a map of field values.
+If it also implements `new_binary/1`, transcoders running with
+`validate: :target` or `validate: :both` will prefer that validated fast path:
 
 ```elixir
 defmodule MyApp.ProtoTarget do
   def encode(fields) when is_map(fields) do
-    proto = struct!(MyApp.ProtoSpan, fields)
-    {:ok, MyApp.ProtoSpan.encode(proto)}
+    MyApp.ProtoSpan.encode(struct!(MyApp.ProtoSpan, fields))
+  end
+
+  def new_binary(fields) when is_map(fields) do
+    MyApp.ProtoSpan.new_binary(fields)
   end
 end
 ```
@@ -155,19 +161,45 @@ end
 | `to:` | Rename the field in the output map |
 | `transform:` | Apply a function to the extracted value before passing to the target |
 
+### Validation modes
+
+Transcoders default to the raw fast path (`validate: false`), but support both
+compile-time defaults and per-call overrides:
+
+```elixir
+SpanToProto.transcode(bin)
+SpanToProto.transcode(bin, validate: :both)
+SpanToProto.transcode(bin, validate: false)
+```
+
+Supported modes:
+
+| Mode | Behavior |
+|------|----------|
+| `false` | Raw fast path, no transcoder-side validation |
+| `:source` | Runs `source.validate_binary/1` before extracting fields |
+| `:target` | Prefers `target.new_binary/1` for validated target encoding |
+| `:both` / `true` | Combines source binary validation with validated target encoding |
+
+Source-side validation uses the source codec's binary-capable validator subset.
+Decoded-only validators, such as callback validators or expression invariants
+over variable-width fields, still require a full decode path.
+
 ### How it works
 
 At compile time, `use GridCodec.Transcoder` resolves field offsets from the
-source codec via `__match_meta__/0`. In `__before_compile__`, it generates a
-`transcode/1` function that:
+source codec via `__match_meta__/0`. In `__before_compile__`, it generates
+`transcode/1` and `transcode/2` functions that:
 
 1. Extracts each mapped field at its known offset (O(1) per field)
 2. Applies any `transform:` functions
 3. Builds the output map with the (possibly renamed) keys
-4. Calls `target_module.encode(map)`
+4. Calls `target_module.encode(map)` or `target_module.new_binary(map)`
 
 The cost is proportional to the number of mapped fields, not the total number
-of fields in the source codec.
+of fields in the source codec when `validate: false`. Validated modes add the
+expected source `validate_binary/1` and/or target `new_binary/1` overhead while
+still avoiding an intermediate source struct.
 
 ---
 
@@ -284,7 +316,8 @@ end
 defmodule MyApp.SpanExporter do
   use GridCodec.Transcoder,
     source: MyApp.Span,
-    target: MyApp.OTLPTarget
+    target: MyApp.OTLPTarget,
+    validate: :target
 
   field :trace_id
   field :span_id, transform: &<<&1::64>>
@@ -314,8 +347,9 @@ end
 ```
 
 In this pipeline, spans are encoded once on creation and stay as binaries
-through ETS storage, filtering, and transcoding. The only full decode happens
-inside the target module's `encode/1` for the final wire format conversion.
+through ETS storage, filtering, and transcoding. With a target `new_binary/1`
+implementation, the export step can keep target validation enabled without
+building an intermediate target struct.
 
 ## See also
 

@@ -64,6 +64,100 @@ defmodule GridCodec.TranscoderTest do
     field(:kind)
   end
 
+  defmodule ValidatedSource do
+    use GridCodec.Struct,
+      template_id: 8902,
+      schema_id: 89,
+      validate: true
+
+    defcodec do
+      field :start_ns, :i64
+      field :end_ns, :i64
+      field :status, :u8
+    end
+
+    validations do
+      validate(compare(:end_ns, :>=, :start_ns),
+        name: :source_order,
+        category: :invariant
+      )
+    end
+  end
+
+  defmodule RawSource do
+    use GridCodec.Struct,
+      template_id: 8902,
+      schema_id: 89,
+      validate: false
+
+    defcodec do
+      field :start_ns, :i64
+      field :end_ns, :i64
+      field :status, :u8
+    end
+  end
+
+  defmodule ValidatedTarget do
+    use GridCodec.Struct,
+      template_id: 8904,
+      schema_id: 89,
+      validate: true
+
+    defcodec do
+      field :start_ns, :i64
+      field :end_ns, :i64
+      field :status, :u8
+    end
+
+    validations do
+      invariant :target_positive_duration do
+        where(end_ns > start_ns)
+      end
+    end
+  end
+
+  defmodule RawTarget do
+    use GridCodec.Struct,
+      template_id: 8905,
+      schema_id: 89,
+      validate: false
+
+    defcodec do
+      field :start_ns, :i64
+      field :end_ns, :i64
+      field :status, :u8
+    end
+  end
+
+  defmodule ValidationAwareTarget do
+    def encode(fields) when is_map(fields),
+      do: GridCodec.TranscoderTest.RawTarget.new_binary(fields)
+
+    def new_binary(fields) when is_map(fields),
+      do: GridCodec.TranscoderTest.ValidatedTarget.new_binary(fields)
+  end
+
+  defmodule SourceValidationTranscoder do
+    use GridCodec.Transcoder,
+      source: GridCodec.TranscoderTest.ValidatedSource,
+      target: GridCodec.TranscoderTest.PlainTarget
+
+    field(:start_ns)
+    field(:end_ns)
+    field(:status)
+  end
+
+  defmodule TargetValidationTranscoder do
+    use GridCodec.Transcoder,
+      source: GridCodec.TranscoderTest.ValidatedSource,
+      target: GridCodec.TranscoderTest.ValidationAwareTarget,
+      validate: :target
+
+    field(:start_ns)
+    field(:end_ns)
+    field(:status)
+  end
+
   # ── Tests ────────────────────────────────────────────────────────────────
 
   @trace_id :crypto.strong_rand_bytes(16)
@@ -171,6 +265,53 @@ defmodule GridCodec.TranscoderTest do
         assert result.flags == flags * 10
         assert result.kind == kind
       end
+    end
+  end
+
+  describe "validation modes" do
+    test "validate: :source rejects invalid source binaries" do
+      {:ok, invalid_bin} = RawSource.new_binary(start_ns: 5, end_ns: 3, status: 1)
+
+      assert {:ok, %{start_ns: 5, end_ns: 3, status: 1}} =
+               SourceValidationTranscoder.transcode(invalid_bin)
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               SourceValidationTranscoder.transcode(invalid_bin, validate: :source)
+
+      assert error.details.name == :source_order
+    end
+
+    test "validate: :target uses validated target encoding and can be opted out" do
+      {:ok, src_bin} = ValidatedSource.new_binary(start_ns: 5, end_ns: 5, status: 1)
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               TargetValidationTranscoder.transcode(src_bin)
+
+      assert error.details.name == :target_positive_duration
+
+      assert {:ok, raw_bin} = TargetValidationTranscoder.transcode(src_bin, validate: false)
+      assert {:ok, decoded} = RawTarget.decode(raw_bin)
+      assert decoded.start_ns == 5
+      assert decoded.end_ns == 5
+      assert decoded.status == 1
+    end
+
+    test "validate: :both applies source validation before target validation" do
+      {:ok, invalid_bin} = RawSource.new_binary(start_ns: 7, end_ns: 3, status: 1)
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               TargetValidationTranscoder.transcode(invalid_bin, validate: :both)
+
+      assert error.details.name == :source_order
+    end
+
+    test "validate: true aliases :both" do
+      {:ok, invalid_bin} = RawSource.new_binary(start_ns: 7, end_ns: 3, status: 1)
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               TargetValidationTranscoder.transcode(invalid_bin, validate: true)
+
+      assert error.details.name == :source_order
     end
   end
 end

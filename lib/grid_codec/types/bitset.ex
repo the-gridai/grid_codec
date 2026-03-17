@@ -261,6 +261,7 @@ defmodule GridCodec.Types.Bitset do
     end
   end
 
+  # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defmacro __before_compile__(env) do
     flags = Module.get_attribute(env.module, :bitset_flags) |> Enum.reverse()
 
@@ -516,6 +517,46 @@ defmodule GridCodec.Types.Bitset do
 
             v ->
               {:error, "expected MapSet, list, or integer for bitset, got: #{inspect(v)}"}
+          end
+        end
+      end
+
+      @impl GridCodec.Type
+      def validate_ast(var, field, codec_module) do
+        type_module = __MODULE__
+        flag_map = @flag_map
+        all_flags = @all_flags
+
+        quote do
+          case unquote(var) do
+            nil ->
+              :ok
+
+            %MapSet{} = value ->
+              case Enum.find(value, fn flag ->
+                     not Map.has_key?(unquote(Macro.escape(flag_map)), flag)
+                   end) do
+                nil ->
+                  :ok
+
+                invalid ->
+                  raise GridCodec.ValidationError.invalid_format(
+                          unquote(codec_module),
+                          unquote(field),
+                          unquote(type_module),
+                          invalid,
+                          "MapSet containing only #{inspect(unquote(all_flags))}"
+                        )
+              end
+
+            value ->
+              raise GridCodec.ValidationError.type_mismatch(
+                      unquote(codec_module),
+                      unquote(field),
+                      unquote(type_module),
+                      value,
+                      "MapSet.t(atom()) or nil"
+                    )
           end
         end
       end

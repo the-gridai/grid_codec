@@ -177,6 +177,15 @@ defmodule GridCodec.Types.DateTimeMicros do
     end
   end
 
+  @impl true
+  def compare_values(left, right) do
+    case DateTime.compare(coerce_compare_value(left), coerce_compare_value(right)) do
+      :lt -> :lt
+      :eq -> :eq
+      :gt -> :gt
+    end
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
@@ -190,6 +199,17 @@ defmodule GridCodec.Types.DateTimeMicros do
         constant(nil)
       ])
     end
+  end
+
+  defp coerce_compare_value(%DateTime{} = dt), do: dt
+
+  defp coerce_compare_value(value) when is_integer(value),
+    do: DateTime.from_unix!(value, :microsecond)
+
+  defp coerce_compare_value(other) do
+    raise ArgumentError,
+          "unsupported datetime_us compare value: #{inspect(other)}. " <>
+            "Expected DateTime.t or integer"
   end
 end
 
@@ -400,6 +420,15 @@ defmodule GridCodec.Types.DateTimeNanos do
     end
   end
 
+  @impl true
+  def compare_values(left, right) do
+    case DateTime.compare(coerce_compare_value(left), coerce_compare_value(right)) do
+      :lt -> :lt
+      :eq -> :eq
+      :gt -> :gt
+    end
+  end
+
   if Code.ensure_loaded?(StreamData) do
     @impl true
     def generator do
@@ -413,5 +442,16 @@ defmodule GridCodec.Types.DateTimeNanos do
         constant(nil)
       ])
     end
+  end
+
+  defp coerce_compare_value(%DateTime{} = dt), do: dt
+
+  defp coerce_compare_value(value) when is_integer(value),
+    do: DateTime.from_unix!(value, :nanosecond)
+
+  defp coerce_compare_value(other) do
+    raise ArgumentError,
+          "unsupported datetime_ns compare value: #{inspect(other)}. " <>
+            "Expected DateTime.t or integer"
   end
 end

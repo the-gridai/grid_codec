@@ -30,6 +30,31 @@ defmodule GridCodec.ValidationTest do
     end
   end
 
+  defmodule Symbol4 do
+    use GridCodec.Types.CharArray, length: 4, on_overflow: :error
+  end
+
+  defmodule Permissions do
+    use GridCodec.Types.Bitset, size: :u8
+
+    flag(:read, 0)
+    flag(:write, 1)
+  end
+
+  defmodule ExtendedValidatedCodec do
+    use GridCodec.Struct,
+      template_id: 862,
+      schema_id: 60,
+      version: 1,
+      validate: true
+
+    defcodec do
+      field :short_name, :string8
+      field :symbol, Symbol4
+      field :perms, Permissions
+    end
+  end
+
   describe "validation enabled" do
     test "valid data encodes normally" do
       struct = %ValidatedCodec{
@@ -156,6 +181,63 @@ defmodule GridCodec.ValidationTest do
 
     test "accepts map input" do
       assert {:ok, %ValidatedCodec{count: 42}} = ValidatedCodec.new(%{count: 42})
+    end
+  end
+
+  describe "native type validation hooks" do
+    test "string8 overflow returns ValidationError" do
+      struct = %ExtendedValidatedCodec{short_name: String.duplicate("a", 256)}
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               ExtendedValidatedCodec.encode(struct)
+
+      assert error.code == :out_of_range
+      assert error.details.field == :short_name
+      assert error.details.type == :string8
+    end
+
+    test "string8 wrong type returns ValidationError" do
+      struct = %ExtendedValidatedCodec{short_name: 123}
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               ExtendedValidatedCodec.encode(struct)
+
+      assert error.code == :type_mismatch
+      assert error.details.field == :short_name
+      assert error.details.type == :string8
+    end
+
+    test "char_array overflow returns ValidationError" do
+      struct = %ExtendedValidatedCodec{symbol: "TOOLONG"}
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               ExtendedValidatedCodec.encode(struct)
+
+      assert error.code == :out_of_range
+      assert error.details.field == :symbol
+      assert error.details.type == Symbol4
+    end
+
+    test "bitset wrong type returns ValidationError" do
+      struct = %ExtendedValidatedCodec{perms: [:read]}
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               ExtendedValidatedCodec.encode(struct)
+
+      assert error.code == :type_mismatch
+      assert error.details.field == :perms
+      assert error.details.type == Permissions
+    end
+
+    test "bitset unknown flags return ValidationError" do
+      struct = %ExtendedValidatedCodec{perms: MapSet.new([:read, :admin])}
+
+      assert {:error, %GridCodec.ValidationError{} = error} =
+               ExtendedValidatedCodec.encode(struct)
+
+      assert error.code == :invalid_format
+      assert error.details.field == :perms
+      assert error.details.type == Permissions
     end
   end
 

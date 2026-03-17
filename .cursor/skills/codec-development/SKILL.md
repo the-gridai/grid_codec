@@ -44,6 +44,11 @@ Key generation functions:
 - `generate_auto_batch_encoder` / `generate_auto_batch_decoder` — JIT-friendly loops
 - `generate_validate_fn` — type-level validation when `validate: true`
 
+Related runtime path:
+- `lib/grid_codec/transcoder.ex` — compile-time binary-to-binary field extraction;
+  supports `validate: false | :source | :target | :both`, source `validate_binary/1`,
+  and target `new_binary/1` integration for validated transcoding without a source struct
+
 The `__schema__/0` map includes: `fields`, `groups`, `batches`, `group_fields`, `version`, `template_id`, `schema_id`, `endian`, `block_length`, `fixed_fields`, `var_fields`, `field_versions`, `type`. This metadata is used by `mix grid_codec.export` to generate `.grid` files.
 
 ## Groups
@@ -176,6 +181,7 @@ systems that need updating based on what kind of change you're making.
 | C-STR | Compiler: struct fields | `struct/compiler.ex` — `compute_struct_fields` |
 | C-LKP | Compiler: lookup builder | `struct/compiler.ex` — `generate_group_lookup_builder` |
 | C-VAL | Compiler: validation | `struct/compiler.ex` — `generate_validate_fn` |
+| TRN | Transcoder runtime | `transcoder.ex` — mapping DSL, `transcode/1,2`, source/target validation composition |
 | GRP | Group runtime | `group.ex` — encode/decode/parse functions |
 | P-TOK | Parser: tokenizer | `schema/parser.ex` — `tokenize` |
 | P-GRM | Parser: grammar + structs | `schema/parser.ex` — `parse_struct_body`, struct defs |
@@ -238,10 +244,18 @@ systems that need updating based on what kind of change you're making.
 - [ ] C-NEW — ensure `new/1`, `update/2`, and `new_binary/1` route through the same validation contract
 - [ ] C-ENC — ensure `encode/1` remains the final gate for externally-constructed structs
 - [ ] C-DEC — decide how `decode/2` opt-in validation modes compose with binary vs decoded validation backends
+- [ ] TRN — decide whether `GridCodec.Transcoder` should stay raw, use source `validate_binary/1`, use target `new_binary/1`, or compose both paths
 - [ ] C-SCH — record runtime-only validation metadata in `__schema__/0` if it is useful for introspection, but do not export it to `.grid`
 - [ ] C-TYP — keep field-local rules in types when possible; review whether a refined type should be a `GridCodec.Type` wrapper instead of a struct validator
 - [ ] DOC — update README, `docs/validations.md`, moduledocs, and any support matrix documentation
 - [ ] TEST — add unit/property tests for accumulation, non-raising behavior, decode validation modes, and binary-capable validator coverage
+
+**Changing `GridCodec.Transcoder` behavior**:
+- [ ] TRN — update compile-time options, runtime `transcode/1,2` behavior, and target dispatch (`encode/1` vs `new_binary/1`)
+- [ ] C-VAL — if validation semantics change, confirm they still align with `validate_binary/1`, `validate_struct/1`, and `new_binary/1`
+- [ ] C-TYP — if source-side validation depends on binary-capable invariants, check `getter_ast/3`, `validate_ast/3`, and `compare_values/2` coverage on involved types
+- [ ] DOC — update `GridCodec.Transcoder` moduledoc, `README.md`, and `docs/binary-filtering.md`
+- [ ] TEST — cover raw fast path, validated target path, source validation failures, and opt-out overrides
 
 #### Verification: .grid Roundtrip Test
 

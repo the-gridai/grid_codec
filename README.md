@@ -16,7 +16,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Typed groups & lookups** – Reuse fixed-size entry structs with `group :name, of: Module` and generate named runtime accessors over groups and batches
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
-- **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs
+- **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs, with optional source/target validation modes
 - **Schema evolution** – `.grid` declarative schema files, breaking change detection (27 wire + 9 source rules), `--check` CI modes
 - **SQL generation** – PostgreSQL decode functions from GridCodec binaries stored as `bytea`
 - **Telemetry** – Optional `[:grid_codec, :encode]` and `[:grid_codec, :decode]` event emission with PromEx integration
@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.36.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.37.0"}
   ]
 end
 ```
@@ -504,7 +504,7 @@ Key modules:
 - `GridCodec.Group` – Repeating groups (variable-length collections)
 - `GridCodec.Batch` – Heterogeneous batches with strategy selection
 - `GridCodec.Match` – Compile-time matchspec-like binary filtering
-- `GridCodec.Transcoder` – Codec-to-codec field transcoding
+- `GridCodec.Transcoder` – Codec-to-codec field transcoding with optional `:source`, `:target`, and `:both` validation modes
 - `GridCodec.Dispatch` – Multi-message routing by template ID
 - `GridCodec.Type` – Behaviour for custom types
 - `GridCodec.Binary` – Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
