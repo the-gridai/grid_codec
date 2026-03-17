@@ -25,6 +25,13 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
     all_grid_files(dir) |> Enum.reject(&(Path.basename(&1) == "schema.grid"))
   end
 
+  defp snapshot(dir) do
+    dir
+    |> all_grid_files()
+    |> Enum.sort()
+    |> Map.new(fn path -> {Path.relative_to(path, dir), File.read!(path)} end)
+  end
+
   describe "--check with up-to-date files" do
     test "exits 0 when files match generated output", %{output_dir: dir} do
       capture_task(fn ->
@@ -47,6 +54,24 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
 
       [first | _] = individual_files(dir)
       File.write!(first, File.read!(first) <> "\n# stale")
+
+      assert catch_exit(
+               capture_task(fn ->
+                 Export.run(["--check", "--output-dir", dir])
+               end)
+             ) == {:shutdown, 1}
+    end
+  end
+
+  describe "--check with unexpected files" do
+    test "exits non-zero when an extra generated file exists", %{output_dir: dir} do
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      extra = Path.join(dir, "schema_999/orphan.grid")
+      File.mkdir_p!(Path.dirname(extra))
+      File.write!(extra, "@syntax 1\nstruct Orphan (template_id: 1) {}\n")
 
       assert catch_exit(
                capture_task(fn ->
@@ -150,6 +175,38 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
         assert imports == Enum.sort(imports),
                "Imports in #{master_path} are not alphabetically sorted"
       end)
+    end
+
+    test "running export twice produces byte-identical files", %{output_dir: dir} do
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      first_snapshot = snapshot(dir)
+
+      assert first_snapshot != %{}
+
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      assert snapshot(dir) == first_snapshot
+    end
+
+    test "--prune removes unexpected generated files", %{output_dir: dir} do
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      extra = Path.join(dir, "schema_999/orphan.grid")
+      File.mkdir_p!(Path.dirname(extra))
+      File.write!(extra, "@syntax 1\nstruct Orphan (template_id: 1) {}\n")
+
+      capture_task(fn ->
+        Export.run(["--output-dir", dir, "--prune"])
+      end)
+
+      refute File.exists?(extra)
     end
   end
 

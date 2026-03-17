@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.33.3"
+  @version "0.34.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -159,7 +159,14 @@ defmodule GridCodec.MixProject do
         ],
         Schema: [
           GridCodec.Schema.Parser,
+          GridCodec.Schema.Formatter,
           GridCodec.Schema.Sigil
+        ],
+        Breaking: [
+          GridCodec.Breaking.Checker,
+          GridCodec.Breaking.Config,
+          GridCodec.Breaking.Rules.Wire,
+          GridCodec.Breaking.Rules.Source
         ],
         Types: [
           GridCodec.Type,

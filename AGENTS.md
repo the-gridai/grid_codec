@@ -628,9 +628,17 @@ mix grid_codec.export --syntax 1
 # Verify schemas are up to date (CI mode)
 mix grid_codec.export --check
 
+# Regenerate and remove orphaned files after deletions/renames
+mix grid_codec.export --prune
+
 # Detect breaking changes against git baseline
 mix grid_codec.breaking --against HEAD~1
 ```
+
+`mix grid_codec.export --check` is an artifact-sync check: it fails when generated
+`.grid` files are missing, stale, or unexpectedly present. Use
+`mix grid_codec.breaking` alongside it to determine whether the schema change
+itself is compatible (for example `WIRE_STRUCT_REMOVED` after deleting a struct).
 
 **Directory structure:**
 ```

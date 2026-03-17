@@ -187,6 +187,37 @@ defmodule GridCodec.Schema.FormatterTest do
       beta_pos = :binary.match(output, "Beta") |> elem(0)
       assert alpha_pos < beta_pos
     end
+
+    test "output is deterministic regardless of codec input order" do
+      codec_a =
+        {ModA,
+         %{
+           fields: [{:id, :uuid, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 1,
+           schema_id: 1,
+           type: "X.Alpha"
+         }}
+
+      codec_b =
+        {ModB,
+         %{
+           fields: [{:id, :uuid, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 1,
+           template_id: 5,
+           schema_id: 1,
+           type: "X.Beta"
+         }}
+
+      assert Formatter.format("Test", 1, 1, [codec_a, codec_b]) ==
+               Formatter.format("Test", 1, 1, [codec_b, codec_a])
+    end
   end
 
   describe "custom type schema affinity" do

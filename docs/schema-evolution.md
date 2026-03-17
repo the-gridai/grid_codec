@@ -28,6 +28,20 @@ Today the evolution mechanism is built around:
 - `since` on newly added fields
 - breaking-change detection via `mix grid_codec.breaking`
 
+## Export Drift vs Breaking Changes
+
+GridCodec keeps `.grid` files as generated artifacts. Two checks serve different
+purposes and are usually run together:
+
+- `mix grid_codec.export --check` verifies that checked-in `.grid` files exactly
+  match the current code. It fails if a file is missing, stale, or unexpectedly
+  present in the export directory.
+- `mix grid_codec.breaking` compares the current schema snapshot to a baseline and
+  reports semantic compatibility issues such as `WIRE_STRUCT_REMOVED`.
+
+If you delete or rename a codec, `mix grid_codec.export --prune` removes orphaned
+generated files before you commit the new baseline.
+
 ## How It Works
 
 Every encoded message carries an 8-byte header with `block_length` (the size of

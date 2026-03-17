@@ -55,7 +55,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.33.3"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.34.0"}
   ]
 end
 ```
@@ -361,7 +361,14 @@ mix grid_codec.export
 
 # Verify .grid files are up to date (CI / pre-push)
 mix grid_codec.export --check
+
+# Remove orphaned generated files left behind after codec deletions/renames
+mix grid_codec.export --prune
 ```
+
+`mix grid_codec.export --check` is an artifact-sync check: it fails if a generated
+`.grid` file is missing, stale, or unexpectedly present in the export directory.
+Use it to keep checked-in schema files honest in CI.
 
 Output structure:
 
@@ -396,6 +403,15 @@ mix grid_codec.breaking --against origin/main
 # Wire-only checks
 mix grid_codec.breaking --category wire
 ```
+
+Use `mix grid_codec.breaking` alongside `mix grid_codec.export --check` rather
+than instead of it:
+
+- `mix grid_codec.export --check` verifies that generated files exactly match the
+  current code and that no orphaned `.grid` files remain after deletions.
+- `mix grid_codec.breaking` explains whether the schema change itself is
+  compatible. For example, removing a struct from the generated schema baseline
+  is typically reported as `WIRE_STRUCT_REMOVED`.
 
 Configure with `.grid_codec.exs`:
 
@@ -522,6 +538,9 @@ mix gridcodec.sql
 # Verify generated files are up to date (CI)
 mix gridcodec.sql --check
 mix grid_codec.export --check
+
+# Regenerate and prune orphaned .grid files
+mix grid_codec.export --prune
 
 # Run profiler
 ./profile/run.sh

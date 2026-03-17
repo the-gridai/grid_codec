@@ -28,8 +28,16 @@ defmodule Mix.Tasks.GridCodec.Export do
       mix grid_codec.export --check
       mix grid_codec.export --check --output-dir priv/schemas
 
-  Exits with a non-zero status if any file is stale or missing.
+  Exits with a non-zero status if any file is stale, missing, or unexpected.
   Intended for CI and pre-push hooks.
+
+  ## Prune Mode
+
+  Use `--prune` during generation to remove unexpected `.grid` files from the
+  output directory, such as files left behind after deleting a source struct:
+
+      mix grid_codec.export --prune
+      mix grid_codec.export --output-dir priv/schemas --prune
 
   ## Output Structure
 
@@ -67,7 +75,8 @@ defmodule Mix.Tasks.GridCodec.Export do
     output_dir: :string,
     schema_id: :integer,
     check: :boolean,
-    syntax: :integer
+    syntax: :integer,
+    prune: :boolean
   ]
 
   @impl Mix.Task
@@ -79,6 +88,7 @@ defmodule Mix.Tasks.GridCodec.Export do
     output_dir = Keyword.get(opts, :output_dir, "priv/schemas")
     schema_id_filter = Keyword.get(opts, :schema_id)
     check_mode = Keyword.get(opts, :check, false)
+    prune_mode = Keyword.get(opts, :prune, false)
     fmt_opts = [syntax: resolve_syntax(opts)]
 
     codecs = collect_codecs()
@@ -104,9 +114,9 @@ defmodule Mix.Tasks.GridCodec.Export do
     files = build_files(grouped, output_dir, schema_names, all_enums, all_custom_types, fmt_opts)
 
     if check_mode do
-      check(files)
+      check(files, output_dir)
     else
-      write(files)
+      write(files, output_dir, prune_mode)
     end
   end
 
@@ -436,18 +446,22 @@ defmodule Mix.Tasks.GridCodec.Export do
   # Write / Check
   # ============================================================================
 
-  defp write(files) do
+  defp write(files, output_dir, prune_mode) do
     Enum.each(files, fn {path, content} ->
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, content)
       Mix.shell().info("Wrote #{path}")
     end)
 
+    if prune_mode do
+      prune_unexpected_files(files, output_dir)
+    end
+
     struct_count = Enum.count(files, fn {p, _} -> not String.ends_with?(p, "schema.grid") end)
     Mix.shell().info("Exported #{struct_count} definition(s) in #{schema_count(files)} schema(s)")
   end
 
-  defp check(files) do
+  defp check(files, output_dir) do
     stale =
       Enum.reduce(files, [], fn {path, expected}, acc ->
         case File.read(path) do
@@ -457,19 +471,29 @@ defmodule Mix.Tasks.GridCodec.Export do
         end
       end)
 
-    if stale == [] do
+    unexpected =
+      output_dir
+      |> unexpected_files(files)
+      |> Enum.map(&{:unexpected, &1})
+
+    issues = stale ++ unexpected
+
+    if issues == [] do
       file_count = length(files)
 
       Mix.shell().info(
         "GridCodec .grid files are up to date (#{file_count} file(s) in #{schema_count(files)} schema(s))"
       )
     else
-      Enum.each(Enum.reverse(stale), fn
+      Enum.each(Enum.reverse(issues), fn
         {:stale, path} ->
           Mix.shell().error("Out of date: #{path}")
 
         {:missing, path} ->
           Mix.shell().error("Missing: #{path}")
+
+        {:unexpected, path} ->
+          Mix.shell().error("Unexpected: #{path}")
       end)
 
       Mix.shell().error("\nRun `mix grid_codec.export` and commit the result.")
@@ -481,6 +505,40 @@ defmodule Mix.Tasks.GridCodec.Export do
   defp schema_count(files) do
     files
     |> Enum.count(fn {p, _} -> Path.basename(p) == "schema.grid" end)
+  end
+
+  defp prune_unexpected_files(files, output_dir) do
+    output_dir
+    |> unexpected_files(files)
+    |> Enum.each(fn path ->
+      File.rm!(path)
+      cleanup_empty_parent_dirs(Path.dirname(path), output_dir)
+      Mix.shell().info("Removed #{path}")
+    end)
+  end
+
+  defp unexpected_files(output_dir, files) do
+    expected_paths = MapSet.new(Enum.map(files, fn {path, _content} -> path end))
+
+    output_dir
+    |> Path.join("**/*.grid")
+    |> Path.wildcard()
+    |> Enum.reject(&MapSet.member?(expected_paths, &1))
+    |> Enum.sort()
+  end
+
+  defp cleanup_empty_parent_dirs(dir, output_dir) do
+    cond do
+      dir == output_dir ->
+        :ok
+
+      File.ls!(dir) == [] ->
+        File.rmdir!(dir)
+        cleanup_empty_parent_dirs(Path.dirname(dir), output_dir)
+
+      true ->
+        :ok
+    end
   end
 
   defp return_ok, do: :ok

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-03-17
+
+### Added
+- **Prunable `.grid` export cleanup** — `mix grid_codec.export --prune` now removes
+  orphaned generated `.grid` files left behind after codec deletions or renames,
+  so checked-in schema directories can be regenerated back to a clean baseline.
+
+### Changed
+- **Strict `.grid` export verification** — `mix grid_codec.export --check` now
+  fails when generated schema files are unexpectedly present as well as when they
+  are stale or missing, closing the gap where deleted codecs could leave behind
+  silently accepted orphaned files.
+
+### Tests
+- **Deterministic export regression coverage** — schema formatter and export task
+  tests now assert byte-identical output across repeated runs and across shuffled
+  codec input order, locking down `.grid` generation stability.
+
+### Documentation
+- **Export vs breaking checks guidance** — `README.md`, `docs/schema-evolution.md`,
+  and `AGENTS.md` now explain the difference between artifact drift
+  (`mix grid_codec.export --check`) and schema compatibility
+  (`mix grid_codec.breaking`), including when to use `--prune`.
+
 ## [0.33.3] - 2026-03-16
 
 ### Changed
