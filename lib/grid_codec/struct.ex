@@ -14,6 +14,8 @@ defmodule GridCodec.Struct do
   - **Zero-copy access**: Use `get/2` macro for O(1) field access without full decode
   - **Typed groups**: Reuse fixed-size codec structs with `group :name, of: Module`
   - **Runtime lookups**: Generate named alternate access paths over groups and batches with `lookups do`
+  - **Validation pipelines**: Compose accumulating struct validations with `validations do`
+    / `invariants do`, plus refined custom types for field-local rules
 
   ## Quick Example
 
@@ -154,6 +156,29 @@ defmodule GridCodec.Struct do
       require MyApp.Trade
       price = MyApp.Trade.get(binary, :price)
 
+  ## Validation Pipelines
+
+  `GridCodec.Struct` also supports accumulating state validations.
+
+      defmodule MyApp.Window do
+        use GridCodec.Struct, template_id: 10, validate: true
+
+        defcodec do
+          field :start_ns, :timestamp_ns
+          field :end_ns, :timestamp_ns
+        end
+
+        validations do
+          validate compare(:end_ns, :>=, :start_ns),
+            name: :end_after_start,
+            category: :invariant
+        end
+      end
+
+  Field-local rules should usually live in a custom type. Cross-field state rules
+  belong in the validation pipeline. Command/workflow checks should remain in the
+  consuming application.
+
   ## Identity And Uniqueness
 
   GridCodec structs have three distinct identifiers, each with a different job:
@@ -255,6 +280,12 @@ defmodule GridCodec.Struct do
               group: 2,
               group: 3,
               batch: 2,
+              validations: 1,
+              validate: 1,
+              validate: 2,
+              invariants: 1,
+              invariant: 2,
+              where: 1,
               lookups: 1,
               lookup: 2,
               views: 1,
@@ -262,6 +293,9 @@ defmodule GridCodec.Struct do
               virtual: 1,
               virtual: 2
             ]
+
+          import GridCodec.Validations,
+            only: [compare: 3, compare: 4, present: 1, one_of: 2, one_of: 3]
 
           @gridcodec_opts unquote(opts)
           @gridcodec_is_struct true
@@ -271,6 +305,7 @@ defmodule GridCodec.Struct do
           Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
           Module.register_attribute(__MODULE__, :gridcodec_virtuals, accumulate: true)
+          Module.register_attribute(__MODULE__, :gridcodec_validations, accumulate: true)
         end
     end
   end
@@ -372,6 +407,12 @@ defmodule GridCodec.Struct do
           group: 2,
           group: 3,
           batch: 2,
+          validations: 1,
+          validate: 1,
+          validate: 2,
+          invariants: 1,
+          invariant: 2,
+          where: 1,
           lookups: 1,
           lookup: 2,
           views: 1,
@@ -379,6 +420,9 @@ defmodule GridCodec.Struct do
           virtual: 1,
           virtual: 2
         ]
+
+      import GridCodec.Validations,
+        only: [compare: 3, compare: 4, present: 1, one_of: 2, one_of: 3]
 
       @gridcodec_opts unquote(Macro.escape(merged_opts))
       @gridcodec_is_struct true
@@ -388,6 +432,7 @@ defmodule GridCodec.Struct do
       Module.register_attribute(__MODULE__, :gridcodec_batches, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_lookups, accumulate: true)
       Module.register_attribute(__MODULE__, :gridcodec_virtuals, accumulate: true)
+      Module.register_attribute(__MODULE__, :gridcodec_validations, accumulate: true)
 
       for {name, type, field_opts} <- unquote(Macro.escape(field_defs)) do
         @gridcodec_fields {name, type, field_opts}

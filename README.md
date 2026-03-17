@@ -11,6 +11,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Compile-time code generation** – No runtime reflection overhead
 - **Struct-based API** – Natural Elixir structs with binary serialization
 - **Validation & coercion** – `validate: true` with typed error reporting; `new/1` for coercion from external input
+- **Validation pipelines** – Accumulating struct validations, refined custom types, and optional binary-capable validators
 - **Repeating groups** – Fixed-size entry collections with lazy decode, random access, and parallel materialization
 - **Typed groups & lookups** – Reuse fixed-size entry structs with `group :name, of: Module` and generate named runtime accessors over groups and batches
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
@@ -48,6 +49,11 @@ Generated lookups can also replace common collection post-processing like
 `example_app/benchmarks/lookup_bench.exs` for a Benchee comparison against the
 equivalent manual pipelines.
 
+Validation pipelines now also have a dedicated benchmark in
+`example_app/benchmarks/validation_bench.exs`, comparing generated
+`validate_struct/1` / `validate_binary/1` against hand-rolled checks and
+generic map-validator pipelines built from anonymous functions.
+
 ## Installation
 
 Add `grid_codec` to your dependencies in `mix.exs`:
@@ -55,13 +61,14 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.34.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.35.0"}
   ]
 end
 ```
 
 Then add `import_deps` to your `.formatter.exs` so the DSL macros (`field`, `group`,
-`batch`, `virtual`, `defcodec`, `lookups`) format without parentheses:
+`batch`, `virtual`, `defcodec`, `lookups`, `validations`, `invariants`) format
+without parentheses:
 
 ```elixir
 # .formatter.exs
@@ -475,10 +482,11 @@ GridCodec.compare_binaries(binary_a, spec, :<=, binary_b)
 1. **First codec** — [Getting Started](docs/getting-started.md): define a codec, encode/decode, zero-copy access
 2. **Schemas** — [Schemas](docs/schemas.md): `.grid` schema syntax and code generation
 3. **Evolution** — [Schema evolution](docs/schema-evolution.md): versioning, breaking change detection, safe rollout
-4. **Filtering & transcoding** — [Binary filtering](docs/binary-filtering.md): matchspecs, cross-field guards, codec-to-codec transcoding, ETS patterns
-5. **Performance** — [Performance](docs/performance.md): profiling and optimization
-6. **Consumer integration** — [Consumer integration](docs/consumer-integration.md): using GridCodec as a dependency
-7. **Troubleshooting** — [Troubleshooting](docs/troubleshooting.md): common issues and fixes
+4. **Validations** — [Validation pipelines](docs/validations.md): refined types, struct invariants, binary-capable checks
+5. **Filtering & transcoding** — [Binary filtering](docs/binary-filtering.md): matchspecs, cross-field guards, codec-to-codec transcoding, ETS patterns
+6. **Performance** — [Performance](docs/performance.md): profiling and optimization
+7. **Consumer integration** — [Consumer integration](docs/consumer-integration.md): using GridCodec as a dependency
+8. **Troubleshooting** — [Troubleshooting](docs/troubleshooting.md): common issues and fixes
 
 ## Documentation
 

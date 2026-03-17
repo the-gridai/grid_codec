@@ -452,6 +452,8 @@ This generates:
 - `GridCodec.Header` - Binary header handling
 - `GridCodec.Binary` - Sub-binary lifecycle utilities (`detach/1`, `copy_field/1`)
 - `GridCodec.Lookup` - Runtime engine for Elixir-side `lookups do` accessors over decoded `group` and `batch` fields (not part of `.grid`)
+- `GridCodec.Validations` - Builtin validation descriptors (`compare/3`, `present/1`, `one_of/2`) for struct validation pipelines
+- `GridCodec.ValidationErrors` - Container for accumulated validation failures
 - `GridCodec.Batch` - Heterogeneous batch wrapper with strategy dispatch
 - `GridCodec.Batch.PaddedUnion` - Fixed-size padded entries (default strategy)
 - `GridCodec.Batch.TypedFrames` - Length-prefixed entries (compact strategy)
@@ -459,6 +461,7 @@ This generates:
 - `GridCodec.Schema.Formatter` - Generate `.grid` files: `format/5`, `format_master/5`, `format_struct_file/3`, `format_enum_file/2`, `format_custom_type_file/2` (all accept `opts` with `:syntax`, `:imports`); `current_syntax/0`, `detect_all_enums/1`, `detect_custom_types/1`, `detect_all_custom_types/1`, `referenced_enums/2`, `referenced_custom_types/2`
 - `GridCodec.Breaking.*` - Breaking change detection (Checker, Differ, Rules.Wire, Rules.Source, Config)
 - `GridCodec.Registry` - Runtime codec lookup, dispatch, `lookup_enum_by_name/1` and `lookup_custom_type_by_name/1` for `.grid` type auto-resolution
+- `GridCodec.Type.Refined` - Helper for field-local refinement-style custom types built on top of existing base types
 
 ### Batch Strategies
 
@@ -486,6 +489,22 @@ end
 - `validate: true` (default) — included in `new/1` coercion
 - `validate: false` — skipped by `new/1` entirely
 - Skipped by `.grid` export
+
+### Validation Pipelines
+
+GridCodec supports three validation layers:
+
+- **Coercion/cast validation** - `new/1`, `update/2`, and `new_binary/1` convert external input into field domain values
+- **Type validation** - `validate: true` runs per-type checks like range, format, and refined-type rules
+- **Struct validation pipelines** - `validations do` / `invariants do` add accumulating, non-raising state checks over the decoded struct
+
+Use `GridCodec.Type.Refined` for field-local rules like non-negative values or
+non-empty strings. Use `validations do` for cross-field state invariants like
+`end_time >= start_time`.
+
+Important boundary: validation declarations are **runtime-only Elixir metadata**.
+They are not exported to `.grid`, not parsed from `.grid`, and do not affect the
+wire protocol.
 
 ### Framed Groups
 

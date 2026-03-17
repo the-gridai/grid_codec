@@ -435,6 +435,83 @@ defmodule GridCodec do
   end
 
   @doc """
+  Groups validation declarations for the surrounding codec.
+  """
+  defmacro validations(do: block) do
+    block
+  end
+
+  @doc """
+  Groups invariant declarations for the surrounding codec.
+  """
+  defmacro invariants(do: block) do
+    block
+  end
+
+  @doc """
+  Declares a validation in the surrounding codec.
+  """
+  defmacro validate(validator, opts \\ []) do
+    quote do
+      @gridcodec_validations {unquote(validator), unquote(Macro.escape(opts))}
+    end
+  end
+
+  @doc """
+  Declares an invariant expression in the surrounding codec.
+  """
+  defmacro invariant(name, opts) when is_atom(name) and is_list(opts) do
+    block = Keyword.fetch!(opts, :do)
+
+    expr =
+      case block do
+        {:where, _, [inner]} -> inner
+        other -> other
+      end
+
+    normalize_ref = fn
+      {name, _, context} when is_atom(name) and is_atom(context) -> name
+      {name, _, nil} when is_atom(name) -> name
+      other -> other
+    end
+
+    validator =
+      case expr do
+        {op, _, [lhs, rhs]} when op in [:==, :!=, :>, :>=, :<, :<=] ->
+          lhs_ref = normalize_ref.(lhs)
+          rhs_ref = normalize_ref.(rhs)
+
+          if is_atom(lhs_ref) do
+            quote do
+              GridCodec.Validations.compare(unquote(lhs_ref), unquote(op), unquote(rhs_ref))
+            end
+          else
+            quote do
+              GridCodec.Validations.expr(unquote(Macro.escape(expr)))
+            end
+          end
+
+        _ ->
+          quote do
+            GridCodec.Validations.expr(unquote(Macro.escape(expr)))
+          end
+      end
+
+    quote do
+      GridCodec.validate(
+        unquote(validator),
+        name: unquote(name),
+        category: :invariant
+      )
+    end
+  end
+
+  @doc """
+  Marker macro used inside `invariant` declarations.
+  """
+  defmacro where(expr), do: expr
+
+  @doc """
   Declares a named runtime lookup over a group or batch field.
   """
   defmacro lookup(name, opts) when is_atom(name) and is_list(opts) do

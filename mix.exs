@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.34.0"
+  @version "0.35.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -123,6 +123,7 @@ defmodule GridCodec.MixProject do
         "docs/getting-started.md": [title: "Getting Started"],
         "docs/schemas.md": [title: "Schemas"],
         "docs/lookups.md": [title: "Typed Groups & Lookups"],
+        "docs/validations.md": [title: "Validation Pipelines"],
         "docs/schema-evolution.md": [title: "Schema Evolution"],
         "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
         "docs/performance.md": [title: "Performance Guide"],
@@ -137,7 +138,9 @@ defmodule GridCodec.MixProject do
           GridCodec.Struct,
           GridCodec.Match,
           GridCodec.Transcoder,
-          GridCodec.ValidationError
+          GridCodec.ValidationError,
+          GridCodec.ValidationErrors,
+          GridCodec.Validations
         ],
         Runtime: [
           GridCodec.Group,
@@ -170,6 +173,7 @@ defmodule GridCodec.MixProject do
         ],
         Types: [
           GridCodec.Type,
+          GridCodec.Type.Refined,
           GridCodec.Types.U8,
           GridCodec.Types.U16,
           GridCodec.Types.U32,

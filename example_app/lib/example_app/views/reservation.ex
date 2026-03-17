@@ -15,4 +15,10 @@ defmodule ExampleApp.Views.Reservation do
     field :active, :bool
     field :expires_at, :datetime_us
   end
+
+  validations do
+    validate compare(:amount, :>, 0, allow_nil?: false),
+      name: :positive_amount,
+      category: :invariant
+  end
 end

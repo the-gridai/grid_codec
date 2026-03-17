@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-03-17
+
+### Added
+- **Validation pipelines** — `GridCodec.Struct` now supports accumulating,
+  non-raising `validations do` / `invariants do` checks on decoded structs,
+  plus `validate_struct/1`, `validate_binary/1`, decode-time `validate:`
+  modes, and runtime validation metadata.
+- **Refined type helper** — added `GridCodec.Type.Refined` so field-local rules
+  like non-negative numbers or constrained time/domain wrappers can live in the
+  type system and survive `new/1 -> encode/1 -> decode/1` roundtrips cleanly.
+- **Validation pipeline benchmark coverage** — added
+  `example_app/benchmarks/validation_bench.exs` plus the `mix bench.validation`
+  alias to compare generated `validate_struct/1` / `validate_binary/1`
+  against hand-rolled struct checks, hand-rolled binary pattern matches, and
+  generic map-validator pipelines built from anonymous functions.
+
+### Changed
+- **Example app validation usage** — `ExampleApp.Views.Reservation` now uses a
+  real struct validation, so the consumer surface exercises the new API outside
+  library-only tests and benchmarks.
+
+### Performance
+- **Validation pipeline baseline numbers** — recorded an Apple M3 Max / OTP 28.3
+  reference run for the new validation benchmark. After specializing the
+  generated hot path to use compile-time-bound field locals and direct binary
+  getter ASTs, `validate_struct/1` now runs at `14.08 M ips` (`71.02 ns`) on
+  the happy path, beating the generic map-validator pipeline
+  (`13.04 M ips`, `76.69 ns`) while remaining behind hand-rolled struct
+  validation (`24.56 M ips`, `40.72 ns`). `validate_binary/1` improved to
+  `8.97 M ips` (`111.44 ns`), which is now close to the decode-plus-manual
+  path (`9.58 M ips`, `104.37 ns`) but still behind a fully hand-written
+  binary pattern match (`23.11 M ips`, `43.27 ns`).
+
+### Documentation
+- **Validation benchmark guidance** — updated `README.md`,
+  `docs/validations.md`, `docs/performance.md`, and `example_app/README.md`
+  with the new validation benchmark command, coverage, and performance
+  positioning for generated validators vs hand-rolled code.
+- **Validation pipeline guide** — added ExDoc coverage and architecture/runtime
+  boundary docs for `GridCodec.Validations`, `GridCodec.ValidationErrors`,
+  `GridCodec.Type.Refined`, and the fact that validations remain runtime-only
+  metadata outside the `.grid` schema format.
+
 ## [0.34.0] - 2026-03-17
 
 ### Added

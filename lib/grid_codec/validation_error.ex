@@ -1,10 +1,11 @@
 defmodule GridCodec.ValidationError do
   @moduledoc """
-  Raised when a field value doesn't match the expected GridCodec type.
+  Raised when a field value or invariant doesn't match the expected GridCodec rules.
 
   Provides structured, matchable error information:
 
-  - `code` — atom for pattern matching (`:type_mismatch`, `:out_of_range`, `:invalid_format`, `:cast_error`)
+  - `code` — atom for pattern matching (`:type_mismatch`, `:out_of_range`,
+    `:invalid_format`, `:cast_error`, `:required_field`, `:invariant_failed`)
   - `details` — field name, expected type, actual value, module, and description
   - `message` — generated lazily from details when accessed (via `Exception.message/1`)
 
@@ -22,13 +23,22 @@ defmodule GridCodec.ValidationError do
   defexception [:code, :details]
 
   @type t :: %__MODULE__{
-          code: :type_mismatch | :out_of_range | :invalid_format | :cast_error | :required_field,
+          code:
+            :type_mismatch
+            | :out_of_range
+            | :invalid_format
+            | :cast_error
+            | :required_field
+            | :invariant_failed,
           details: %{
-            field: atom(),
-            type: atom() | module(),
-            value: term(),
-            module: module(),
-            description: String.t()
+            optional(:field) => atom(),
+            optional(:type) => atom() | module(),
+            optional(:value) => term(),
+            optional(:name) => atom(),
+            optional(:category) => atom(),
+            optional(:metadata) => map(),
+            required(:module) => module(),
+            required(:description) => String.t()
           }
         }
 
@@ -47,11 +57,26 @@ defmodule GridCodec.ValidationError do
     "Field #{inspect(field)} in #{inspect(module)} — #{format_code(code)}. #{desc}."
   end
 
+  def message(%__MODULE__{
+        code: code,
+        details: %{name: name, module: module, description: desc}
+      }) do
+    "Validation #{inspect(name)} in #{inspect(module)} — #{format_code(code)}. #{desc}."
+  end
+
+  def message(%__MODULE__{
+        code: code,
+        details: %{module: module, description: desc}
+      }) do
+    "#{inspect(module)} — #{format_code(code)}. #{desc}."
+  end
+
   defp format_code(:out_of_range), do: "out of range"
   defp format_code(:type_mismatch), do: "type mismatch"
   defp format_code(:invalid_format), do: "invalid format"
   defp format_code(:cast_error), do: "cannot cast"
   defp format_code(:required_field), do: "required field missing"
+  defp format_code(:invariant_failed), do: "invariant failed"
 
   @doc false
   def cast_error(module, field, type, value, reason) do
@@ -119,6 +144,19 @@ defmodule GridCodec.ValidationError do
         field: field,
         module: module,
         description: "required field #{inspect(field)} cannot be nil"
+      }
+    }
+  end
+
+  @doc false
+  def invariant_failed(module, name, description, metadata \\ %{}) do
+    %__MODULE__{
+      code: :invariant_failed,
+      details: %{
+        module: module,
+        name: name,
+        description: description,
+        metadata: metadata
       }
     }
   end

@@ -53,9 +53,13 @@ mix bench.quick
 # Parameterized benchmarks (small/medium/large data)
 mix bench.parameterized
 
+# Validation pipeline benchmark
+mix bench.validation
+
 # Or run directly
 mix run benchmarks/encode_decode.exs
 MIX_ENV=prod mix run benchmarks/lookup_bench.exs
+MIX_ENV=prod mix run benchmarks/validation_bench.exs
 ```
 
 ### Example Codecs

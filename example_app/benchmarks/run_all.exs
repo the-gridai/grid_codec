@@ -41,6 +41,11 @@ defmodule Bench.RunAll do
     Code.require_file("encode_decode.exs", __DIR__)
 
     IO.puts("\n" <> String.duplicate("═", 80))
+    IO.puts("BENCHMARK 3: Validation Pipelines")
+    IO.puts(String.duplicate("═", 80))
+    Code.require_file("validation_bench.exs", __DIR__)
+
+    IO.puts("\n" <> String.duplicate("═", 80))
     IO.puts("ALL BENCHMARKS COMPLETE")
     IO.puts(String.duplicate("═", 80))
   end

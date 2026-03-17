@@ -76,6 +76,52 @@ Run comparisons yourself: `cd example_app && mix run benchmarks/ecto_comparison.
 
 For format comparison (vs Protobuf, ETF, MessagePack): `mix run benchmarks/format_comparison.exs`
 
+## Validation Pipeline Baseline
+
+Validation pipelines now have a dedicated benchmark:
+
+```bash
+cd example_app
+MIX_ENV=prod mix run benchmarks/validation_bench.exs
+```
+
+Reference run on Apple M3 Max, OTP 28.3, Elixir 1.19.4:
+
+### Struct validation, happy path
+
+| Method | Throughput | Average |
+|--------|------------|---------|
+| Hand-rolled struct validation | 24.56 M ips | 40.72 ns |
+| Generated `validate_struct/1` | 14.08 M ips | 71.02 ns |
+| Map validators (anonymous fns) | 13.04 M ips | 76.69 ns |
+
+### Binary validation, happy path
+
+| Method | Throughput | Average |
+|--------|------------|---------|
+| Hand-rolled binary pattern | 23.11 M ips | 43.27 ns |
+| `validate_struct/1` on decoded struct | 14.35 M ips | 69.71 ns |
+| Decode + hand-rolled struct validation | 9.58 M ips | 104.37 ns |
+| Generated `validate_binary/1` | 8.97 M ips | 111.44 ns |
+
+### Why this benchmark exists
+
+This benchmark is a correctness and optimization guardrail, not just a vanity
+number. Generated validation should stay competitive with hand-rolled code and
+should beat generic map validation pipelines built from anonymous functions
+where the compiler has enough static information to specialize the checks.
+
+Current takeaways:
+
+- `validate_struct/1` now beats the generic map-validator pipeline on the happy
+  path while using less memory, but still trails fully hand-rolled struct
+  checks.
+- `validate_binary/1` is now close to the `decode + hand-rolled struct
+  validation` path, but still behind a fully specialized hand-written binary
+  pattern match.
+- Failure-path allocation is still higher than the hand-rolled baseline, so
+  there is remaining headroom in accumulated-error construction.
+
 ## Choosing the Right Constructor
 
 | Function | When to use | Latency | Memory |

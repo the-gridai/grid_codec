@@ -232,6 +232,17 @@ systems that need updating based on what kind of change you're making.
 - [ ] DOC — AGENTS.md, CHANGELOG, moduledoc
 - [ ] TEST — struct definition, encode/decode behavior, `new/1`
 
+**Adding validations / invariants**:
+- [ ] MACRO — add DSL entry points in `grid_codec.ex` (`validations`, `validate`, `invariants`, `invariant`)
+- [ ] C-VAL — extend compiler validation flow (`__validate__`, `validate_struct/1`, `validate_binary/1`, decode `validate:` modes)
+- [ ] C-NEW — ensure `new/1`, `update/2`, and `new_binary/1` route through the same validation contract
+- [ ] C-ENC — ensure `encode/1` remains the final gate for externally-constructed structs
+- [ ] C-DEC — decide how `decode/2` opt-in validation modes compose with binary vs decoded validation backends
+- [ ] C-SCH — record runtime-only validation metadata in `__schema__/0` if it is useful for introspection, but do not export it to `.grid`
+- [ ] C-TYP — keep field-local rules in types when possible; review whether a refined type should be a `GridCodec.Type` wrapper instead of a struct validator
+- [ ] DOC — update README, `docs/validations.md`, moduledocs, and any support matrix documentation
+- [ ] TEST — add unit/property tests for accumulation, non-raising behavior, decode validation modes, and binary-capable validator coverage
+
 #### Verification: .grid Roundtrip Test
 
 Every feature representable in `.grid` MUST survive this roundtrip:

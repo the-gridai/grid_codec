@@ -34,6 +34,21 @@ defmodule GridCodec.Type do
   end
   ```
 
+  For field-local refinement rules, prefer wrapping an existing base type with
+  `GridCodec.Type.Refined` instead of pushing the rule into a struct-level
+  validation pipeline.
+
+  ```elixir
+  defmodule MyApp.Types.NonNegativeI64 do
+    use GridCodec.Type.Refined, base: :i64
+
+    @impl true
+    def refine(nil), do: :ok
+    def refine(value) when value >= 0, do: :ok
+    def refine(_value), do: {:error, "must be >= 0"}
+  end
+  ```
+
   ## Type Categories
 
   ### Fixed-Size Types
