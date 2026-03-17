@@ -17,8 +17,9 @@ defmodule ExampleApp.Views.Reservation do
   end
 
   validations do
-    validate compare(:amount, :>, 0, allow_nil?: false),
+    validate(compare(:amount, :>, 0, allow_nil?: false),
       name: :positive_amount,
       category: :invariant
+    )
   end
 end
