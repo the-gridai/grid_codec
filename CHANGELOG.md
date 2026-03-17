@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-03-18
+
+### Added
+- **`field_defaults` option** — `use GridCodec.Struct, field_defaults: [presence: :required]`
+  applies default options to every `field` declaration in the codec. Explicit per-field
+  options take precedence. Reduces boilerplate in structs where most fields share the
+  same options.
+
+### Changed
+- **Breaking change CI job is now informational** — the `breaking` CI job uses
+  `continue-on-error: true` so example app schema changes no longer block PR merges.
+  Breaking changes are still reported for visibility.
+- **Example app `TradeExecuted`** now uses `field_defaults: [presence: :required]`
+  as a showcase for the new option.
+
 ## [0.35.0] - 2026-03-17
 
 ### Added
