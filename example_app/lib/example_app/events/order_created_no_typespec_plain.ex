@@ -9,7 +9,7 @@ defmodule ExampleApp.Events.OrderCreatedNoTypespecPlain do
     generate_typespec: false
 
   defcodec do
-    field :order_id, :uuid
-    field :price, :u64
+    field :order_id, :uuid, doc: "Order identifier used in the plain no-typespec example."
+    field :price, :u64, doc: "Price carried by the plain no-typespec example."
   end
 end

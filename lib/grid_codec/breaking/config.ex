@@ -12,14 +12,20 @@ defmodule GridCodec.Breaking.Config do
     schema_files: ["priv/schemas/**/*.grid"],
     against: "origin/main",
     category: :source,
-    except: []
+    except: [],
+    include_docs: true,
+    fail_on: [:error],
+    severity_overrides: %{}
   }
 
   @type t :: %{
           schema_files: [String.t()],
           against: String.t(),
           category: :wire | :source,
-          except: [atom()]
+          except: [atom()],
+          include_docs: boolean(),
+          fail_on: [atom()],
+          severity_overrides: map()
         }
 
   @doc """
@@ -75,11 +81,32 @@ defmodule GridCodec.Breaking.Config do
     breaking = Keyword.get(file_config, :breaking, [])
 
     Enum.reduce(breaking, defaults, fn
-      {:schema_files, v}, acc when is_list(v) -> %{acc | schema_files: v}
-      {:against, v}, acc when is_binary(v) -> %{acc | against: v}
-      {:category, v}, acc when v in [:wire, :source] -> %{acc | category: v}
-      {:except, v}, acc when is_list(v) -> %{acc | except: v}
-      _, acc -> acc
+      {:schema_files, v}, acc when is_list(v) ->
+        %{acc | schema_files: v}
+
+      {:against, v}, acc when is_binary(v) ->
+        %{acc | against: v}
+
+      {:category, v}, acc when v in [:wire, :source] ->
+        %{acc | category: v}
+
+      {:except, v}, acc when is_list(v) ->
+        %{acc | except: v}
+
+      {:include_docs, v}, acc when is_boolean(v) ->
+        %{acc | include_docs: v}
+
+      {:fail_on, v}, acc when is_list(v) ->
+        %{acc | fail_on: Enum.filter(v, &(&1 in [:error, :warning, :info]))}
+
+      {:severity_overrides, v}, acc when is_map(v) ->
+        %{acc | severity_overrides: normalize_overrides(v)}
+
+      {:severity_overrides, v}, acc when is_list(v) ->
+        %{acc | severity_overrides: normalize_overrides(v)}
+
+      _, acc ->
+        acc
     end)
   end
 
@@ -99,4 +126,16 @@ defmodule GridCodec.Breaking.Config do
   defp parse_category(:wire), do: :wire
   defp parse_category(:source), do: :source
   defp parse_category(_), do: nil
+
+  defp normalize_overrides(overrides) do
+    overrides
+    |> Enum.into(%{})
+    |> Enum.reduce(%{}, fn
+      {rule, severity}, acc when is_atom(rule) and severity in [:error, :warning, :info] ->
+        Map.put(acc, rule, severity)
+
+      _, acc ->
+        acc
+    end)
+  end
 end

@@ -58,6 +58,111 @@ defmodule Mix.Tasks.GridCodec.BreakingTest do
     end)
   end
 
+  test "task reports non-blocking documentation issues without failing", %{example_app_dir: dir} do
+    schema_path = Path.join(dir, "priv/schemas/events/schema.grid")
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string
+    }
+    """)
+
+    git!(Path.dirname(dir), ["add", "."])
+
+    git!(Path.dirname(dir), [
+      "-c",
+      "user.name=GridCodec Tests",
+      "-c",
+      "user.email=tests@example.com",
+      "commit",
+      "-m",
+      "baseline with struct"
+    ])
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string, doc: "Stable identifier."
+    }
+    """)
+
+    File.cd!(dir, fn ->
+      output = capture_task(fn -> Breaking.run(["--against", "HEAD"]) end)
+      assert output =~ "non-blocking issue"
+      assert output =~ "DOC_FIELD_DOC_ADDED"
+    end)
+  end
+
+  test "task fails when policy escalates documentation issues", %{example_app_dir: dir} do
+    schema_path = Path.join(dir, "priv/schemas/events/schema.grid")
+    config_path = Path.join(dir, ".grid_codec.exs")
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string
+    }
+    """)
+
+    git!(Path.dirname(dir), ["add", "."])
+
+    git!(Path.dirname(dir), [
+      "-c",
+      "user.name=GridCodec Tests",
+      "-c",
+      "user.email=tests@example.com",
+      "commit",
+      "-m",
+      "baseline with struct"
+    ])
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string, doc: "Stable identifier."
+    }
+    """)
+
+    File.write!(config_path, """
+    [
+      breaking: [
+        schema_files: ["priv/schemas/**/*.grid"],
+        against: "HEAD",
+        severity_overrides: [DOC_FIELD_DOC_ADDED: :error]
+      ]
+    ]
+    """)
+
+    File.cd!(dir, fn ->
+      assert catch_exit(capture_task(fn -> Breaking.run([]) end)) == {:shutdown, 1}
+    end)
+  end
+
   defp git!(cwd, args) do
     case System.cmd("git", args, cd: cwd, stderr_to_stdout: true) do
       {_output, 0} -> :ok

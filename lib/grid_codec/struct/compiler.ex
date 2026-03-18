@@ -127,7 +127,7 @@ defmodule GridCodec.Struct.Compiler do
 
     # Build struct field list with defaults (includes group names with default [])
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
-    struct_typedoc = build_struct_typedoc(resolved_fields, groups)
+    struct_typedoc = build_struct_typedoc(resolved_fields, processed_groups)
 
     # Build schema metadata
     field_names = Enum.map(fields, fn {name, _, _} -> name end)
@@ -143,7 +143,9 @@ defmodule GridCodec.Struct.Compiler do
         resolved = Keyword.get(gopts, :__resolved_fields__, [])
 
         gfields =
-          Enum.map(resolved, fn {fname, type_atom, _module, _fopts} -> {fname, type_atom} end)
+          Enum.map(resolved, fn {fname, type_atom, _module, fopts} ->
+            {fname, type_atom, fopts}
+          end)
 
         {gname, gfields}
       end)
@@ -766,8 +768,65 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp build_struct_typedoc(_resolved_fields, _groups),
-    do: "Struct representation for this codec module."
+  defp build_struct_typedoc(resolved_fields, processed_groups) do
+    field_lines =
+      Enum.flat_map(resolved_fields, fn {name, type_atom, module, opts} ->
+        case Keyword.get(opts, :doc) do
+          doc when is_binary(doc) ->
+            ["- `#{name}` (`#{typedoc_type_name(type_atom, module)}`) - #{doc}"]
+
+          _ ->
+            []
+        end
+      end)
+
+    group_lines =
+      processed_groups
+      |> Enum.reject(fn {_name, _block, opts} -> Keyword.get(opts, :is_batch, false) end)
+      |> Enum.flat_map(fn {name, _block, opts} ->
+        direct_group_doc =
+          case Keyword.get(opts, :doc) do
+            doc when is_binary(doc) -> ["- `#{name}` - #{doc}"]
+            _ -> []
+          end
+
+        nested_field_docs =
+          case Keyword.get(opts, :__of_module__) do
+            nil ->
+              opts
+              |> Keyword.get(:__resolved_fields__, [])
+              |> Enum.flat_map(fn {fname, type_atom, module, fopts} ->
+                case Keyword.get(fopts, :doc) do
+                  doc when is_binary(doc) ->
+                    [
+                      "- `#{name}.#{fname}` (`#{typedoc_type_name(type_atom, module)}`) - #{doc}"
+                    ]
+
+                  _ ->
+                    []
+                end
+              end)
+
+            _module ->
+              []
+          end
+
+        direct_group_doc ++ nested_field_docs
+      end)
+
+    sections =
+      []
+      |> maybe_append_typedoc_section("## Fields", field_lines)
+      |> maybe_append_typedoc_section("## Groups", group_lines)
+
+    case sections do
+      [] ->
+        "Struct representation for this codec module."
+
+      _ ->
+        Enum.join(["Struct representation for this codec module.", ""] ++ sections, "\n")
+    end
+  end
 
   defp base_field_type_ast(:u8, _module), do: quote(do: non_neg_integer())
   defp base_field_type_ast(:u16, _module), do: quote(do: non_neg_integer())
@@ -826,6 +885,21 @@ defmodule GridCodec.Struct.Compiler do
         false
     end
   end
+
+  defp typedoc_type_name(type_atom, module)
+       when is_atom(type_atom) and is_atom(module) and module != nil do
+    inspect(module)
+  end
+
+  defp typedoc_type_name(type_atom, _module) when is_atom(type_atom),
+    do: Atom.to_string(type_atom)
+
+  defp maybe_append_typedoc_section(sections, _heading, []), do: sections
+
+  defp maybe_append_typedoc_section([], heading, lines), do: [heading, ""] ++ lines
+
+  defp maybe_append_typedoc_section(sections, heading, lines),
+    do: sections ++ ["", heading, ""] ++ lines
 
   defp build_layout_typedoc(fixed_fields, var_fields, groups, _field_offsets, block_length) do
     pattern_snippet = build_payload_pattern_snippet(fixed_fields, var_fields, groups)
@@ -5044,8 +5118,13 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       defp __validate__(data) when is_map(data) do
-        errors = __collect_type_validation_errors__(data) ++ __collect_validator_errors__(data)
-        __validation_error_result__(errors)
+        case __collect_type_validation_errors__(data) do
+          [] ->
+            __validation_error_result__(__collect_validator_errors__(data))
+
+          errors ->
+            __validation_error_result__(errors)
+        end
       end
     end
   end

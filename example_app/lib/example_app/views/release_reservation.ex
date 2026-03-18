@@ -9,8 +9,8 @@ defmodule ExampleApp.Views.ReleaseReservation do
     name: "ExampleApp.Views.ReleaseReservation"
 
   defcodec do
-    field :reservation_id, :u64
-    field :reason_code, :u8
-    field :released_at, :timestamp_us
+    field :reservation_id, :u64, doc: "Reservation that should be released."
+    field :reason_code, :u8, doc: "Compact reason code for the release operation."
+    field :released_at, :timestamp_us, doc: "Timestamp when the release was recorded."
   end
 end

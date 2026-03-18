@@ -262,6 +262,42 @@ defmodule GridCodec.Schema.ParserTest do
       assert Map.has_key?(schema.structs, :Order)
     end
 
+    test "parses field, group, and enum docs" do
+      content = """
+      schema { id: 1 }
+
+      enum Side : u8 {
+        buy = 0, doc: "Bid-side order."
+        sell = 1, doc: "Ask-side order."
+      }
+
+      struct Order (template_id: 1001) {
+        side: Side, doc: "Current side."
+
+        group fills {
+          doc: "Partial fills."
+          qty: u32, doc: "Executed quantity."
+        }
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+
+      [buy, sell] = schema.enums[:Side].values
+      assert buy == {:buy, 0, "Bid-side order."}
+      assert sell == {:sell, 1, "Ask-side order."}
+
+      struct_def = schema.structs[:Order]
+      [field] = struct_def.fields
+      assert field.name == :side
+      assert field.doc == "Current side."
+
+      [group] = struct_def.groups
+      assert group.doc == "Partial fills."
+      [group_field] = group.fields
+      assert group_field.doc == "Executed quantity."
+    end
+
     test "parses multiple structs" do
       content = """
       schema { id: 100 }

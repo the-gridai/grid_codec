@@ -4,9 +4,9 @@
 @syntax 1
 
 struct Reservation (template_id: 301) {
-  reservation_id: u64
-  order_id: u64
-  amount: u64
-  active: bool
-  expires_at: datetime_us
+  reservation_id: u64, doc: "Stable identifier for the reservation."
+  order_id: u64, doc: "Order that currently owns the reserved funds."
+  amount: u64, doc: "Reserved amount in account units."
+  active: bool, doc: "Whether the reservation is still consuming balance."
+  expires_at: datetime_us, doc: "Point in time when the reservation should lapse."
 }

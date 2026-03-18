@@ -6,8 +6,8 @@
 import "../../../events/order_side.grid"
 
 struct TaggedMetric (template_id: 103) {
-  metric_id: u64
-  side: OrderSide
-  value: u64
-  timestamp: timestamp_us
+  metric_id: u64, doc: "Identifier for the benchmark metric stream."
+  side: OrderSide, doc: "Order side carried across the cross-schema enum import."
+  value: u64, doc: "Observed metric value."
+  timestamp: timestamp_us, doc: "Timestamp when the metric sample was captured."
 }

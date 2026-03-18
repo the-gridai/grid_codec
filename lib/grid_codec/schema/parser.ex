@@ -287,7 +287,8 @@ defmodule GridCodec.Schema.Parser do
               since: nil,
               default: nil,
               presence: nil,
-              value: nil
+              value: nil,
+              doc: nil
 
     @type t :: %__MODULE__{
             name: atom() | nil,
@@ -298,7 +299,8 @@ defmodule GridCodec.Schema.Parser do
             since: integer() | nil,
             default: term(),
             presence: atom() | nil,
-            value: term()
+            value: term(),
+            doc: String.t() | nil
           }
   end
 
@@ -307,13 +309,15 @@ defmodule GridCodec.Schema.Parser do
     defstruct name: nil,
               fields: [],
               framing: nil,
-              of_type: nil
+              of_type: nil,
+              doc: nil
 
     @type t :: %__MODULE__{
             name: atom() | nil,
             fields: [Field.t()],
             framing: :length_prefixed | nil,
-            of_type: atom() | nil
+            of_type: atom() | nil,
+            doc: String.t() | nil
           }
   end
 
@@ -437,7 +441,8 @@ defmodule GridCodec.Schema.Parser do
     content
     |> String.replace(~r/#[^\n]*/, "")
     |> String.replace(~r/([\[\]\(\),\{\}])/, " \\1 ")
-    |> String.split(~r/\s+/, trim: true)
+    |> then(&Regex.scan(~r/"(?:\\.|[^"])*"|[^\s]+/, &1))
+    |> List.flatten()
     |> tokenize_stream([])
   end
 
@@ -865,8 +870,36 @@ defmodule GridCodec.Schema.Parser do
     {:ok, Enum.reverse(acc), rest}
   end
 
+  defp parse_enum_values(
+         [
+           {:word, name},
+           :equals,
+           {:word, value},
+           :comma,
+           {:word, "doc"},
+           :colon,
+           {:word, doc} | rest
+         ],
+         acc
+       ) do
+    parse_enum_values(rest, [{String.to_atom(name), parse_value(value), parse_value(doc)} | acc])
+  end
+
   defp parse_enum_values([{:word, name}, :equals, {:word, value} | rest], acc) do
     parse_enum_values(rest, [{String.to_atom(name), parse_value(value)} | acc])
+  end
+
+  defp parse_enum_values(
+         [{:word, name}, {:word, value}, :comma, {:word, "doc"}, :colon, {:word, doc} | rest],
+         acc
+       ) do
+    case Integer.parse(value) do
+      {int, ""} ->
+        parse_enum_values(rest, [{String.to_atom(name), int, parse_value(doc)} | acc])
+
+      _ ->
+        {:error, {:invalid_enum_value, name, value}}
+    end
   end
 
   defp parse_enum_values([{:word, name}, {:word, value} | rest], acc) do
@@ -903,14 +936,15 @@ defmodule GridCodec.Schema.Parser do
          groups,
          batches
        ) do
-    {framing, rest2} = extract_group_framing(rest)
+    {group_attrs, rest2} = extract_group_attrs(rest)
 
     case rest2 do
       [:rbrace | remaining] ->
         group = %Group{
           name: String.to_atom(name),
           of_type: String.to_atom(scalar_type),
-          framing: framing
+          framing: group_attrs.framing,
+          doc: group_attrs.doc
         }
 
         parse_struct_body(remaining, fields, [group | groups], batches)
@@ -939,14 +973,15 @@ defmodule GridCodec.Schema.Parser do
   defp parse_struct_body([{:word, "group"}, {:word, name} | rest], fields, groups, batches) do
     case rest do
       [:colon, {:word, scalar_type}, :lbrace | rest2] ->
-        {framing, rest3} = extract_group_framing(rest2)
+        {group_attrs, rest3} = extract_group_attrs(rest2)
 
         case rest3 do
           [:rbrace | remaining] ->
             group = %Group{
               name: String.to_atom(name),
               of_type: String.to_atom(scalar_type),
-              framing: framing
+              framing: group_attrs.framing,
+              doc: group_attrs.doc
             }
 
             parse_struct_body(remaining, fields, [group | groups], batches)
@@ -1094,26 +1129,29 @@ defmodule GridCodec.Schema.Parser do
 
   # Parse group block: extract optional properties (framing) then delegate to parse_fields_block
   defp parse_group_block(tokens) do
-    {framing, rest} = extract_group_framing(tokens)
+    {group_attrs, rest} = extract_group_attrs(tokens)
 
     case parse_fields_block(rest, []) do
       {:ok, group_fields, remaining} ->
-        {:ok, %Group{fields: group_fields, framing: framing}, remaining}
+        {:ok, %Group{fields: group_fields, framing: group_attrs.framing, doc: group_attrs.doc},
+         remaining}
 
       {:error, _} = err ->
         err
     end
   end
 
-  defp extract_group_framing([
-         {:word, "framing"},
-         :colon,
-         {:word, "length_prefixed"} | rest
-       ]) do
-    {:length_prefixed, rest}
+  defp extract_group_attrs(tokens), do: parse_group_attrs(tokens, %{framing: nil, doc: nil})
+
+  defp parse_group_attrs([{:word, "framing"}, :colon, {:word, "length_prefixed"} | rest], attrs) do
+    parse_group_attrs(rest, %{attrs | framing: :length_prefixed})
   end
 
-  defp extract_group_framing(tokens), do: {nil, tokens}
+  defp parse_group_attrs([{:word, "doc"}, :colon, {:word, doc} | rest], attrs) do
+    parse_group_attrs(rest, %{attrs | doc: parse_value(doc)})
+  end
+
+  defp parse_group_attrs(tokens, attrs), do: {attrs, tokens}
 
   # Parse fields block for types and groups
   defp parse_fields_block([:rbrace | rest], acc) do
@@ -1163,7 +1201,7 @@ defmodule GridCodec.Schema.Parser do
   # Field extras: parameterized types and field options
   # ============================================================================
 
-  @known_field_opts ~w(wire_format since default presence value)a
+  @known_field_opts ~w(wire_format since default presence value doc)a
 
   defp parse_field_with_extras(type_word, rest) do
     type = String.to_atom(type_word)
@@ -1180,7 +1218,8 @@ defmodule GridCodec.Schema.Parser do
           since: opts[:since],
           default: opts[:default],
           presence: opts[:presence],
-          value: opts[:value]
+          value: opts[:value],
+          doc: opts[:doc]
         }
 
         {:ok, field, rest3}

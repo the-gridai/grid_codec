@@ -89,6 +89,7 @@ defmodule GridCodec.Types.Enum do
   @callback decode(encoded()) :: {value(), binary()}
   @callback to_integer(known_value()) :: non_neg_integer()
   @callback to_atom(non_neg_integer()) :: known_value() | non_neg_integer()
+  @callback value_docs() :: %{optional(atom()) => String.t()}
 
   @doc false
   defmacro __using__(opts) do
@@ -102,9 +103,10 @@ defmodule GridCodec.Types.Enum do
       @behaviour GridCodec.Type
       @behaviour GridCodec.Types.Enum
 
-      import GridCodec.Types.Enum, only: [defenum: 1, value: 1, value: 2]
+      import GridCodec.Types.Enum, only: [defenum: 1, value: 1, value: 2, value: 3]
 
       Module.register_attribute(__MODULE__, :enum_values, accumulate: true)
+      Module.register_attribute(__MODULE__, :enum_value_docs, accumulate: true)
       Module.register_attribute(__MODULE__, :enum_encoding, [])
       Module.put_attribute(__MODULE__, :enum_encoding, unquote(encoding))
       Module.put_attribute(__MODULE__, :enum_next_value, 0)
@@ -134,7 +136,40 @@ defmodule GridCodec.Types.Enum do
   """
   defmacro value(name, int) when is_atom(name) and is_integer(int) do
     quote do
+      value(unquote(name), unquote(int), [])
+    end
+  end
+
+  @doc false
+  defmacro value(name, opts) when is_atom(name) and is_list(opts) do
+    doc = Keyword.get(opts, :doc)
+
+    quote do
+      next = Module.get_attribute(__MODULE__, :enum_next_value)
+      @enum_values {unquote(name), next}
+
+      if unquote(doc) do
+        @enum_value_docs {unquote(name), unquote(doc)}
+      end
+
+      Module.put_attribute(__MODULE__, :enum_next_value, next + 1)
+    end
+  end
+
+  @doc """
+  Defines an enum value with explicit integer and metadata.
+  """
+  defmacro value(name, int, opts)
+           when is_atom(name) and is_integer(int) and is_list(opts) do
+    doc = Keyword.get(opts, :doc)
+
+    quote do
       @enum_values {unquote(name), unquote(int)}
+
+      if unquote(doc) do
+        @enum_value_docs {unquote(name), unquote(doc)}
+      end
+
       Module.put_attribute(__MODULE__, :enum_next_value, unquote(int) + 1)
     end
   end
@@ -144,9 +179,7 @@ defmodule GridCodec.Types.Enum do
   """
   defmacro value(name) when is_atom(name) do
     quote do
-      next = Module.get_attribute(__MODULE__, :enum_next_value)
-      @enum_values {unquote(name), next}
-      Module.put_attribute(__MODULE__, :enum_next_value, next + 1)
+      value(unquote(name), [])
     end
   end
 
@@ -154,6 +187,7 @@ defmodule GridCodec.Types.Enum do
   # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
   defmacro __before_compile__(env) do
     values = Module.get_attribute(env.module, :enum_values) |> Enum.reverse()
+    value_docs = Module.get_attribute(env.module, :enum_value_docs) |> Enum.reverse() |> Map.new()
     encoding = Module.get_attribute(env.module, :enum_encoding)
 
     {size, null_value, encode_spec, decode_spec} = encoding_specs(encoding)
@@ -161,6 +195,22 @@ defmodule GridCodec.Types.Enum do
     encoded_type_ast = quote(do: <<_::unquote(size * 8)>>)
     known_names = Enum.map(values, fn {name, _} -> name end)
     known_names_doc = Enum.map_join(known_names, ", ", &inspect/1)
+    values_section = build_values_section(values, value_docs)
+
+    moduledoc_value =
+      case Module.get_attribute(env.module, :moduledoc) do
+        {_, false} ->
+          false
+
+        {_, existing} when is_binary(existing) and values_section != "" ->
+          existing <> "\n\n" <> values_section
+
+        {_, existing} when is_binary(existing) ->
+          existing
+
+        _ ->
+          nil
+      end
 
     value_doc = """
     Decoded enum value.
@@ -213,6 +263,8 @@ defmodule GridCodec.Types.Enum do
       end
 
     quote do
+      @moduledoc unquote(moduledoc_value)
+
       @typedoc "Known enum atoms declared in `defenum`: #{unquote(known_names_doc)}."
       @type known() :: unquote(known_type_ast)
 
@@ -224,6 +276,9 @@ defmodule GridCodec.Types.Enum do
 
       @impl GridCodec.Types.Enum
       def values, do: unquote(Macro.escape(values))
+
+      @impl GridCodec.Types.Enum
+      def value_docs, do: unquote(Macro.escape(value_docs))
 
       @impl GridCodec.Types.Enum
       def encoding, do: unquote(encoding)
@@ -489,6 +544,22 @@ defmodule GridCodec.Types.Enum do
         Enum.reduce(rest, first, fn atom, acc ->
           quote(do: unquote(acc) | unquote(atom))
         end)
+    end
+  end
+
+  defp build_values_section(values, value_docs) do
+    entries =
+      values
+      |> Enum.flat_map(fn {name, int} ->
+        case Map.get(value_docs, name) do
+          nil -> []
+          doc -> ["- `#{name} = #{int}` - #{doc}"]
+        end
+      end)
+
+    case entries do
+      [] -> ""
+      _ -> Enum.join(["## Values", ""] ++ entries, "\n")
     end
   end
 

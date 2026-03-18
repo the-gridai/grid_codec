@@ -208,12 +208,20 @@ defmodule GridCodec.Schema.Formatter do
   end
 
   defp enum_info(mod) do
+    value_docs =
+      if function_exported?(mod, :value_docs, 0) do
+        mod.value_docs()
+      else
+        %{}
+      end
+
     {mod,
      %{
        module: mod,
        short_name: short_module_name(mod),
        encoding: mod.encoding(),
-       values: mod.values()
+       values:
+         Enum.map(mod.values(), fn {name, int} -> {name, int, Map.get(value_docs, name)} end)
      }}
   end
 
@@ -227,7 +235,14 @@ defmodule GridCodec.Schema.Formatter do
 
   defp format_enum_block(info) do
     encoding_str = Map.get(@encoding_to_grid, info.encoding, Atom.to_string(info.encoding))
-    values = Enum.map_join(info.values, "\n", fn {name, int} -> "  #{name} = #{int}" end)
+
+    values =
+      Enum.map_join(info.values, "\n", fn
+        {name, int, nil} -> "  #{name} = #{int}"
+        {name, int, doc} -> "  #{name} = #{int}, doc: #{format_opt_value(doc)}"
+        {name, int} -> "  #{name} = #{int}"
+      end)
+
     "enum #{info.short_name} : #{encoding_str} {\n#{values}\n}"
   end
 
@@ -272,25 +287,45 @@ defmodule GridCodec.Schema.Formatter do
 
         cond do
           is_scalar ->
+            doc_line =
+              if doc = Keyword.get(gopts, :doc),
+                do: ["    doc: #{format_opt_value(doc)}"],
+                else: []
+
             framing_line =
               if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
             scalar_type = format_type(scalar_of, type_aliases)
-            ["", "  group #{gname} : #{scalar_type} {"] ++ framing_line ++ ["  }"]
+            ["", "  group #{gname} : #{scalar_type} {"] ++ doc_line ++ framing_line ++ ["  }"]
 
           gfields == [] ->
             []
 
           true ->
+            doc_line =
+              if doc = Keyword.get(gopts, :doc),
+                do: ["    doc: #{format_opt_value(doc)}"],
+                else: []
+
             framing_line =
               if framing == :length_prefixed, do: ["    framing: length_prefixed"], else: []
 
             field_strs =
-              Enum.map(gfields, fn {fname, type_spec} ->
-                "    #{fname}: #{format_type(type_spec, type_aliases)}"
+              Enum.map(gfields, fn
+                {fname, type_spec, fopts} ->
+                  opts_str = format_field_opts(fopts)
+
+                  if opts_str == "" do
+                    "    #{fname}: #{format_type(type_spec, type_aliases)}"
+                  else
+                    "    #{fname}: #{format_type(type_spec, type_aliases)}, #{opts_str}"
+                  end
+
+                {fname, type_spec} ->
+                  "    #{fname}: #{format_type(type_spec, type_aliases)}"
               end)
 
-            ["", "  group #{gname} {"] ++ framing_line ++ field_strs ++ ["  }"]
+            ["", "  group #{gname} {"] ++ doc_line ++ framing_line ++ field_strs ++ ["  }"]
         end
       end)
 
@@ -458,7 +493,7 @@ defmodule GridCodec.Schema.Formatter do
     "#{fname}"
   end
 
-  @field_opt_order [:wire_format, :since, :presence, :default, :value]
+  @field_opt_order [:wire_format, :since, :presence, :default, :value, :doc]
 
   defp format_field_opts(opts) do
     parts =
@@ -470,6 +505,7 @@ defmodule GridCodec.Schema.Formatter do
           key == :presence and val == :optional -> []
           key == :default -> ["default: #{format_opt_value(val)}"]
           key == :value -> ["value: #{format_opt_value(val)}"]
+          key == :doc -> ["doc: #{format_opt_value(val)}"]
           true -> ["#{key}: #{val}"]
         end
       end)
@@ -477,7 +513,7 @@ defmodule GridCodec.Schema.Formatter do
     Enum.join(parts, ", ")
   end
 
-  defp format_opt_value(val) when is_binary(val), do: ~s("#{val}")
+  defp format_opt_value(val) when is_binary(val), do: inspect(val)
   defp format_opt_value(val), do: "#{val}"
 
   defp format_type(type_spec, type_aliases) do

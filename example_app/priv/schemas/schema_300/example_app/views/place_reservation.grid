@@ -4,7 +4,7 @@
 @syntax 1
 
 struct PlaceReservation (template_id: 303) {
-  reservation_id: u64
-  amount: u64
-  requested_at: timestamp_us
+  reservation_id: u64, doc: "Reservation to create or refresh."
+  amount: u64, doc: "Amount that should be reserved."
+  requested_at: timestamp_us, doc: "Timestamp when the reservation was requested."
 }

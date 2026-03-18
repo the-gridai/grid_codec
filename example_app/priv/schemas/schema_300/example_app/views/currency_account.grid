@@ -4,13 +4,14 @@
 @syntax 1
 
 struct CurrencyAccount (template_id: 302) {
-  account_id: u64
+  account_id: u64, doc: "Identifier of the currency account being materialized."
 
   group reservations {
-    reservation_id: u64
-    order_id: u64
-    amount: u64
-    active: bool
-    expires_at: datetime_us
+    doc: "Active and historical reservations held against the account."
+    reservation_id: u64, doc: "Stable identifier for the reservation."
+    order_id: u64, doc: "Order that currently owns the reserved funds."
+    amount: u64, doc: "Reserved amount in account units."
+    active: bool, doc: "Whether the reservation is still consuming balance."
+    expires_at: datetime_us, doc: "Point in time when the reservation should lapse."
   }
 }

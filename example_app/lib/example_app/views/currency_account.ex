@@ -11,9 +11,11 @@ defmodule ExampleApp.Views.CurrencyAccount do
   alias ExampleApp.Views.Reservation
 
   defcodec do
-    field :account_id, :u64
+    field :account_id, :u64, doc: "Identifier of the currency account being materialized."
 
-    group :reservations, of: Reservation
+    group :reservations,
+      of: Reservation,
+      doc: "Active and historical reservations held against the account."
 
     lookups do
       lookup :reservations_by_id do

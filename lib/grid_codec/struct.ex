@@ -178,6 +178,10 @@ defmodule GridCodec.Struct do
         end
       end
 
+  Type validation remains the first gate. Decoded invariants run only after the
+  struct is type-safe, so callback validators can assume fields are already in
+  their declared domain types and focus on cross-field rules.
+
   Field-local rules should usually live in a custom type. Cross-field state rules
   belong in the validation pipeline. Command/workflow checks should remain in the
   consuming application.
@@ -382,6 +386,7 @@ defmodule GridCodec.Struct do
 
         group_opts =
           []
+          |> then(fn o -> if group.doc, do: [{:doc, group.doc} | o], else: o end)
           |> then(fn o -> if group.framing, do: [{:framing, group.framing} | o], else: o end)
           |> then(fn o -> if group.of_type, do: [{:of, group.of_type} | o], else: o end)
 
@@ -533,6 +538,7 @@ defmodule GridCodec.Struct do
 
     field_opts =
       []
+      |> maybe_put(:doc, field.doc)
       |> maybe_put(:presence, field.presence)
       |> maybe_put(:wire_format, field.wire_format)
       |> maybe_put(:since, field.since)

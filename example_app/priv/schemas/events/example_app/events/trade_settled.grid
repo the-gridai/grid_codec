@@ -7,11 +7,11 @@ import "../../order_side.grid"
 import "../../order_status.grid"
 
 struct TradeSettled (template_id: 4) {
-  trade_id: uuid, presence: required
-  order_id: uuid
-  side: OrderSide
-  status: OrderStatus
-  settled_price: u64
-  settled_quantity: u32
-  timestamp: timestamp_us
+  trade_id: uuid, presence: required, doc: "Stable identifier for the settled trade."
+  order_id: uuid, doc: "Identifier of the order associated with the settlement."
+  side: OrderSide, doc: "Trading side carried through from the source order."
+  status: OrderStatus, doc: "Order status after settlement processing completes."
+  settled_price: u64, doc: "Final settlement price in quote units."
+  settled_quantity: u32, doc: "Final settled quantity in base units."
+  timestamp: timestamp_us, doc: "Timestamp when settlement was recorded."
 }

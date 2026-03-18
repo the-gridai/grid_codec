@@ -10,6 +10,9 @@ defmodule GridCodec.Breaking.ConfigTest do
       assert defaults.against == "origin/main"
       assert defaults.category == :source
       assert defaults.except == []
+      assert defaults.include_docs == true
+      assert defaults.fail_on == [:error]
+      assert defaults.severity_overrides == %{}
     end
   end
 
@@ -24,6 +27,30 @@ defmodule GridCodec.Breaking.ConfigTest do
       assert {:ok, config} = Config.load(against: "v1.0.0", category: "wire")
       assert config.against == "v1.0.0"
       assert config.category == :wire
+    end
+
+    test "loads docs policy from config file" do
+      dir =
+        Path.join(System.tmp_dir!(), "grid_codec_config_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(dir)
+      config_path = Path.join(dir, ".grid_codec.exs")
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      File.write!(config_path, """
+      [
+        breaking: [
+          include_docs: false,
+          fail_on: [:error, :warning],
+          severity_overrides: [DOC_FIELD_DOC_CHANGED: :error]
+        ]
+      ]
+      """)
+
+      assert {:ok, config} = Config.load(config: config_path)
+      assert config.include_docs == false
+      assert config.fail_on == [:error, :warning]
+      assert config.severity_overrides == %{DOC_FIELD_DOC_CHANGED: :error}
     end
 
     test "returns error for missing explicit config file" do

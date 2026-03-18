@@ -4,6 +4,6 @@
 @syntax 1
 
 enum OrderSide : u8 {
-  buy = 0
-  sell = 1
+  buy = 0, doc: "A buy-side order resting on or taking from the bid."
+  sell = 1, doc: "A sell-side order resting on or taking from the ask."
 }

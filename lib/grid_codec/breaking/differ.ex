@@ -86,13 +86,16 @@ defmodule GridCodec.Breaking.Differ do
     diff_named_map(old_map, new_map)
   end
 
-  @doc "Diffs enum values (ordered list of {name, int} tuples) by name."
-  @spec diff_enum_values([{atom(), integer()}], [{atom(), integer()}]) :: entity_diff()
+  @doc "Diffs enum values (ordered list of `{name, int}` or `{name, int, doc}` tuples) by name."
+  @spec diff_enum_values([tuple()], [tuple()]) :: entity_diff()
   def diff_enum_values(old_values, new_values) do
-    old_map = Map.new(old_values)
-    new_map = Map.new(new_values)
+    old_map = Map.new(old_values, &enum_value_entry/1)
+    new_map = Map.new(new_values, &enum_value_entry/1)
     diff_named_map(old_map, new_map)
   end
+
+  defp enum_value_entry({name, int}), do: {name, int}
+  defp enum_value_entry({name, int, _doc}), do: {name, int}
 
   defp diff_named_map(old_map, new_map) do
     old_keys = MapSet.new(Map.keys(old_map))

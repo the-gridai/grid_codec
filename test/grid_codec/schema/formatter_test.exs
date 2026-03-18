@@ -14,6 +14,16 @@ defmodule GridCodec.Schema.FormatterTest do
     end
   end
 
+  defmodule DocumentedEnum do
+    @moduledoc false
+    use GridCodec.Types.Enum, encoding: :u8
+
+    defenum do
+      value(:active, 0, doc: "Enabled state.")
+      value(:inactive, 1, doc: "Disabled state.")
+    end
+  end
+
   defmodule TestPrefixedIdWithSchema do
     @moduledoc false
     use GridCodec.Types.PrefixedId, prefix: "test", tag: 0x10, schema: "my_events"
@@ -105,6 +115,31 @@ defmodule GridCodec.Schema.FormatterTest do
       assert output =~ "group fills {"
       assert output =~ "price: u64"
       assert output =~ "qty: u32"
+    end
+
+    test "formats field, group, and enum docs" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:status, DocumentedEnum, [doc: "Current status."]}],
+           groups: [{:fills, nil, [doc: "Partial fills.", framing: :length_prefixed]}],
+           batches: [],
+           group_fields: %{fills: [{:qty, :u32, [doc: "Fill quantity."]}]},
+           version: 1,
+           template_id: 1,
+           schema_id: 100,
+           type: "Test.Order"
+         }}
+      ]
+
+      output = Formatter.format("TestSchema", 100, 1, codecs)
+
+      assert output =~ ~s(status: DocumentedEnum, doc: "Current status.")
+      assert output =~ ~s(active = 0, doc: "Enabled state.")
+      assert output =~ ~s(inactive = 1, doc: "Disabled state.")
+      assert output =~ ~s(group fills {)
+      assert output =~ ~s(doc: "Partial fills.")
+      assert output =~ ~s(qty: u32, doc: "Fill quantity.")
     end
 
     test "formats batch declarations" do

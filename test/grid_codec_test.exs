@@ -56,6 +56,18 @@ defmodule GridCodecTest do
     end
   end
 
+  defmodule DocumentedCodec do
+    use GridCodec.Struct
+
+    defcodec do
+      field(:id, :u64, doc: "Primary identifier.")
+
+      group :fills, doc: "Partial fills for this order." do
+        field(:qty, :u32, doc: "Executed quantity.")
+      end
+    end
+  end
+
   describe "encode/decode roundtrip" do
     test "simple codec with integers and bool" do
       data = %SimpleCodec{id: 12345, count: 100, flag: true}
@@ -331,6 +343,17 @@ defmodule GridCodecTest do
       assert GridCodec.Binary.copy_field(binary) == binary
       assert GridCodec.Binary.copy_field(nil) == nil
       assert GridCodec.Binary.copy_field(42) == 42
+    end
+  end
+
+  describe "generated docs" do
+    test "__schema__/0 preserves documented fields and groups" do
+      schema = DocumentedCodec.__schema__()
+
+      assert {:id, :u64, [doc: "Primary identifier."]} in schema.fields
+      assert {:fills, _block, gopts} = List.first(schema.groups)
+      assert Keyword.get(gopts, :doc) == "Partial fills for this order."
+      assert schema.group_fields[:fills] == [{:qty, :u32, [doc: "Executed quantity."]}]
     end
   end
 end

@@ -4,6 +4,6 @@
 @syntax 1
 
 struct OrderCreatedNoTypespecPlain (template_id: 998) {
-  order_id: uuid
-  price: u64
+  order_id: uuid, doc: "Order identifier used in the plain no-typespec example."
+  price: u64, doc: "Price carried by the plain no-typespec example."
 }

@@ -12,7 +12,7 @@ defmodule ExampleApp.Views.CommandEnvelope do
   alias ExampleApp.Views.ReleaseReservation
 
   defcodec do
-    field :account_id, :u64
+    field :account_id, :u64, doc: "Account that the enclosed commands should mutate."
 
     batch :commands, any_of: [PlaceReservation, ReleaseReservation]
 
