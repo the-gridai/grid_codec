@@ -138,6 +138,39 @@ defmodule GridCodec.ValidationPipelineTest do
     end
   end
 
+  defmodule ShortCircuitFunctionValidatorCodec do
+    use GridCodec.Struct,
+      template_id: 9906,
+      schema_id: 99,
+      version: 1,
+      validate: true
+
+    defcodec do
+      field :count, :u8
+    end
+
+    validations do
+      validate(&__MODULE__.count_must_be_even/1,
+        name: :count_must_be_even,
+        category: :invariant
+      )
+    end
+
+    def count_must_be_even(%__MODULE__{count: count}) do
+      if rem(count, 2) == 0 do
+        []
+      else
+        [
+          GridCodec.ValidationError.invariant_failed(
+            __MODULE__,
+            :count_must_be_even,
+            "count must be even"
+          )
+        ]
+      end
+    end
+  end
+
   defp debug_info(module, binary) do
     {:ok, {^module, [debug_info: {:debug_info_v1, :elixir_erl, {:elixir_v1, data, _}}]}} =
       :beam_lib.chunks(binary, [:debug_info])
@@ -203,6 +236,15 @@ defmodule GridCodec.ValidationPipelineTest do
       assert error.details.name == :start_ns
       assert error.details.description =~ "must be >= 0"
       assert error.details.metadata.validation == :type_refinement
+    end
+
+    test "type validation short-circuits function validators" do
+      struct = %ShortCircuitFunctionValidatorCodec{count: "not-an-integer"}
+
+      assert {:error, %GridCodec.ValidationError{code: :out_of_range} = error} =
+               ShortCircuitFunctionValidatorCodec.validate_struct(struct)
+
+      assert error.details.field == :count
     end
   end
 

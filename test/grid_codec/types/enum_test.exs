@@ -32,6 +32,15 @@ defmodule GridCodec.Types.EnumTest do
     end
   end
 
+  defmodule DocumentedEnum do
+    use GridCodec.Types.Enum, encoding: :u8
+
+    defenum do
+      value(:buy, 0, doc: "Bid-side order.")
+      value(:sell, 1, doc: "Ask-side order.")
+    end
+  end
+
   describe "value definition" do
     test "explicit values work" do
       assert OrderSide.to_integer(:buy) == 0
@@ -136,6 +145,13 @@ defmodule GridCodec.Types.EnumTest do
       assert has_type?(GridCodec.TestSupport.Side, :known, 0)
       assert has_type?(GridCodec.TestSupport.Side, :t, 0)
       assert has_type?(GridCodec.TestSupport.Side, :encoded, 0)
+    end
+
+    test "value_docs/0 returns enum value documentation" do
+      assert DocumentedEnum.value_docs() == %{
+               buy: "Bid-side order.",
+               sell: "Ask-side order."
+             }
     end
   end
 

@@ -12,12 +12,12 @@ defmodule ExampleApp.Events.TradeSettled do
   alias ExampleApp.Types.OrderStatus
 
   defcodec do
-    field :trade_id, :uuid, presence: :required
-    field :order_id, :uuid
-    field :side, OrderSide
-    field :status, OrderStatus
-    field :settled_price, :u64
-    field :settled_quantity, :u32
-    field :timestamp, :timestamp_us
+    field :trade_id, :uuid, presence: :required, doc: "Stable identifier for the settled trade."
+    field :order_id, :uuid, doc: "Identifier of the order associated with the settlement."
+    field :side, OrderSide, doc: "Trading side carried through from the source order."
+    field :status, OrderStatus, doc: "Order status after settlement processing completes."
+    field :settled_price, :u64, doc: "Final settlement price in quote units."
+    field :settled_quantity, :u32, doc: "Final settled quantity in base units."
+    field :timestamp, :timestamp_us, doc: "Timestamp when settlement was recorded."
   end
 end

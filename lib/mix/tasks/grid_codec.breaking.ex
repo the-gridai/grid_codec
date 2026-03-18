@@ -30,7 +30,10 @@ defmodule Mix.Tasks.GridCodec.Breaking do
           schema_files: ["priv/schemas/**/*.grid"],
           against: "origin/main",
           category: :source,
-          except: [:SOURCE_FIELD_RENAMED]
+          except: [:SOURCE_FIELD_RENAMED],
+          include_docs: true,
+          fail_on: [:error],
+          severity_overrides: [DOC_FIELD_DOC_REMOVED: :error]
         ]
       ]
 
@@ -55,6 +58,7 @@ defmodule Mix.Tasks.GridCodec.Breaking do
 
   alias GridCodec.Breaking.Checker
   alias GridCodec.Breaking.Config
+  alias GridCodec.Breaking.Policy
 
   @switches [
     against: :string,
@@ -95,7 +99,9 @@ defmodule Mix.Tasks.GridCodec.Breaking do
   defp do_check_files(files, config) do
     check_opts = %{
       category: config.category,
-      except: config.except
+      except: config.except,
+      include_docs: config.include_docs,
+      severity_overrides: config.severity_overrides
     }
 
     {total_issues, file_count, error_count} =
@@ -118,15 +124,24 @@ defmodule Mix.Tasks.GridCodec.Breaking do
       end)
 
     count = length(total_issues)
+    blocking_count = Enum.count(total_issues, &Policy.blocking?(&1, config.fail_on))
 
     cond do
       error_count > 0 ->
         Mix.shell().error("\nEncountered #{error_count} error(s) while checking schemas.")
         exit({:shutdown, 2})
 
-      count > 0 ->
-        Mix.shell().error("\nFound #{count} breaking change(s) in #{file_count} file(s).")
+      blocking_count > 0 ->
+        Mix.shell().error(
+          "\nFound #{count} issue(s) in #{file_count} file(s); #{blocking_count} are blocking under the current policy."
+        )
+
         exit({:shutdown, 1})
+
+      count > 0 ->
+        Mix.shell().info(
+          "\nFound #{count} non-blocking issue(s) in #{file_count} file(s) under the current policy."
+        )
 
       true ->
         Mix.shell().info("No breaking changes detected.")
@@ -150,7 +165,7 @@ defmodule Mix.Tasks.GridCodec.Breaking do
   end
 
   defp master_file?(content) do
-    String.contains?(content, "schema ")
+    Regex.match?(~r/^\s*schema(?:\s+\w+)?\s*\{/m, content)
   end
 
   defp git_import_resolver(against) do
@@ -195,7 +210,7 @@ defmodule Mix.Tasks.GridCodec.Breaking do
     Enum.each(issues, fn issue ->
       line = GridCodec.Breaking.Issue.format(issue)
 
-      if issue.category == :wire do
+      if issue.severity == :error do
         Mix.shell().error(line)
       else
         Mix.shell().info(line)

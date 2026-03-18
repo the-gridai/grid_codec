@@ -6,10 +6,10 @@
 import "order_side.grid"
 
 struct TradeExecuted (template_id: 2) {
-  trade_id: uuid, presence: required
-  order_id: uuid, presence: required
-  side: OrderSide, presence: required
-  price: u64, presence: required
-  quantity: u32, presence: required
-  timestamp: timestamp_us, presence: required
+  trade_id: uuid, presence: required, doc: "Stable identifier for the execution."
+  order_id: uuid, presence: required, doc: "Identifier of the order that produced the trade."
+  side: OrderSide, presence: required, doc: "Aggressor side for the executed trade."
+  price: u64, presence: required, doc: "Execution price in quote units."
+  quantity: u32, presence: required, doc: "Matched quantity in base units."
+  timestamp: timestamp_us, presence: required, doc: "Timestamp when the execution occurred."
 }

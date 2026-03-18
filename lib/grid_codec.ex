@@ -266,6 +266,7 @@ defmodule GridCodec do
       input coercion and decode output; the wire type handles binary layout.
       Example: `wire_format: :i64` encodes as 8-byte signed integer.
     - `:default` - Default value for encoding when field is nil
+    - `:doc` - Human-readable field documentation used in generated ExDoc and `.grid` export
     - `:presence` - Field presence mode (default: `:optional`)
       - `:optional` - Field can be nil (uses null sentinel)
       - `:required` - Field must have a value (raises on nil)
@@ -289,6 +290,9 @@ defmodule GridCodec do
 
       # Constant field:
       field :version, :u8, presence: :constant, value: 1
+
+      # Documented field:
+      field :price, :u64, doc: "Price in quote units."
   """
   defmacro field(name, type, opts \\ []) do
     quote do
@@ -336,6 +340,7 @@ defmodule GridCodec do
 
   - `name` - Atom group name
   - `opts` - Keyword options:
+    - `:doc` - Human-readable group documentation used in generated ExDoc and `.grid` export
     - `:entry_encoder` - Function `(entry :: map) -> binary` (required for encoding)
     - `:entry_decoder` - Function `(binary) -> {:ok, map}` (required for decoding)
   - `block` - Field definitions for documentation (not used at runtime)
@@ -358,9 +363,12 @@ defmodule GridCodec do
       defcodec do
         field :order_id, :uuid
 
-        group :fills, entry_encoder: &encode_fill/1, entry_decoder: &decode_fill/1 do
-          field :price, :u64
-          field :qty, :u32
+        group :fills,
+          doc: "Partial fills for the order.",
+          entry_encoder: &encode_fill/1,
+          entry_decoder: &decode_fill/1 do
+          field :price, :u64, doc: "Fill price."
+          field :qty, :u32, doc: "Fill quantity."
         end
       end
 

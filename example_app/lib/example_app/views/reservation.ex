@@ -9,11 +9,11 @@ defmodule ExampleApp.Views.Reservation do
     name: "ExampleApp.Views.Reservation"
 
   defcodec do
-    field :reservation_id, :u64
-    field :order_id, :u64
-    field :amount, :u64
-    field :active, :bool
-    field :expires_at, :datetime_us
+    field :reservation_id, :u64, doc: "Stable identifier for the reservation."
+    field :order_id, :u64, doc: "Order that currently owns the reserved funds."
+    field :amount, :u64, doc: "Reserved amount in account units."
+    field :active, :bool, doc: "Whether the reservation is still consuming balance."
+    field :expires_at, :datetime_us, doc: "Point in time when the reservation should lapse."
   end
 
   validations do

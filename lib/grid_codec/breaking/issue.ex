@@ -3,17 +3,19 @@ defmodule GridCodec.Breaking.Issue do
   A single breaking change issue detected by the checker.
   """
 
-  @type category :: :wire | :source
+  @type category :: :wire | :source | :docs
+  @type severity :: :error | :warning | :info
 
   @type t :: %__MODULE__{
           rule: atom(),
           category: category(),
+          severity: severity(),
           message: String.t(),
           path: String.t(),
           location: map()
         }
 
-  defstruct [:rule, :category, :message, :path, :location]
+  defstruct [:rule, :category, :severity, :message, :path, :location]
 
   @doc "Returns true if the issue is in the WIRE category."
   def wire?(%__MODULE__{category: :wire}), do: true
@@ -21,13 +23,14 @@ defmodule GridCodec.Breaking.Issue do
 
   @doc "Returns a formatted single-line string for terminal output."
   def format(%__MODULE__{} = issue) do
+    severity = issue.severity || :error
     rule_str = issue.rule |> Atom.to_string() |> String.pad_trailing(32)
     loc = format_location(issue.location)
-    "  #{rule_str} #{loc} - #{issue.message}"
+    "  [#{severity}] [#{issue.category}] #{rule_str} #{loc} - #{issue.message}"
   end
 
-  defp format_location(%{struct: s, field: f}), do: "#{s}.#{f}"
   defp format_location(%{struct: s, group: g, field: f}), do: "#{s}.#{g}.#{f}"
+  defp format_location(%{struct: s, field: f}), do: "#{s}.#{f}"
   defp format_location(%{struct: s, group: g}), do: "#{s}.#{g}"
   defp format_location(%{struct: s, batch: b}), do: "#{s}.#{b}"
   defp format_location(%{struct: s}), do: "#{s}"

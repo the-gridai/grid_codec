@@ -211,7 +211,7 @@ defmodule GridCodec.Breaking.Rules.Source do
       match =
         Enum.find(removed_list, fn old_enum ->
           old_enum.underlying_type == new_enum.underlying_type and
-            old_enum.values == new_enum.values
+            normalize_enum_values(old_enum.values) == normalize_enum_values(new_enum.values)
         end)
 
       case match do
@@ -241,8 +241,8 @@ defmodule GridCodec.Breaking.Rules.Source do
 
   defp check_enum_value_renames(issues, %{enums: %{changed: changed}}, path) do
     Enum.reduce(changed, issues, fn {_name, old_enum, new_enum}, acc ->
-      old_by_int = Map.new(old_enum.values, fn {name, int} -> {int, name} end)
-      new_by_int = Map.new(new_enum.values, fn {name, int} -> {int, name} end)
+      old_by_int = Map.new(old_enum.values, &enum_value_name_by_int/1)
+      new_by_int = Map.new(new_enum.values, &enum_value_name_by_int/1)
 
       common_ints =
         MapSet.intersection(MapSet.new(Map.keys(old_by_int)), MapSet.new(Map.keys(new_by_int)))
@@ -270,6 +270,16 @@ defmodule GridCodec.Breaking.Rules.Source do
       end)
     end)
   end
+
+  defp normalize_enum_values(values) do
+    Enum.map(values, fn
+      {name, int} -> {name, int}
+      {name, int, _doc} -> {name, int}
+    end)
+  end
+
+  defp enum_value_name_by_int({name, int}), do: {int, name}
+  defp enum_value_name_by_int({name, int, _doc}), do: {int, name}
 
   # ============================================================================
   # Type renames: removed + added composite types with same fields

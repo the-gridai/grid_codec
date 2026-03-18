@@ -8,6 +8,8 @@ defmodule GridCodec.Breaking.Checker do
 
   alias GridCodec.Breaking.Differ
   alias GridCodec.Breaking.Issue
+  alias GridCodec.Breaking.Policy
+  alias GridCodec.Breaking.Rules.Docs
   alias GridCodec.Breaking.Rules.Source
   alias GridCodec.Breaking.Rules.Wire
   alias GridCodec.Schema.Parser
@@ -18,6 +20,8 @@ defmodule GridCodec.Breaking.Checker do
   @type check_opts :: %{
           optional(:category) => :wire | :source,
           optional(:except) => [atom()],
+          optional(:include_docs) => boolean(),
+          optional(:severity_overrides) => map(),
           optional(:old_resolver) => import_resolver(),
           optional(:new_resolver) => import_resolver()
         }
@@ -33,6 +37,8 @@ defmodule GridCodec.Breaking.Checker do
   def check(%Schema{} = old_schema, %Schema{} = new_schema, path, opts \\ %{}) do
     category = Map.get(opts, :category, :source)
     except = MapSet.new(Map.get(opts, :except, []))
+    include_docs = Map.get(opts, :include_docs, true)
+    severity_overrides = Map.get(opts, :severity_overrides, %{})
 
     schema_diff = Differ.diff(old_schema, new_schema)
 
@@ -45,9 +51,19 @@ defmodule GridCodec.Breaking.Checker do
         issues
       end
 
+    issues =
+      if category == :source and include_docs do
+        issues ++ Docs.check(schema_diff, path)
+      else
+        issues
+      end
+
     issues
     |> Enum.reject(fn issue -> MapSet.member?(except, issue.rule) end)
-    |> Enum.sort_by(fn issue -> {category_order(issue.category), issue.rule, issue.path} end)
+    |> Policy.apply(severity_overrides)
+    |> Enum.sort_by(fn issue ->
+      {severity_order(issue.severity), category_order(issue.category), issue.rule, issue.path}
+    end)
   end
 
   @doc """
@@ -181,4 +197,10 @@ defmodule GridCodec.Breaking.Checker do
 
   defp category_order(:wire), do: 0
   defp category_order(:source), do: 1
+  defp category_order(:docs), do: 2
+
+  defp severity_order(:error), do: 0
+  defp severity_order(:warning), do: 1
+  defp severity_order(:info), do: 2
+  defp severity_order(_), do: 3
 end

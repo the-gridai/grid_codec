@@ -9,8 +9,8 @@ defmodule ExampleApp.Views.PlaceReservation do
     name: "ExampleApp.Views.PlaceReservation"
 
   defcodec do
-    field :reservation_id, :u64
-    field :amount, :u64
-    field :requested_at, :timestamp_us
+    field :reservation_id, :u64, doc: "Reservation to create or refresh."
+    field :amount, :u64, doc: "Amount that should be reserved."
+    field :requested_at, :timestamp_us, doc: "Timestamp when the reservation was requested."
   end
 end

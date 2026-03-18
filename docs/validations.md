@@ -12,6 +12,15 @@ GridCodec validation now has three layers:
 This keeps field-local rules in the type system and reserves struct validations
 for cross-field invariants.
 
+Decoded validation is two-phase:
+
+- type validation short-circuits on the first field/type failure
+- struct/state validations accumulate only after the struct is type-safe
+
+This means function validators can assume referenced fields are already in their
+declared domain types instead of defensively guarding against malformed values
+from manually-constructed structs.
+
 Validation declarations are **runtime-only Elixir metadata**. They are not
 exported to `.grid`, not parsed from `.grid`, and do not affect the wire
 protocol.
@@ -102,6 +111,9 @@ invariants do
 end
 ```
 
+Function validators run after type validation succeeds, so they should focus on
+cross-field business rules rather than re-checking field types.
+
 ## Error Contract
 
 Public APIs return errors instead of raising:
@@ -119,6 +131,10 @@ This applies to:
 - `validate_struct/1`
 - `validate_binary/1`
 - `decode/2` when `validate:` is enabled
+
+For decoded validation paths, type validation is fail-fast. If a field has an
+invalid type/domain value, GridCodec returns that type error and does not run
+decoded invariant callbacks for the same struct.
 
 ## Binary Validation
 

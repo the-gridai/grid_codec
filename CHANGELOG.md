@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Declaration-local schema docs** — `field`, `group`, and enum `value`
+  declarations now accept `doc:` metadata that flows through generated ExDoc,
+  `__schema__/0`, `.grid` export, `.grid` parsing, and `.grid` reload paths.
+- **Documentation-aware breaking checks** — `mix grid_codec.breaking` now emits
+  `:docs` issues for field, group, group-field, and enum-value doc drift, with
+  per-rule severity policy support via `include_docs`, `fail_on`, and
+  `severity_overrides` config.
+
+### Changed
+- **Example app schema coverage** — `example_app` event, view, typed-group, and
+  enum examples now use `doc:` metadata so exported `.grid` files and generated
+  docs exercise the new declaration-local documentation flow end to end.
+- **Breaking task output policy** — `mix grid_codec.breaking` now reports issue
+  severity/category in terminal output and treats documentation drift as
+  non-blocking by default unless the configured policy escalates it.
+
+### Fixed
+- **Decoded validation sequencing** — `validate_struct/1` and other decoded
+  validation paths now stop after type-validation failures instead of continuing
+  into invariant callbacks, so function validators only run on type-safe
+  structs and no longer need defensive field-type guards.
+- **Nested-app schema detection in breaking checks** — the breaking task now
+  detects master `.grid` files by actual schema-block syntax instead of a naive
+  string search, avoiding false positives when standalone schema files contain
+  the word `schema` inside documentation text.
+
+### Tests
+- **Decoded validation short-circuit coverage** — added regression coverage for
+  function validators after type-validation failures, ensuring malformed
+  manually-constructed structs return the type error without running invariant
+  callbacks.
+
 ## [0.37.2] - 2026-03-18
 
 ### Fixed

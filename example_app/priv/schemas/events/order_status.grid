@@ -4,8 +4,8 @@
 @syntax 1
 
 enum OrderStatus : u8 {
-  open = 0
-  filled = 1
-  cancelled = 2
-  expired = 3
+  open = 0, doc: "The order is live and can still match."
+  filled = 1, doc: "The order has been fully matched."
+  cancelled = 2, doc: "The order was cancelled before full execution."
+  expired = 3, doc: "The order expired before it could fully execute."
 }
