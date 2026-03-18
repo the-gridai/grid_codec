@@ -38,9 +38,9 @@ defmodule GridCodec.Validations do
       lhs: field,
       op: op,
       rhs: rhs,
-      allow_nil?: Keyword.get(opts, :allow_nil?, true),
       supports: [:decoded, :binary]
     }
+    |> maybe_put_allow_nil(opts)
   end
 
   @spec present(atom()) :: validator()
@@ -54,9 +54,9 @@ defmodule GridCodec.Validations do
       kind: :one_of,
       field: field,
       allowed: allowed,
-      allow_nil?: Keyword.get(opts, :allow_nil?, true),
       supports: [:decoded, :binary]
     }
+    |> maybe_put_allow_nil(opts)
   end
 
   @doc false
@@ -104,4 +104,12 @@ defmodule GridCodec.Validations do
   def compare_terms(left, :>=, right), do: left >= right
   def compare_terms(left, :<, right), do: left < right
   def compare_terms(left, :<=, right), do: left <= right
+
+  defp maybe_put_allow_nil(validator, opts) do
+    if Keyword.has_key?(opts, :allow_nil?) do
+      Map.put(validator, :allow_nil?, Keyword.fetch!(opts, :allow_nil?))
+    else
+      validator
+    end
+  end
 end

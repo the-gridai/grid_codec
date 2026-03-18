@@ -1,5 +1,12 @@
 defmodule GridCodec.VirtualFieldTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureIO
+
+  defp assert_only_expected_warning(stderr, expected_fragment) do
+    assert stderr =~ "warning:"
+    assert stderr =~ expected_fragment
+    assert Regex.scan(~r/\bwarning:/, stderr) |> length() == 1
+  end
 
   defmodule BasicVirtual do
     use GridCodec.Struct, template_id: 8000, schema_id: 80, version: 1
@@ -166,30 +173,40 @@ defmodule GridCodec.VirtualFieldTest do
 
   describe "compile-time validation" do
     test "rejects virtual field with same name as a wire field" do
-      assert_raise CompileError, ~r/conflicts with an existing field/, fn ->
-        defmodule ConflictVirtual do
-          use GridCodec.Struct, template_id: 8090, schema_id: 80, version: 1
+      stderr =
+        capture_io(:stderr, fn ->
+          assert_raise CompileError, ~r/conflicts with an existing field/, fn ->
+            defmodule ConflictVirtual do
+              use GridCodec.Struct, template_id: 8090, schema_id: 80, version: 1
 
-          defcodec do
-            field :id, :u64
-            virtual(:id, default: nil)
+              defcodec do
+                field :id, :u64
+                virtual(:id, default: nil)
+              end
+            end
           end
-        end
-      end
+        end)
+
+      assert_only_expected_warning(stderr, "duplicate key :id found in struct")
     end
 
     test "rejects duplicate virtual field names" do
-      assert_raise CompileError, ~r/Duplicate virtual field/, fn ->
-        defmodule DuplicateVirtual do
-          use GridCodec.Struct, template_id: 8091, schema_id: 80, version: 1
+      stderr =
+        capture_io(:stderr, fn ->
+          assert_raise CompileError, ~r/Duplicate virtual field/, fn ->
+            defmodule DuplicateVirtual do
+              use GridCodec.Struct, template_id: 8091, schema_id: 80, version: 1
 
-          defcodec do
-            field :id, :u64
-            virtual(:cache, default: %{})
-            virtual(:cache, default: [])
+              defcodec do
+                field :id, :u64
+                virtual(:cache, default: %{})
+                virtual(:cache, default: [])
+              end
+            end
           end
-        end
-      end
+        end)
+
+      assert_only_expected_warning(stderr, "duplicate key :cache found in struct")
     end
   end
 end

@@ -4421,6 +4421,7 @@ defmodule GridCodec.Struct.Compiler do
     lhs_field = Map.fetch!(field_lookup, lhs)
     rhs = Map.fetch!(validator, :rhs)
     rhs_field = if is_atom(rhs), do: Map.get(field_lookup, rhs), else: nil
+    allow_nil? = inferred_allow_nil?(validator, [lhs_field, rhs_field])
 
     %{
       name: Keyword.get(opts, :name, :"validation_#{idx}"),
@@ -4430,7 +4431,7 @@ defmodule GridCodec.Struct.Compiler do
       rhs: rhs,
       rhs_field?: rhs_field != nil,
       op: Map.fetch!(validator, :op),
-      allow_nil?: Map.get(validator, :allow_nil?, true),
+      allow_nil?: allow_nil?,
       compare_module: elem(lhs_field, 2),
       supports: validation_supports(lhs_field)
     }
@@ -4451,6 +4452,7 @@ defmodule GridCodec.Struct.Compiler do
 
   defp normalize_validation(%{kind: :one_of} = validator, opts, idx, field_lookup, _module) do
     field = Map.fetch!(field_lookup, Map.fetch!(validator, :field))
+    allow_nil? = inferred_allow_nil?(validator, [field])
 
     %{
       name: Keyword.get(opts, :name, :"validation_#{idx}"),
@@ -4458,7 +4460,7 @@ defmodule GridCodec.Struct.Compiler do
       kind: :one_of,
       field: elem(field, 0),
       allowed: Map.fetch!(validator, :allowed),
-      allow_nil?: Map.get(validator, :allow_nil?, true),
+      allow_nil?: allow_nil?,
       supports: validation_supports(field)
     }
   end
@@ -4503,6 +4505,18 @@ defmodule GridCodec.Struct.Compiler do
     rhs_binary? = rhs_field == nil or :binary in validation_supports(rhs_field)
     supports = if lhs_binary? and rhs_binary?, do: [:decoded, :binary], else: [:decoded]
     %{validation | supports: supports}
+  end
+
+  defp inferred_allow_nil?(validator, referenced_fields) do
+    if Map.has_key?(validator, :allow_nil?) do
+      Map.fetch!(validator, :allow_nil?)
+    else
+      not Enum.all?(Enum.reject(referenced_fields, &is_nil/1), &required_field?/1)
+    end
+  end
+
+  defp required_field?({_name, _type_atom, _module, opts}) do
+    Keyword.get(opts, :presence, :optional) == :required
   end
 
   defp public_validation_metadata(validations) do

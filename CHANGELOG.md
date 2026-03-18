@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-03-18
+
+### Fixed
+- **Required-field validator nil inference** — built-in validators like
+  `compare/3` and `one_of/2` now infer `allow_nil?: false` when every
+  referenced field is declared `presence: :required`, aligning generated
+  validation code and reflected metadata with the existing non-`nil` field
+  contract while still honoring explicit `allow_nil?` overrides.
+
+### Tests
+- **Compile-warning guardrails** — virtual-field compile-time failure tests now
+  capture and assert the exact expected duplicate-key warning, so unexpected
+  extra compiler warnings fail the test instead of being silently swallowed.
+
 ## [0.37.1] - 2026-03-18
 
 ### Fixed

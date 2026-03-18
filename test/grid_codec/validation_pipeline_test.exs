@@ -60,6 +60,124 @@ defmodule GridCodec.ValidationPipelineTest do
     def endpoints_differ(_), do: []
   end
 
+  defmodule RequiredCompareCodec do
+    use GridCodec.Struct,
+      template_id: 9902,
+      schema_id: 99,
+      version: 1,
+      validate: true,
+      field_defaults: [presence: :required]
+
+    defcodec do
+      field :a, :u64
+      field :b, :u64
+      field :status, :u8
+    end
+
+    validations do
+      validate(compare(:a, :<=, :b), name: :required_compare)
+      validate(one_of(:status, [1, 2]), name: :required_one_of)
+    end
+  end
+
+  defmodule OptionalCompareCodec do
+    use GridCodec.Struct,
+      template_id: 9903,
+      schema_id: 99,
+      version: 1,
+      validate: true
+
+    defcodec do
+      field :a, :u64
+      field :b, :u64
+    end
+
+    validations do
+      validate(compare(:a, :<=, :b), name: :optional_compare)
+    end
+  end
+
+  defmodule MixedCompareCodec do
+    use GridCodec.Struct,
+      template_id: 9904,
+      schema_id: 99,
+      version: 1,
+      validate: true
+
+    defcodec do
+      field :a, :u64, presence: :required
+      field :b, :u64
+    end
+
+    validations do
+      validate(compare(:a, :<=, :b), name: :mixed_compare)
+    end
+  end
+
+  defmodule ExplicitOverrideCodec do
+    use GridCodec.Struct,
+      template_id: 9905,
+      schema_id: 99,
+      version: 1,
+      validate: true,
+      field_defaults: [presence: :required]
+
+    defcodec do
+      field :a, :u64
+      field :b, :u64
+      field :status, :u8
+      field :optional_status, :u8
+    end
+
+    validations do
+      validate(compare(:a, :<=, :b, allow_nil?: true), name: :required_compare_override)
+
+      validate(one_of(:optional_status, [1, 2], allow_nil?: false),
+        name: :optional_one_of_override
+      )
+    end
+  end
+
+  defp debug_info(module, binary) do
+    {:ok, {^module, [debug_info: {:debug_info_v1, :elixir_erl, {:elixir_v1, data, _}}]}} =
+      :beam_lib.chunks(binary, [:debug_info])
+
+    data
+  end
+
+  defp function_forms(module, binary, name, arity) do
+    module
+    |> debug_info(binary)
+    |> Map.fetch!(:definitions)
+    |> Enum.filter(fn
+      {{^name, ^arity}, _kind, _meta, _clauses} -> true
+      _ -> false
+    end)
+  end
+
+  defp compile_fixture!(source, label) do
+    previous = Code.compiler_options()
+    Code.compiler_options(debug_info: true)
+
+    try do
+      [{module, binary}] = Code.compile_string(source, label)
+      {module, binary}
+    after
+      Code.compiler_options(previous)
+    end
+  end
+
+  defp contains_is_nil?(term) when is_tuple(term) do
+    term
+    |> Tuple.to_list()
+    |> Enum.any?(&contains_is_nil?/1)
+  end
+
+  defp contains_is_nil?(term) when is_list(term), do: Enum.any?(term, &contains_is_nil?/1)
+  defp contains_is_nil?(nil), do: true
+  defp contains_is_nil?(:is_nil), do: true
+  defp contains_is_nil?(_term), do: false
+
   defp framed_binary(payload) do
     {:ok, valid} = ValidationCodec.encode(%ValidationCodec{start_ns: 1, end_ns: 2, status: 1})
     <<header::binary-size(8), _::binary>> = valid
@@ -125,6 +243,101 @@ defmodule GridCodec.ValidationPipelineTest do
 
       assert Enum.find(validations, &(&1.name == :endpoints_differ)).supports == [:decoded]
       assert Enum.find(validations, &(&1.name == :status_positive)).kind == :compare
+    end
+
+    test "required-field builtins infer allow_nil?: false in metadata" do
+      validations = RequiredCompareCodec.__validations__()
+
+      assert Enum.find(validations, &(&1.name == :required_compare)).allow_nil? == false
+      assert Enum.find(validations, &(&1.name == :required_one_of)).allow_nil? == false
+    end
+
+    test "optional-field compare keeps allow_nil?: true by default" do
+      validations = OptionalCompareCodec.__validations__()
+
+      assert Enum.find(validations, &(&1.name == :optional_compare)).allow_nil? == true
+    end
+
+    test "mixed required and optional compare stays nil-aware by default" do
+      validations = MixedCompareCodec.__validations__()
+
+      assert Enum.find(validations, &(&1.name == :mixed_compare)).allow_nil? == true
+    end
+
+    test "explicit allow_nil? override wins over inferred defaults" do
+      validations = ExplicitOverrideCodec.__validations__()
+
+      assert Enum.find(validations, &(&1.name == :required_compare_override)).allow_nil? == true
+
+      assert Enum.find(validations, &(&1.name == :optional_one_of_override)).allow_nil? ==
+               false
+    end
+
+    test "required-only compare codegen omits nil checks" do
+      unique = System.unique_integer([:positive])
+
+      required_source = """
+      defmodule ValidationShapeRequired#{unique} do
+        use GridCodec.Struct,
+          template_id: 19901,
+          schema_id: 99,
+          version: 1,
+          validate: true,
+          field_defaults: [presence: :required]
+
+        defcodec do
+          field :a, :u64
+          field :b, :u64
+        end
+
+        validations do
+          validate(compare(:a, :<=, :b), name: :required_compare)
+        end
+      end
+      """
+
+      optional_source = """
+      defmodule ValidationShapeOptional#{unique} do
+        use GridCodec.Struct,
+          template_id: 19902,
+          schema_id: 99,
+          version: 1,
+          validate: true
+
+        defcodec do
+          field :a, :u64
+          field :b, :u64
+        end
+
+        validations do
+          validate(compare(:a, :<=, :b), name: :optional_compare)
+        end
+      end
+      """
+
+      {required_module, required_binary} =
+        compile_fixture!(required_source, "validation_shape_required_#{unique}.ex")
+
+      {optional_module, optional_binary} =
+        compile_fixture!(optional_source, "validation_shape_optional_#{unique}.ex")
+
+      refute contains_is_nil?(
+               function_forms(
+                 required_module,
+                 required_binary,
+                 :__collect_validator_errors__,
+                 1
+               )
+             )
+
+      assert contains_is_nil?(
+               function_forms(
+                 optional_module,
+                 optional_binary,
+                 :__collect_validator_errors__,
+                 1
+               )
+             )
     end
   end
 
