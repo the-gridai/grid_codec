@@ -376,7 +376,13 @@ defmodule GridCodec.Breaking.FieldOptsTest do
       }
       """
 
-      assert :WIRE_FIELD_PRESENCE_CHANGED in rules(wire_check(old, new))
+      issues = wire_check(old, new)
+      assert :WIRE_FIELD_PRESENCE_CHANGED in rules(issues)
+
+      assert Enum.any?(
+               issues,
+               &(&1.message == ~s(Field "exchange" presence changed from constant to optional.))
+             )
     end
   end
 
@@ -480,6 +486,7 @@ defmodule GridCodec.Breaking.FieldOptsTest do
 
       issues = check(old, new)
       assert :SOURCE_FIELD_MADE_REQUIRED in rules(issues)
+      assert Enum.any?(issues, &(&1.message == ~s(Field "id" changed from optional to required.)))
     end
 
     test "no issue when required stays required" do

@@ -283,7 +283,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
           category: :wire,
           message:
             ~s(Field "#{new_f.name}" presence changed ) <>
-              "from #{inspect(old_p)} to #{inspect(new_p)}.",
+              "from #{presence_label(old_p)} to #{presence_label(new_p)}.",
           path: path,
           location: %{struct: struct.name, field: new_f.name}
         }
@@ -293,6 +293,9 @@ defmodule GridCodec.Breaking.Rules.Wire do
       issues
     end
   end
+
+  defp presence_label(nil), do: "optional"
+  defp presence_label(presence) when is_atom(presence), do: Atom.to_string(presence)
 
   defp check_constant_value_changed(issues, struct, old_f, new_f, path) do
     if old_f.presence == :constant and new_f.presence == :constant and

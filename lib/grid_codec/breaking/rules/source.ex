@@ -184,7 +184,7 @@ defmodule GridCodec.Breaking.Rules.Source do
               category: :source,
               message:
                 ~s(Field "#{new_f.name}" changed from ) <>
-                  "#{old_f.presence || :optional} to required.",
+                  "#{presence_label(old_f.presence)} to required.",
               path: path,
               location: %{struct: new_struct.name, field: new_f.name}
             }
@@ -196,6 +196,9 @@ defmodule GridCodec.Breaking.Rules.Source do
       end)
     end)
   end
+
+  defp presence_label(nil), do: "optional"
+  defp presence_label(presence) when is_atom(presence), do: Atom.to_string(presence)
 
   # ============================================================================
   # Enum renames: removed + added with same underlying type and same values

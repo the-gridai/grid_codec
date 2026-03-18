@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-03-18
+
+### Fixed
+- **Breaking change presence labels** — breaking change reports now render
+  omitted field presence as `optional` instead of `nil`, so CI output reflects
+  the effective field contract when presence is not explicitly declared.
+
 ## [0.37.0] - 2026-03-18
 
 ### Added
