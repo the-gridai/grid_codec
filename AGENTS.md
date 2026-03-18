@@ -433,8 +433,8 @@ defmodule MyEvent do
   use GridCodec.Struct
 
   defcodec do
-    field :id, :u64
-    field :name, GridCodec.Types.String
+  field :id, :u64, doc: "Event identifier."
+  field :name, GridCodec.Types.String, doc: "Human-readable event name."
   end
 end
 ```
@@ -715,13 +715,25 @@ The `types:` option maps `.grid` type names to Elixir modules. When omitted,
 `GridCodec.Registry.lookup_enum_by_name/1` auto-resolves enum modules by matching
 their last module segment.
 
+`doc:` metadata on fields, groups, and enum values is exported as structured schema
+data rather than comments so it can round-trip through parsing, surface in generated
+ExDoc, and participate in breaking-change review.
+
 **Rule categories:**
 - **WIRE** (27 rules) — Binary compatibility: field removal, type changes, size changes, reordering, `wire_format` changes, `since` changes, `presence` changes, constant value changes, type parameter changes, syntax version changes (`WIRE_SYNTAX_VERSION_CHANGED`), custom type changes (`WIRE_PREFIXED_ID_TAG_CHANGED`, `WIRE_CHAR_ARRAY_LENGTH_CHANGED`, `WIRE_BITSET_UNDERLYING_CHANGED`, `WIRE_BITSET_FLAG_REMOVED`, `WIRE_BITSET_FLAG_VALUE_CHANGED`)
 - **SOURCE** (9 rules) — API compatibility: struct removal, field renames, default changes, required field additions, `SOURCE_PREFIXED_ID_PREFIX_CHANGED`
+- **DOCS** — Documentation drift for field, group, group-field, and enum-value `doc:` metadata, with policy-controlled severities (`include_docs`, `fail_on`, `severity_overrides`)
 
 **Configuration** via `.grid_codec.exs`:
 ```elixir
-%{against: "HEAD~1", except: [:SOURCE_FIELD_DEFAULT_CHANGED], category: :wire}
+%{
+  against: "HEAD~1",
+  except: [:SOURCE_FIELD_DEFAULT_CHANGED],
+  category: :source,
+  include_docs: true,
+  fail_on: [:error],
+  severity_overrides: %{DOC_FIELD_DOC_REMOVED: :error}
+}
 ```
 
 **CI integration:** The `breaking` job in `.github/workflows/ci.yml` runs `mix grid_codec.breaking` on pull requests with `fetch-depth: 0` for git history access.

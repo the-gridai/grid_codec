@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-03-18
+
 ### Added
 - **Declaration-local schema docs** — `field`, `group`, and enum `value`
   declarations now accept `doc:` metadata that flows through generated ExDoc,
@@ -39,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function validators after type-validation failures, ensuring malformed
   manually-constructed structs return the type error without running invariant
   callbacks.
+
+### Documentation
+- **Schema docs release guidance** — updated `README.md` and `AGENTS.md` to show
+  `doc:` metadata in DSL examples and document docs-aware breaking policy knobs
+  (`include_docs`, `fail_on`, `severity_overrides`).
 
 ## [0.37.2] - 2026-03-18
 

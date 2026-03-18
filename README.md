@@ -17,7 +17,7 @@ High-performance binary codec for BEAM/Elixir with zero-copy field access.
 - **Heterogeneous batches** – `GridCodec.Batch` for ordered, typed sequences (`:padded_union` for O(1) access, `:typed_frames` for compact wire size)
 - **Binary matchspecs** – `GridCodec.Match` for filtering with native guards and cross-field comparisons, no decode
 - **Codec transcoding** – `GridCodec.Transcoder` for codec-to-codec conversion without intermediate structs, with optional source/target validation modes
-- **Schema evolution** – `.grid` declarative schema files, breaking change detection (27 wire + 9 source rules), `--check` CI modes
+- **Schema evolution** – `.grid` declarative schema files, inline `doc:` metadata, breaking change detection (27 wire + 9 source rules, plus docs drift policy), `--check` CI modes
 - **SQL generation** – PostgreSQL decode functions from GridCodec binaries stored as `bytea`
 - **Telemetry** – Optional `[:grid_codec, :encode]` and `[:grid_codec, :decode]` event emission with PromEx integration
 - **Auto-generated typespecs** – `t()`, `layout()`, and `framed_layout()` emitted by default
@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.37.2"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.38.0"}
   ]
 end
 ```
@@ -85,8 +85,8 @@ defmodule MyApp.Events.UserCreated do
   use GridCodec.Struct, template_id: 1, schema_id: 100
 
   defcodec do
-    field :user_id, :uuid
-    field :score, :u64, presence: :required
+    field :user_id, :uuid, doc: "External user identifier."
+    field :score, :u64, presence: :required, doc: "Current score."
     field :level, :u32, default: 0
     field :active, :bool
     field :created_at, :timestamp_us
@@ -305,12 +305,13 @@ stable name-based IDs for domain keys.
 | `default: 0` | Default for `new/1` and encode |
 | `since: 2` | Version-gated field (null before this version) |
 | `wire_format: :i64` | Override binary encoding (e.g., decimal encoded as i64) |
+| `doc: "..."` | Field or group documentation exported to `.grid` and generated docs |
 | `validate: true` | Enable pre-encode type validation (struct-level option) |
 | `telemetry: true` | Emit telemetry events on encode/decode (struct-level option) |
 
 ```elixir
 defcodec do
-  field :price, {:decimal, scale: 8}, wire_format: :i64, presence: :required
+  field :price, {:decimal, scale: 8}, wire_format: :i64, presence: :required, doc: "Execution price."
   field :exchange, :string8, presence: :constant, value: "NYSE"
   field :notes, :string16, since: 2
 end
@@ -322,12 +323,12 @@ Groups encode repeating fixed-size entries with lazy decode and O(1) random acce
 
 ```elixir
 defcodec do
-  field :symbol, :string8
+  field :symbol, :string8, doc: "Instrument symbol."
 
-  group :fills do
-    field :price, :u64
-    field :quantity, :u32
-    field :side, MyApp.Types.Side
+  group :fills, doc: "Partial fills for the order." do
+    field :price, :u64, doc: "Fill price."
+    field :quantity, :u32, doc: "Filled quantity."
+    field :side, MyApp.Types.Side, doc: "Aggressor side."
   end
 end
 
@@ -387,6 +388,20 @@ priv/schemas/
     order_side.grid          # individual enum
 ```
 
+Docs are preserved as structured schema metadata instead of comments, so exported
+files can round-trip field, group, and enum-value documentation:
+
+```text
+struct OrderCreated (template_id: 1) {
+  id: u64, doc: "Order identifier."
+
+  group fills {
+    doc: "Partial fills for the order."
+    price: u64, doc: "Fill price."
+  }
+}
+```
+
 Configure schema directory names in your application config:
 
 ```elixir
@@ -428,14 +443,19 @@ Configure with `.grid_codec.exs`:
     schema_files: ["priv/schemas/**/*.grid"],
     against: "origin/main",
     category: :source,
-    except: [:SOURCE_FIELD_DEFAULT_CHANGED]
+    except: [:SOURCE_FIELD_DEFAULT_CHANGED],
+    include_docs: true,
+    fail_on: [:error],
+    severity_overrides: %{DOC_FIELD_DOC_REMOVED: :error}
   ]
 ]
 ```
 
 The breaking change tool resolves `import` directives automatically, so it works with
 both the new directory structure and legacy flat files. Rules: 27 WIRE (binary
-compatibility) + 9 SOURCE (API compatibility). See the [Schema evolution guide](docs/schema-evolution.md) for details.
+compatibility) + 9 SOURCE (API compatibility), plus documentation-drift rules that
+default to non-blocking severities unless your policy escalates them. See the
+[Schema evolution guide](docs/schema-evolution.md) for details.
 
 ### Compile from `.grid` files
 
