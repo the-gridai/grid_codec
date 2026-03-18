@@ -2,6 +2,7 @@ defmodule GridCodec.Breaking.DocsRulesTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Breaking.Checker
+  alias GridCodec.Breaking.Policy
 
   @path "test.grid"
 
@@ -151,6 +152,7 @@ defmodule GridCodec.Breaking.DocsRulesTest do
       issues = check(old, new, %{severity_overrides: %{DOC_FIELD_DOC_CHANGED: :error}})
 
       assert Enum.any?(issues, &(&1.rule == :DOC_FIELD_DOC_CHANGED and &1.severity == :error))
+      assert Enum.any?(issues, &Policy.blocking?(&1, [:error]))
     end
 
     test "except filters documentation rules" do
