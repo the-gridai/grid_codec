@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.38.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.39.0"}
   ]
 end
 ```
@@ -373,6 +373,11 @@ mix grid_codec.export --check
 # Remove orphaned generated files left behind after codec deletions/renames
 mix grid_codec.export --prune
 ```
+
+Only codecs with an explicit `schema_id:` or `schema:` participate in export; others
+still use the default `schema_id` (0) in the binary header but are omitted from
+generated `.grid` trees. After dropping schema options from a codec, run export with
+`--prune` to remove stale files (including under `schema_0/`).
 
 `mix grid_codec.export --check` is an artifact-sync check: it fails if a generated
 `.grid` file is missing, stale, or unexpectedly present in the export directory.

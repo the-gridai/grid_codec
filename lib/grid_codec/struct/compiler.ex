@@ -36,6 +36,12 @@ defmodule GridCodec.Struct.Compiler do
     # Extract options with defaults
     version = Keyword.get(opts, :version, 1)
     schema_id = Keyword.get(opts, :schema_id, 0)
+
+    # `mix grid_codec.export` only includes codecs whose schema namespace was set
+    # explicitly (`schema_id:` or `schema:` on `use GridCodec.Struct`). Codecs that
+    # rely on the default schema_id (0) are treated as local utilities — same wire
+    # header id, but no `.grid` export bucket.
+    grid_schema_export? = Keyword.has_key?(opts, :schema_id)
     endian = Keyword.get(opts, :endian, :little)
     align_fields = Keyword.get(opts, :align, false)
     generate_typespec = Keyword.get(opts, :generate_typespec, true)
@@ -188,6 +194,7 @@ defmodule GridCodec.Struct.Compiler do
       version: version,
       template_id: template_id,
       schema_id: schema_id,
+      grid_schema_export: grid_schema_export?,
       endian: endian,
       block_length: block_length,
       fixed_fields: Enum.map(fixed_fields, fn {name, _, _, _} -> name end),

@@ -626,6 +626,12 @@ The export generates a directory per `schema_id`, each containing a `schema.grid
 file plus individual struct/enum/custom-type files. Individual struct files import their
 enum and custom type dependencies, making each file self-contained.
 
+Export includes only codecs that set `schema_id:` or `schema:` on `use GridCodec.Struct`.
+Codecs that omit both still default to `schema_id: 0` on the wire but are excluded from
+`.grid` output (`__schema__/0` includes `grid_schema_export: boolean`). Use
+`mix grid_codec.export --prune` to delete stale generated files after removing a codec
+or its schema options.
+
 **Custom type declaration blocks** allow full specification of composite types:
 
 ```

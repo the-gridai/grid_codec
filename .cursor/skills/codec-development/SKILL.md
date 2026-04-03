@@ -49,7 +49,7 @@ Related runtime path:
   supports `validate: false | :source | :target | :both`, source `validate_binary/1`,
   and target `new_binary/1` integration for validated transcoding without a source struct
 
-The `__schema__/0` map includes: `fields`, `groups`, `batches`, `group_fields`, `version`, `template_id`, `schema_id`, `endian`, `block_length`, `fixed_fields`, `var_fields`, `field_versions`, `type`. This metadata is used by `mix grid_codec.export` to generate `.grid` files.
+The `__schema__/0` map includes: `fields`, `groups`, `batches`, `group_fields`, `version`, `template_id`, `schema_id`, `grid_schema_export`, `endian`, `block_length`, `fixed_fields`, `var_fields`, `field_versions`, `type`. Export uses `grid_schema_export` (true only when `schema_id:` or `schema:` was set) to decide which codecs appear in `mix grid_codec.export` output.
 
 ## Groups
 

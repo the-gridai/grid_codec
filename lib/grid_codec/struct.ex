@@ -65,7 +65,9 @@ defmodule GridCodec.Struct do
   ## Options
 
   - `:template_id` - Message type identifier within a schema (default: hash of module name)
-  - `:schema_id` - Schema namespace identifier (default: 0)
+  - `:schema_id` - Schema namespace identifier (default: 0 on the wire). Omitted codecs
+    still use `0` in the binary header, but are excluded from `mix grid_codec.export`
+    until you add `schema_id:` or `schema:`.
   - `:schema` - Schema name (string) that resolves to a numeric `:schema_id` from app config
     at compile time. Requires a `schemas:` entry in the app's `:grid_codec` config.
     Mutually exclusive with `:schema_id`. Raises at compile time if the name is not found.

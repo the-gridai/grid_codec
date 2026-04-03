@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-04-03
+
+### Changed
+- **`.grid` export requires explicit schema namespace** — `mix grid_codec.export`
+  now emits only codecs compiled with `schema_id:` or `schema:` on
+  `use GridCodec.Struct`. Codecs that omit both still default to `schema_id: 0` on
+  the wire but are skipped in export, so utility-only codecs are not grouped
+  under `schema_0/`. Introspection adds `grid_schema_export: boolean` to
+  `__schema__/0`. To keep a codec in exported trees, set `schema_id:` or
+  `schema:` (including `schema_id: 0` if you rely on the zero namespace). See
+  [#11](https://github.com/Spectral-Finance/grid_codec/issues/11).
+
+### Fixed
+- **`mix grid_codec.export` control flow** — when no struct modules exist or none
+  are eligible for export, the task no longer continues into grouping after
+  printing the informational message.
+
+### Tests
+- **Export guard** — regression coverage that implicit-schema codecs do not create
+  a `schema_0/` output directory.
+
 ## [0.38.0] - 2026-03-18
 
 ### Added

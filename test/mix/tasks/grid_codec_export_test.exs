@@ -98,6 +98,15 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
   end
 
   describe "generate mode" do
+    test "does not create schema_0 for codecs without explicit schema_id", %{output_dir: dir} do
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      refute File.exists?(Path.join(dir, "schema_0")),
+             "utility codecs defaulting to schema_id 0 must not produce a schema_0 export directory"
+    end
+
     test "creates schema directories with schema.grid master files", %{output_dir: dir} do
       capture_task(fn ->
         Export.run(["--output-dir", dir])

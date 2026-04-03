@@ -7,6 +7,11 @@ defmodule Mix.Tasks.GridCodec.Export do
   and writes a directory per schema containing a `schema.grid` master file
   plus individual files for each struct and enum.
 
+  Only codecs that set an explicit schema namespace (`schema_id:` or `schema:`
+  on `use GridCodec.Struct`) are exported. Structs that omit both still default
+  to `schema_id: 0` on the wire but are skipped here so they can be used as
+  encode/decode utilities without polluting generated schema trees.
+
   ## Usage
 
       # Export all schemas to priv/schemas/
@@ -91,33 +96,45 @@ defmodule Mix.Tasks.GridCodec.Export do
     prune_mode = Keyword.get(opts, :prune, false)
     fmt_opts = [syntax: resolve_syntax(opts)]
 
-    codecs = collect_codecs()
+    all_codecs = collect_codecs()
 
-    if codecs == [] do
+    codecs =
+      Enum.filter(all_codecs, fn {_mod, schema} -> schema[:grid_schema_export] == true end)
+
+    if all_codecs == [] do
       Mix.shell().info("No GridCodec struct modules found.")
-      return_ok()
-    end
-
-    grouped =
-      codecs
-      |> maybe_filter_schema_id(schema_id_filter)
-      |> Enum.group_by(fn {_mod, schema} -> schema.schema_id end)
-
-    if grouped == %{} do
-      Mix.shell().info("No codecs match the given schema_id filter.")
-      return_ok()
-    end
-
-    schema_names = load_schema_names()
-    all_enums = Formatter.detect_all_enums(Map.values(grouped))
-    all_custom_types = Formatter.detect_all_custom_types(Map.values(grouped))
-    files = build_files(grouped, output_dir, schema_names, all_enums, all_custom_types, fmt_opts)
-
-    if check_mode do
-      check(files, output_dir)
     else
-      write(files, output_dir, prune_mode)
+      if codecs == [] do
+        Mix.shell().info(
+          "No codecs are marked for `.grid` export. " <>
+            "Add `schema_id:` or `schema:` to `use GridCodec.Struct` for codecs that should appear in exported schemas."
+        )
+      else
+        grouped =
+          codecs
+          |> maybe_filter_schema_id(schema_id_filter)
+          |> Enum.group_by(fn {_mod, schema} -> schema.schema_id end)
+
+        if grouped == %{} do
+          Mix.shell().info("No codecs match the given schema_id filter.")
+        else
+          schema_names = load_schema_names()
+          all_enums = Formatter.detect_all_enums(Map.values(grouped))
+          all_custom_types = Formatter.detect_all_custom_types(Map.values(grouped))
+
+          files =
+            build_files(grouped, output_dir, schema_names, all_enums, all_custom_types, fmt_opts)
+
+          if check_mode do
+            check(files, output_dir)
+          else
+            write(files, output_dir, prune_mode)
+          end
+        end
+      end
     end
+
+    :ok
   end
 
   # ============================================================================
@@ -540,8 +557,6 @@ defmodule Mix.Tasks.GridCodec.Export do
         :ok
     end
   end
-
-  defp return_ok, do: :ok
 
   # ============================================================================
   # Codec discovery
