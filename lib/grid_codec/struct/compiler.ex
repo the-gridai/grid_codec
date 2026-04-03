@@ -238,6 +238,24 @@ defmodule GridCodec.Struct.Compiler do
 
     module = env.module
 
+    doc_ctx = codec_doc_context(opts, resolved_fields, processed_groups, batches)
+
+    new_doc_string = build_codec_new_doc_string(module, doc_ctx, validation_active)
+    new_binary_doc_string = build_codec_new_binary_doc_string(module, doc_ctx)
+
+    encode_doc_telemetry =
+      compose_encode_doc_string(module, doc_ctx, true, telemetry_min_duration)
+
+    encode_doc_plain = compose_encode_doc_string(module, doc_ctx, false, 0)
+
+    decode_doc_telemetry =
+      compose_decode_doc_string(module, doc_ctx, true, telemetry_min_duration)
+
+    decode_doc_plain = compose_decode_doc_string(module, doc_ctx, false, 0)
+
+    validate_struct_doc_str =
+      validate_struct_doc_string(module, doc_ctx, validation_active)
+
     quote do
       # defstruct and @enforce_keys are emitted by compute_struct_fields/3
       # called from the defcodec quote block, so %__MODULE__{} is available
@@ -268,22 +286,7 @@ defmodule GridCodec.Struct.Compiler do
                 )
       end
 
-      @doc """
-      Creates a new #{inspect(unquote(module))} struct with coercion and validation.
-
-      Accepts atom keys, string keys, or a mix. Coerces string values to the
-      correct types (e.g., `"100"` → integer, `"true"` → boolean,
-      `"2026-01-01T00:00:00Z"` → DateTime). Then validates if `validate: true`.
-
-      Returns `{:ok, struct}` or `{:error, %GridCodec.ValidationError{}}`.
-
-      ## Examples
-
-          {:ok, event} = #{inspect(unquote(module))}.new(id: 42, price: 100)
-          {:ok, event} = #{inspect(unquote(module))}.new(%{"id" => "42", "price" => "100"})
-          {:error, %GridCodec.ValidationError{code: :cast_error}} =
-            #{inspect(unquote(module))}.new(price: "not_a_number")
-      """
+      @doc unquote(Macro.escape(new_doc_string))
       if unquote(generate_typespec) do
         @spec new(map() | keyword()) ::
                 {:ok, t()} | {:error, GridCodec.ValidationError.t()}
@@ -328,7 +331,8 @@ defmodule GridCodec.Struct.Compiler do
           endian,
           validation_active,
           env.module,
-          generate_typespec
+          generate_typespec,
+          validate_struct_doc_str
         )
       )
 
@@ -419,7 +423,9 @@ defmodule GridCodec.Struct.Compiler do
           telemetry_enabled,
           telemetry_min_duration,
           generate_typespec,
-          validation_active
+          validation_active,
+          encode_doc_telemetry,
+          encode_doc_plain
         )
       )
 
@@ -429,19 +435,7 @@ defmodule GridCodec.Struct.Compiler do
       # Internal encoder that works with maps (for compatibility)
       unquote(encoder_clauses)
 
-      @doc """
-      Coerce + validate + encode in one shot — no struct allocation.
-
-      Accepts maps (atom or string keys), keyword lists, or structs.
-      Coerces string values, validates (if enabled), and returns the
-      binary directly. One allocation: the output binary.
-
-      ## Examples
-
-          {:ok, binary} = #{inspect(unquote(module))}.new_binary(%{"price" => "100", "active" => "true"})
-          {:ok, binary} = #{inspect(unquote(module))}.new_binary(price: 100, active: true)
-          {:ok, binary} = #{inspect(unquote(module))}.new_binary(existing_struct)
-      """
+      @doc unquote(Macro.escape(new_binary_doc_string))
       if unquote(generate_typespec) do
         @spec new_binary(map() | keyword() | t()) ::
                 {:ok, binary()}
@@ -515,7 +509,9 @@ defmodule GridCodec.Struct.Compiler do
           schema_id,
           template_id,
           telemetry_enabled,
-          telemetry_min_duration
+          telemetry_min_duration,
+          decode_doc_telemetry,
+          decode_doc_plain
         )
       )
 
@@ -3907,6 +3903,7 @@ defmodule GridCodec.Struct.Compiler do
   # Encode/Decode API Generation (extracted to reduce __before_compile__ complexity)
   # ============================================================================
 
+  # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
   defp generate_encode_api(
          module,
          type_name,
@@ -3915,7 +3912,9 @@ defmodule GridCodec.Struct.Compiler do
          telemetry?,
          min_duration,
          generate_typespec,
-         validation_active
+         validation_active,
+         encode_doc_telemetry,
+         encode_doc_plain
        ) do
     telemetry_meta = %{
       module: module,
@@ -3926,16 +3925,7 @@ defmodule GridCodec.Struct.Compiler do
 
     if telemetry? do
       quote do
-        @doc """
-        Encodes a struct to binary.
-
-        Emits `[:grid_codec, :encode]` telemetry event with duration and byte size.
-        #{if unquote(min_duration) > 0, do: "Events with duration below #{unquote(min_duration)} native time units are skipped.", else: ""}
-
-        ## Options
-
-        - `:header` - Include header (default: `true`)
-        """
+        @doc unquote(Macro.escape(encode_doc_telemetry))
         if unquote(generate_typespec) do
           @spec encode(t(), keyword()) ::
                   {:ok, binary()}
@@ -4120,13 +4110,7 @@ defmodule GridCodec.Struct.Compiler do
       end
     else
       quote do
-        @doc """
-        Encodes a struct to binary.
-
-        ## Options
-
-        - `:header` - Include header (default: `true`)
-        """
+        @doc unquote(Macro.escape(encode_doc_plain))
         if unquote(generate_typespec) do
           @spec encode(t(), keyword()) ::
                   {:ok, binary()}
@@ -4265,7 +4249,16 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   # credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity
-  defp generate_decode_api(module, type_name, schema_id, template_id, telemetry?, min_duration) do
+  defp generate_decode_api(
+         module,
+         type_name,
+         schema_id,
+         template_id,
+         telemetry?,
+         min_duration,
+         decode_doc_telemetry,
+         decode_doc_plain
+       ) do
     telemetry_meta = %{
       module: module,
       type_name: type_name,
@@ -4275,16 +4268,7 @@ defmodule GridCodec.Struct.Compiler do
 
     if telemetry? do
       quote do
-        @doc """
-        Decodes binary to a struct.
-
-        Emits `[:grid_codec, :decode]` telemetry event with duration and byte size.
-        #{if unquote(min_duration) > 0, do: "Events with duration below #{unquote(min_duration)} native time units are skipped.", else: ""}
-
-        ## Options
-
-        - `:header` - Expect header (default: `true`)
-        """
+        @doc unquote(Macro.escape(decode_doc_telemetry))
         def decode(binary, opts \\ [])
 
         def decode(binary, []) when is_binary(binary) do
@@ -4394,13 +4378,7 @@ defmodule GridCodec.Struct.Compiler do
       end
     else
       quote do
-        @doc """
-        Decodes binary to a struct.
-
-        ## Options
-
-        - `:header` - Expect header (default: `true`)
-        """
+        @doc unquote(Macro.escape(decode_doc_plain))
         def decode(binary, opts \\ [])
 
         def decode(binary, []) when is_binary(binary) do
@@ -4912,7 +4890,8 @@ defmodule GridCodec.Struct.Compiler do
          endian,
          validation_active,
          module,
-         generate_typespec
+         generate_typespec,
+         validate_struct_doc_str
        ) do
     public_meta = public_validation_metadata(validations)
     binary_checks = Enum.filter(validations, &(:binary in &1.supports))
@@ -4955,9 +4934,7 @@ defmodule GridCodec.Struct.Compiler do
 
       def __validations__, do: unquote(Macro.escape(public_meta))
 
-      @doc """
-      Validates a struct and returns accumulated validation errors.
-      """
+      @doc unquote(Macro.escape(validate_struct_doc_str))
       if unquote(generate_typespec) do
         @spec validate_struct(t()) ::
                 {:ok, t()}
@@ -6288,5 +6265,151 @@ defmodule GridCodec.Struct.Compiler do
         end)
       end
     end
+  end
+
+  defp codec_doc_context(opts, resolved_fields, processed_groups, batches) do
+    if Keyword.get(opts, :doc_examples, true) do
+      case GridCodec.DocExampleValues.build(resolved_fields, processed_groups, batches) do
+        :skip -> :skip
+        {:ok, ctx} -> {:ok, ctx}
+      end
+    else
+      :disabled
+    end
+  end
+
+  defp build_codec_new_doc_string(module, doc_ctx, validation_active) do
+    examples =
+      case GridCodec.DocExampleValues.doc_section_new(module, doc_ctx, validation_active) do
+        # `doc_examples: false`, or `DocExampleValues.build/3` skipped this shape (e.g. batch).
+        :no_iex_examples -> codec_doc_new_without_iex_examples()
+        {:iex_examples, body} -> body
+      end
+
+    """
+      Creates a new #{inspect(module)} struct with coercion and validation.
+
+      Accepts atom keys, string keys, or a mix. Coerces string values to the
+      correct types (e.g., `"100"` → integer, `"true"` → boolean,
+      `"2026-01-01T00:00:00Z"` → DateTime). Then validates if `validate: true`.
+
+      Returns `{:ok, struct}` or `{:error, %GridCodec.ValidationError{}}`.
+
+    #{examples}
+    """
+  end
+
+  defp codec_doc_new_without_iex_examples do
+    """
+      ## Examples
+
+          Add field values for your `defcodec` (see `__fields__/0`). Runnable `iex>` snippets
+          are emitted automatically when the codec shape is supported and `doc_examples` is not `false`.
+    """
+  end
+
+  defp build_codec_new_binary_doc_string(module, doc_ctx) do
+    examples =
+      case GridCodec.DocExampleValues.doc_section_new_binary(module, doc_ctx, nil) do
+        # No `{:ok, attrs}` context: show static, non-`iex>` samples (doctest will not run them).
+        :no_iex_examples ->
+          """
+              ## Examples
+
+                  {:ok, binary} = #{inspect(module)}.new_binary(%{"price" => "100", "active" => "true"})
+                  {:ok, binary} = #{inspect(module)}.new_binary(price: 100, active: true)
+                  {:ok, binary} = #{inspect(module)}.new_binary(existing_struct)
+          """
+
+        {:iex_examples, body} ->
+          body
+      end
+
+    """
+      Coerce + validate + encode in one shot — no struct allocation.
+
+      Accepts maps (atom or string keys), keyword lists, or structs.
+      Coerces string values, validates (if enabled), and returns the
+      binary directly. One allocation: the output binary.
+
+    #{examples}
+    """
+  end
+
+  defp compose_encode_doc_string(module, doc_ctx, telemetry?, min_duration) do
+    tele_block =
+      if telemetry? do
+        line = "Emits `[:grid_codec, :encode]` telemetry event with duration and byte size."
+
+        suffix =
+          if min_duration > 0 do
+            " Events with duration below #{min_duration} native time units are skipped."
+          else
+            ""
+          end
+
+        "\n\n      " <> line <> suffix
+      else
+        ""
+      end
+
+    # Roundtrip `iex>` block only when `doc_ctx` has synthesized attrs; otherwise doc stays options + prose.
+    ex =
+      case GridCodec.DocExampleValues.doc_section_encode(module, doc_ctx, nil) do
+        :no_iex_examples -> ""
+        {:iex_examples, body} -> "\n\n" <> body
+      end
+
+    opts_help =
+      "\n\n      ## Options\n\n      - :header - include header (default true)\n"
+
+    "      Encodes a struct to binary." <> tele_block <> opts_help <> ex
+  end
+
+  defp compose_decode_doc_string(module, doc_ctx, telemetry?, min_duration) do
+    tele_block =
+      if telemetry? do
+        line = "Emits `[:grid_codec, :decode]` telemetry event with duration and byte size."
+
+        suffix =
+          if min_duration > 0 do
+            " Events with duration below #{min_duration} native time units are skipped."
+          else
+            ""
+          end
+
+        "\n\n      " <> line <> suffix
+      else
+        ""
+      end
+
+    # Same as encode: optional roundtrip `iex>` block only with synthesized attrs.
+    ex =
+      case GridCodec.DocExampleValues.doc_section_decode(module, doc_ctx, nil) do
+        :no_iex_examples -> ""
+        {:iex_examples, body} -> "\n\n" <> body
+      end
+
+    opts_help =
+      "\n\n      ## Options\n\n" <>
+        "      - :header - expect header (default true)\n" <>
+        "      - :validate - post-decode validation (:none, true or :decoded, :binary, :both; default :none)\n"
+
+    "      Decodes binary to a struct." <> tele_block <> opts_help <> ex
+  end
+
+  defp validate_struct_doc_string(module, doc_ctx, validation_active) do
+    # `iex>` only when type validation is on and attrs were synthesized; otherwise prose-only @doc.
+    ex =
+      case GridCodec.DocExampleValues.doc_section_validate_struct(
+             module,
+             doc_ctx,
+             validation_active
+           ) do
+        :no_iex_examples -> ""
+        {:iex_examples, body} -> "\n\n" <> body
+      end
+
+    "      Validates a struct and returns accumulated validation errors." <> ex
   end
 end

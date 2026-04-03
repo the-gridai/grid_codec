@@ -397,6 +397,10 @@ mix test test/grid_codec/struct_test.exs
 mix test --cover
 ```
 
+### Doctest harness for generated codecs
+
+GridCodec can emit deterministic `iex>` examples on codec modules (default). Consumer apps can treat `import ExUnit.DocTest` plus `for mod <- codec_modules, do: doctest(mod)` as bulk coverage for generated `new/1`, `encode/2`, and `decode/2`. Pair that with a small meta-test that uses `Code.fetch_docs/1` to assert each codec’s docs include `"iex>"`, so empty-doc regressions do not slip through. See `test/grid_codec/codec_doctest_test.exs` and `example_app/test/example_app/codec_doctest_test.exs`. Opt out per module with `use GridCodec.Struct, doc_examples: false`.
+
 ## Code Quality
 
 ```bash

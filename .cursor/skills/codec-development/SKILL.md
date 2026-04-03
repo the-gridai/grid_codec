@@ -37,6 +37,12 @@ Optional:
 
 `lib/grid_codec/struct/compiler.ex` — the `__before_compile__` macro generates everything.
 
+**Generated `@doc` / doctests:** `lib/grid_codec/doc_example_values.ex` synthesizes deterministic
+`iex>` snippets for supported shapes; the compiler merges them into `new/1`, `new_binary/1`,
+`encode/2`, `decode/2`, and `validate_struct/1` docs. Returns `{:iex_examples, markdown}` or
+`:no_iex_examples` (no runnable block for that section). Opt out per module with
+`doc_examples: false` on `use GridCodec.Struct`. Custom types can supply `doc_example_source/0`.
+
 Key generation functions:
 - `generate_encode_api` / `generate_decode_api` — public API with telemetry
 - `generate_struct_encoder_with_groups` — fast-path struct encoding

@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.39.0"}
+    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.40.0"}
   ]
 end
 ```
@@ -540,6 +540,31 @@ Key modules:
 - `GridCodec.Schema.Formatter` – `.grid` file generation (master, struct, and enum files)
 - `GridCodec.Breaking.Checker` – Breaking change detection engine
 - `GridCodec.Telemetry.Metrics` – Pre-built metric definitions (Telemetry.Metrics + PromEx)
+
+## Testing codecs with `doctest`
+
+For modules that `use GridCodec.Struct`, the compiler emits runnable `iex>` lines in `@doc` for `new/1`, `new_binary/1`, `encode/2`, `decode/2`, and (when applicable) `validate_struct/1`, as long as the layout is supported by the built-in example synthesizer and `doc_examples` is not set to `false`.
+
+In your app tests, discover codec modules and run ExUnit’s doctest over each one so generated code is exercised under `mix test` (including `mix test --cover`):
+
+```elixir
+defmodule MyApp.CodecDoctestTest do
+  use ExUnit.Case, async: true
+  import ExUnit.DocTest
+
+  @codec_modules [
+    MyApp.Events.OrderCreated,
+    MyApp.Events.TradeSettled
+    # …or build this list from Application.spec(:my_app, :modules) and __gridcodec_struct__?/0
+  ]
+
+  for mod <- @codec_modules do
+    doctest mod
+  end
+end
+```
+
+`doctest Module` only runs snippets that start with `iex>`. A module with no `iex>` lines still “passes” doctest with zero cases, so it is useful to assert that each codec’s docs contain `"iex>"` (see `test/grid_codec/codec_doctest_test.exs` in this repo). Disable generated examples for exotic codecs with `use GridCodec.Struct, doc_examples: false`.
 
 ## Common Tasks
 

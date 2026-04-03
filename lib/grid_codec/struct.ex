@@ -93,6 +93,10 @@ defmodule GridCodec.Struct do
   - `:field_defaults` - A keyword list of default options applied to every `field`
     declaration. Explicit options on individual fields take precedence. Useful when
     most fields share a common option like `presence: :required`.
+  - `:doc_examples` - When `true` (default), the compiler emits runnable `iex>` snippets
+    in generated `@doc` for `new/1`, `new_binary/1`, `encode/2`, `decode/2`, and
+    `validate_struct/1` when the codec shape is supported. Set to `false` to keep
+    prose-only docs (for example exotic layouts where deterministic examples are unsafe).
 
   Options can also be set globally via application config:
 

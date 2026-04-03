@@ -141,6 +141,7 @@ One-sentence description.
 - [ ] Every public type has `@typedoc`
 - [ ] `CHANGELOG.md` is up to date with latest version
 - [ ] `AGENTS.md` reflects current architecture
+- [ ] **Generated codec docs** — `GridCodec.Struct` options in `lib/grid_codec/struct.ex` include `doc_examples:`; README/AGENTS describe consumer `doctest/1` + `iex>` guard when this area changes
 
 ### Quality
 - [ ] Examples are copy-pasteable (no `...` or `# your code here`)
@@ -164,6 +165,7 @@ One-sentence description.
 | Performance change | CHANGELOG with numbers, AGENTS.md if profiling workflow changed |
 | Bug fix | CHANGELOG, add test docstring explaining the fix |
 | New option | CHANGELOG, moduledoc options table, README if important |
+| Doctest / generated `iex>` examples | CHANGELOG, `GridCodec.Struct` moduledoc (`doc_examples`), README testing section, `AGENTS.md`, testing-strategy skill; note `GridCodec.DocExampleValues` is compiler-internal (`@moduledoc false`) |
 | Version bump | CHANGELOG date, mix.exs version |
 | New field option | CHANGELOG, `.grid` parser/formatter moduledocs, breaking rules moduledocs |
 | New breaking rule | CHANGELOG, rules module `@moduledoc`, AGENTS.md rule count |

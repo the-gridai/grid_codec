@@ -11,6 +11,8 @@ description: Write and maintain tests for GridCodec — unit tests, property-bas
 
 Standard assertion-based tests for specific behavior. Located in `test/grid_codec/`.
 
+**Generated codec doctests:** For `use GridCodec.Struct` modules, rely on compiler-emitted `iex>` docs (from `GridCodec.DocExampleValues` + `lib/grid_codec/struct/compiler.ex`) and run `doctest/1` over an explicit or discovered module list; add a guard that `Code.fetch_docs/1` contains `"iex>"` so doctest cannot silently run zero examples. Reference `test/grid_codec/codec_doctest_test.exs` and `example_app/test/example_app/codec_doctest_test.exs`. Use `doc_examples: false` when a codec cannot get safe deterministic examples. Global coverage percentage alone does not prove every codec has `iex>` lines.
+
 **Roundtrip pattern** — the most common test for codecs:
 ```elixir
 test "encode and decode roundtrip" do

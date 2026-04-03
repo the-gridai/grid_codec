@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-04-03
+
+### Added
+- **Doctest-ready generated codec docs** — `use GridCodec.Struct` modules get runnable
+  `iex>` examples in `@doc` for `new/1`, `new_binary/1`, `encode/2`, `decode/2`, and
+  `validate_struct/1` when the layout is supported and deterministic literals can be
+  synthesized. Host apps can run `doctest/1` over discovered codec modules so
+  generated code is exercised under `mix test` and contributes to coverage.
+- **`doc_examples` option** — set `doc_examples: false` on `use GridCodec.Struct` to
+  keep prose-only docs for shapes where auto-examples are unsafe or unwanted.
+- **Doc example synthesis** (`lib/grid_codec/doc_example_values.ex`, not a public API
+  surface) — compile-time attribute fragments for generated `iex>` lines; types may
+  implement optional `doc_example_source/0`.
+- **Library meta-tests** — `test/grid_codec/codec_doctest_test.exs` runs doctests over
+  representative test-support codecs and asserts `Code.fetch_docs/1` contains
+  `iex>` so empty-example regressions do not slip through.
+- **Example app smoke** — `example_app/test/example_app/codec_doctest_test.exs` mirrors
+  the consumer pattern (allowlist + discovery sync test + `iex>` guard).
+
+### Documentation
+- **README, AGENTS.md, testing-strategy skill** — document the doctest harness pattern,
+  structural `iex>` guard, and `doc_examples` opt-out.
+
 ## [0.39.0] - 2026-04-03
 
 ### Changed
