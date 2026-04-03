@@ -16,6 +16,19 @@ mix compile --warnings-as-errors
 mix test
 ```
 
+**Example app (required — matches CI `Example App Quality`):** the example app is
+its own Mix project; root `mix format` / root credo do **not** cover
+`example_app/`. Run the same steps CI runs:
+
+```bash
+cd example_app && mix deps.get
+cd example_app && mix compile --warnings-as-errors
+cd example_app && MIX_ENV=test mix compile --warnings-as-errors
+cd example_app && mix format --check-formatted
+cd example_app && mix credo --strict
+cd example_app && mix test
+```
+
 All must pass with zero issues. If any fail, fix before proceeding.
 
 ## Release Steps
@@ -80,6 +93,11 @@ mix format --check-formatted
 mix credo --strict
 mix compile --warnings-as-errors
 mix test
+cd example_app && mix compile --warnings-as-errors
+cd example_app && MIX_ENV=test mix compile --warnings-as-errors
+cd example_app && mix format --check-formatted
+cd example_app && mix credo --strict
+cd example_app && mix test
 cd example_app && mix run benchmarks/quick_bench.exs
 ```
 
@@ -103,7 +121,11 @@ git push origin vX.Y.Z
 
 ### 9. Verify CI Passes
 
-After pushing, **wait for CI to complete** and confirm all jobs pass:
+After pushing, **wait for CI to complete** and confirm **every** job that runs on
+`push` to `main` is green: **Test**, **Code Quality**, **Example App Quality**,
+**Dialyzer**, and **Example App Dialyzer**. (`Breaking Change Detection` only
+runs on pull requests, so it will show as skipped on direct pushes — that is
+expected.)
 
 ```bash
 # Watch CI status (poll until completed)
@@ -137,6 +159,7 @@ After CI passes:
 | `generator/0 is undefined` | Type module compiled before `GridCodec.Generators` | Change `Code.ensure_loaded?(GridCodec.Generators)` to `Code.ensure_loaded?(StreamData)` in the guard |
 | `--warnings-as-errors` | Unused variable, unreachable code | Fix the warning in source |
 | Format check | Unformatted file | `mix format` then re-commit |
+| Example App Quality / format | File under `example_app/` not formatted for that project | `cd example_app && mix format` (root `mix format` may not touch example app paths) |
 | Credo strict | Style violation | Fix the issue or add `# credo:disable-for-this-file` if intentional |
 
 ## Emergency Hotfix

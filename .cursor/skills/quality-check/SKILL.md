@@ -23,8 +23,17 @@ mix test
 The example app exercises the public API as a real consumer would.
 Compilation warnings here surface issues users will hit.
 
+**Mirror `.github/workflows/ci.yml` `example-app-quality`:** this job is a
+separate Mix project with its own formatter paths. Root `mix format` does **not**
+guarantee `example_app/` is formatted; always run checks **inside**
+`example_app/`.
+
 ```bash
-cd example_app && mix deps.get && mix compile --warnings-as-errors
+cd example_app && mix deps.get
+cd example_app && mix compile --warnings-as-errors
+cd example_app && MIX_ENV=test mix compile --warnings-as-errors
+cd example_app && mix format --check-formatted
+cd example_app && mix credo --strict
 cd example_app && mix test
 ```
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Example App Quality CI** — `example_app/test/example_app/codec_doctest_test.exs`
+  formatted with `cd example_app && mix format` so CI’s in-app
+  `mix format --check-formatted` matches (root `mix format` does not cover the
+  example app tree).
+
 ## [0.40.0] - 2026-04-03
 
 ### Added

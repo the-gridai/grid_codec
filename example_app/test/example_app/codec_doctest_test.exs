@@ -16,7 +16,8 @@ defmodule ExampleApp.CodecDoctestTest do
       |> String.starts_with?("Elixir.ExampleApp.")
     end)
     |> Enum.filter(fn mod ->
-      Code.ensure_loaded?(mod) and function_exported?(mod, :__gridcodec_struct__?, 0) and mod.__gridcodec_struct__?()
+      Code.ensure_loaded?(mod) and function_exported?(mod, :__gridcodec_struct__?, 0) and
+        mod.__gridcodec_struct__?()
     end)
   end
 
@@ -44,25 +45,27 @@ defmodule ExampleApp.CodecDoctestTest do
 
   test "discovered ExampleApp codec modules stay in sync with doctest allowlist" do
     discovered = codec_modules() |> MapSet.new()
-    allow = MapSet.new([
-      ExampleApp.Events.OrderCreated,
-      ExampleApp.Events.MarketCreated,
-      ExampleApp.Events.TradeExecuted,
-      ExampleApp.Events.TradeSettled,
-      ExampleApp.Events.OrderCreatedNoTypespec,
-      ExampleApp.Events.OrderCreatedNoTypespecPlain,
-      ExampleApp.Views.CommandEnvelope,
-      ExampleApp.Views.Reservation,
-      ExampleApp.Views.ReleaseReservation,
-      ExampleApp.Views.PlaceReservation,
-      ExampleApp.Views.CurrencyAccount,
-      ExampleApp.Bench.TaggedMetric,
-      ExampleApp.Bench.SmallStruct,
-      ExampleApp.Bench.MediumStruct,
-      ExampleApp.Bench.LargeStruct,
-      ExampleApp.Bench.BinaryTraceContext,
-      ExampleApp.Bench.BinaryEnvelope
-    ])
+
+    allow =
+      MapSet.new([
+        ExampleApp.Events.OrderCreated,
+        ExampleApp.Events.MarketCreated,
+        ExampleApp.Events.TradeExecuted,
+        ExampleApp.Events.TradeSettled,
+        ExampleApp.Events.OrderCreatedNoTypespec,
+        ExampleApp.Events.OrderCreatedNoTypespecPlain,
+        ExampleApp.Views.CommandEnvelope,
+        ExampleApp.Views.Reservation,
+        ExampleApp.Views.ReleaseReservation,
+        ExampleApp.Views.PlaceReservation,
+        ExampleApp.Views.CurrencyAccount,
+        ExampleApp.Bench.TaggedMetric,
+        ExampleApp.Bench.SmallStruct,
+        ExampleApp.Bench.MediumStruct,
+        ExampleApp.Bench.LargeStruct,
+        ExampleApp.Bench.BinaryTraceContext,
+        ExampleApp.Bench.BinaryEnvelope
+      ])
 
     assert MapSet.equal?(discovered, allow),
            """
