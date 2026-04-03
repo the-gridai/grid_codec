@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-04-03
+
 ### Fixed
 
 - **Example App Quality CI** — `example_app/test/example_app/codec_doctest_test.exs`
