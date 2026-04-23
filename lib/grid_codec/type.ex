@@ -202,6 +202,30 @@ defmodule GridCodec.Type do
   @callback decode_value_ast(var :: Macro.t()) :: Macro.t()
 
   @doc """
+  Declares that this type's decode path for non-`wire_format:` fields never
+  yields Elixir `nil` for any on-wire input.
+
+  When `true`, the struct compiler may omit the `case … nil ->` wrapper used
+  for `presence: :required` decode-time enforcement. That avoids a dead `nil`
+  clause, which Elixir 1.18+ can reject under `mix compile --warnings-as-errors`.
+
+  Return **`false`** (the default when this callback is absent) whenever
+  `decode_value_ast/1` can produce `nil` for a null sentinel or other wire
+  pattern.
+
+  Do **not** return `true` for fields that use `wire_format:`: the domain
+  `decode_as_ast/2` may still map a nil-equivalent wire value to `nil`, so the
+  nil guard must remain.
+
+  ## When to return `true`
+
+  Use this for fixed-domain types that normalize null sentinels to a non-nil
+  value — for example `GridCodec.Types.CharArray`, which maps an all-null
+  buffer to `""`.
+  """
+  @callback required_field_decode_never_nil?() :: boolean()
+
+  @doc """
   Generates the AST for zero-copy field access.
 
   The returned AST should extract the field value from a binary at the
@@ -349,6 +373,7 @@ defmodule GridCodec.Type do
   @callback encode_to_wire_ast(value_var :: Macro.t(), opts :: keyword()) :: Macro.t()
 
   @optional_callbacks decode_value_ast: 1,
+                      required_field_decode_never_nil?: 0,
                       generator: 0,
                       compare_values: 2,
                       validate_ast: 3,

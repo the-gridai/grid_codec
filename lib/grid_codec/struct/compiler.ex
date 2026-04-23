@@ -2228,7 +2228,7 @@ defmodule GridCodec.Struct.Compiler do
 
         value_ast
       end
-      |> wrap_required_decode(opts, name)
+      |> wrap_required_decode(opts, name, domain_module, wire_module)
       |> then(fn final_ast -> {name, final_ast} end)
     end)
   end
@@ -2247,34 +2247,49 @@ defmodule GridCodec.Struct.Compiler do
   #   * without `default:`        -> throw, caught at the decode boundary and
   #                                  surfaced as `{:error, {:required_field_absent, field}}`
   #
-  # Types that never produce nil (custom types without a null sentinel /
-  # without `decode_value_ast/1`) are unaffected: the nil branch is dead code
-  # since their value_ast cannot evaluate to nil. This lets the same mechanism
-  # safely cover every type — built-in, Enum/Bitset, and user-defined.
-  defp wrap_required_decode(value_ast, opts, field_name) do
+  # Types that never produce Elixir `nil` after decode still received the same
+  # wrapper in 0.41.0; for some (notably `CharArray`) the `nil` match is
+  # unreachable and trips `--warnings-as-errors`. Those types may implement
+  # `GridCodec.Type.required_field_decode_never_nil?/0` returning `true` for
+  # non-`wire_format:` fields only (`decode_as_ast/2` may still yield `nil`).
+  defp wrap_required_decode(value_ast, opts, field_name, domain_module, wire_module) do
     presence = Keyword.get(opts, :presence, :optional)
 
-    if presence == :required do
-      case Keyword.get(opts, :default) do
-        nil ->
-          quote do
-            case unquote(value_ast) do
-              nil -> throw({:grid_codec_required_field_absent, unquote(field_name)})
-              __v__ -> __v__
-            end
-          end
+    cond do
+      presence != :required ->
+        value_ast
 
-        default ->
-          quote do
-            case unquote(value_ast) do
-              nil -> unquote(Macro.escape(default))
-              __v__ -> __v__
+      skip_required_decode_nil_guard?(domain_module, wire_module) ->
+        value_ast
+
+      true ->
+        case Keyword.get(opts, :default) do
+          nil ->
+            quote do
+              case unquote(value_ast) do
+                nil -> throw({:grid_codec_required_field_absent, unquote(field_name)})
+                __v__ -> __v__
+              end
             end
-          end
-      end
-    else
-      value_ast
+
+          default ->
+            quote do
+              case unquote(value_ast) do
+                nil -> unquote(Macro.escape(default))
+                __v__ -> __v__
+              end
+            end
+        end
     end
+  end
+
+  defp skip_required_decode_nil_guard?(_domain_module, wire_module)
+       when not is_nil(wire_module),
+       do: false
+
+  defp skip_required_decode_nil_guard?(domain_module, nil) do
+    function_exported?(domain_module, :required_field_decode_never_nil?, 0) and
+      domain_module.required_field_decode_never_nil?()
   end
 
   # True iff any field on this struct (including fields inside groups) uses
@@ -2872,7 +2887,7 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, wrap_required_decode(value_ast, opts, name)}
+        {name, wrap_required_decode(value_ast, opts, name, module, wire_module)}
       end)
 
     wrap_required? = any_required?(fixed_fields, var_fields, groups)
@@ -2980,7 +2995,7 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, wrap_required_decode(value_ast, opts, name)}
+        {name, wrap_required_decode(value_ast, opts, name, module, wire_module)}
       end)
 
     wrap_required? = any_required?(fixed_fields, var_fields, groups)

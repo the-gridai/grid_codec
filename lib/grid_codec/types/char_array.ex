@@ -353,6 +353,9 @@ defmodule GridCodec.Types.CharArray do
       end
 
       @impl GridCodec.Type
+      def required_field_decode_never_nil?, do: true
+
+      @impl GridCodec.Type
       def getter_ast(offset, _endian, payload_var) do
         len = @char_array_length
 

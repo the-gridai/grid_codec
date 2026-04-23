@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-04-24
+
+### Fixed
+
+- **Required `CharArray` under `mix compile --warnings-as-errors`:** `CharArray`
+  `decode_value_ast/1` never yields Elixir `nil`, so the generic `:required`
+  nil-guard from 0.41.0 produced an unreachable `nil` clause and failed strict
+  compilation (reported downstream on the 0.41 bump). The compiler now omits
+  that guard when a type opts in via the optional `GridCodec.Type` callback
+  `required_field_decode_never_nil?/0` (implemented for `CharArray`). The guard
+  is **never** skipped for `wire_format:` fields, where `decode_as_ast/2` may
+  still return `nil`. Closes
+  [#14](https://github.com/Spectral-Finance/grid_codec/issues/14).
+
+### Added
+
+- **`GridCodec.Type.required_field_decode_never_nil?/0`** — optional behaviour
+  callback documented in `GridCodec.Type`. A `test/support` fixture codec
+  (`GridCodec.TestSupport.RequiredCharArrayFixture`) is compiled in `MIX_ENV=test`
+  so CI’s `mix compile --warnings-as-errors` step covers this path.
+
 ## [0.41.0] - 2026-04-24
 
 ### Changed
