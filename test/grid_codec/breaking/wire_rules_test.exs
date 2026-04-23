@@ -72,6 +72,198 @@ defmodule GridCodec.Breaking.WireRulesTest do
     end
   end
 
+  describe "WIRE_FIELD_ADDED_REQUIRED" do
+    test "flags appended :required fixed-block field (default presence)" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        price: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        price: u64
+        quantity: u32
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_FIELD_ADDED_REQUIRED in rules(issues)
+      assert Enum.any?(issues, &(&1.message =~ "quantity"))
+    end
+
+    test "flags appended explicit presence: required field" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        balance_after: decimal(scale: 8), wire_format: i64, presence: required
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_FIELD_ADDED_REQUIRED in rules(issues)
+      assert Enum.any?(issues, &(&1.message =~ "balance_after"))
+    end
+
+    test "does not flag appended :optional field (presence: optional)" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        balance_after: decimal(scale: 8), wire_format: i64, presence: optional
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "does not flag appended optional field via trailing ? shorthand" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        notes?: u32
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "does not flag appended variable-length field (string)" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        note: string16
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "default: suppresses the warning (decoder uses default for historical payloads)" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        counter: u32, default: 100
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "default: on explicit presence: required also suppresses the warning" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        counter: u32, presence: required, default: 100
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "since: does not suppress the warning" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 2) {
+        id: uuid_string
+        counter: u32, since: 2
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_FIELD_ADDED_REQUIRED in rules(issues)
+    end
+
+    test "does not flag appended :constant field (safe: decoder returns declared value regardless of wire bytes)" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        exchange: u32, presence: constant, value: 1
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
+    end
+
+    test "does not flag when no fields were added" do
+      schema = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        price: u64
+      }
+      """
+
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(schema, schema))
+    end
+  end
+
   describe "WIRE_FIELD_TYPE_CHANGED" do
     test "detects type change with different wire size" do
       old = """

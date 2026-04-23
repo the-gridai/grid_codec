@@ -1,6 +1,8 @@
 defmodule GridCodec.SchemaEvolutionTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.TestSupport.SchemaEvo, as: SE
+
   # ============================================================================
   # Test Modules: V1 and V2 codecs with same template_id/schema_id
   # ============================================================================
@@ -124,6 +126,10 @@ defmodule GridCodec.SchemaEvolutionTest do
       field :count, :u32
     end
   end
+
+  # Tier 1/2 evolution codecs live in test/support/schema_evolution_fixtures.ex
+  # (GridCodec.TestSupport.SchemaEvo.*) so async tests and invariant properties
+  # can reference them reliably.
 
   # ============================================================================
   # Tests: Backward Compatibility (older binary → newer codec)
@@ -351,6 +357,196 @@ defmodule GridCodec.SchemaEvolutionTest do
       {:ok, binary} = EventV2.encode(v2)
 
       assert {:error, {:version_too_new, 2, 1}} = EventV1.decode(binary)
+    end
+  end
+
+  describe "required fixed fields appended with :since (decode contract)" do
+    test "v1 binary → v2 without :default yields required_field_absent" do
+      v1 = %SE.ReqSinceV1{id: 1, price: 2}
+      {:ok, bin} = SE.ReqSinceV1.encode(v1)
+      assert {:error, {:required_field_absent, :qty}} = SE.ReqSinceV2NoDefault.decode(bin)
+    end
+
+    test "v1 binary → v2 with :default substitutes default for padded sentinel" do
+      v1 = %SE.ReqSinceAltV1{id: 9, price: 100}
+      {:ok, bin} = SE.ReqSinceAltV1.encode(v1)
+
+      assert {:ok, out} = SE.ReqSinceAltV2WithDefault.decode(bin)
+      assert out.id == 9
+      assert out.price == 100
+      assert out.qty == 0
+    end
+  end
+
+  describe "field_defaults with :since (required + decode default)" do
+    test "v1 binary → v2 applies field_defaults default on new :since field" do
+      v1 = %SE.DefaultsEvolV1{id: 42}
+      {:ok, bin} = SE.DefaultsEvolV1.encode(v1)
+
+      assert {:ok, out} = SE.DefaultsEvolV2.decode(bin)
+      assert out.id == 42
+      assert out.score == 0
+    end
+  end
+
+  describe "struct evolution preserves groups (Tier 2)" do
+    test "v1 with group → v2 adds :since fixed field; entries unchanged" do
+      v1 = %SE.GroupPadWriterV1{id: 7, items: [%{qty: 11}, %{qty: 22}]}
+      {:ok, bin} = SE.GroupPadWriterV1.encode(v1)
+
+      assert {:ok, out} = SE.GroupPadReqReaderV2.decode(bin)
+      assert out.id == 7
+      assert out.seq == nil
+      assert [%{qty: 11}, %{qty: 22}] = GridCodec.Group.to_list(out.items)
+    end
+
+    test "v1 group entry with nil qty → v2 required inner field errors when materialized" do
+      v1 = %SE.GroupPadWriterV1{id: 1, items: [%{qty: nil}]}
+      {:ok, bin} = SE.GroupPadWriterV1.encode(v1)
+
+      # Fixed groups decode lazily: top-level decode succeeds, then entry decode
+      # runs required-field enforcement (throws if no :default; not wrapped in
+      # the struct decoder try/catch).
+      assert {:ok, out} = SE.GroupPadReqReaderV2.decode(bin)
+
+      assert catch_throw(GridCodec.Group.get_entry(out.items, 0)) ==
+               {:grid_codec_required_field_absent, :qty}
+    end
+
+    test "v1 group entry with nil qty → v2 required inner field with :default decodes" do
+      v1 = %SE.GroupPadWriterAltV1{id: 2, items: [%{qty: nil}]}
+      {:ok, bin} = SE.GroupPadWriterAltV1.encode(v1)
+
+      assert {:ok, out} = SE.GroupPadReqDefaultV2.decode(bin)
+      assert out.id == 2
+      assert out.seq == nil
+      assert [%{qty: 0}] = GridCodec.Group.to_list(out.items)
+    end
+  end
+
+  describe "struct evolution preserves typed_frames batches (Tier 2)" do
+    test "v1 batch payload → v2 adds :since field; commands intact" do
+      mid = <<1::128>>
+      cmd = %SE.EvolutionTinyCmd{cmd_id: 99}
+
+      v1 = %SE.BatchParentV1{market_id: mid, commands: [cmd]}
+      {:ok, bin} = SE.BatchParentV1.encode(v1)
+
+      assert {:ok, out} = SE.BatchParentV2.decode(bin)
+      assert out.market_id == mid
+      assert out.trace_id == nil
+      assert GridCodec.Batch.count(out.commands) == 1
+
+      assert [{0, 0, decoded}] = GridCodec.Batch.to_list(out.commands)
+      assert decoded.cmd_id == 99
+    end
+  end
+
+  describe "appended :constant field with :since (Tier 2)" do
+    test "v1 binary → v2 exposes declared constant regardless of padding" do
+      v1 = %SE.ConstAppendV1{id: 123}
+      {:ok, bin} = SE.ConstAppendV1.encode(v1)
+
+      assert {:ok, out} = SE.ConstAppendV2.decode(bin)
+      assert out.id == 123
+      assert out.lane == 3
+    end
+  end
+
+  describe "wire_format + :since evolution (Tier 2)" do
+    test "optional decimal i64 wire decodes nil from historical padding" do
+      v1 = %SE.DecWfV1{id: 5}
+      {:ok, bin} = SE.DecWfV1.encode(v1)
+
+      assert {:ok, out} = SE.DecWfV2.decode(bin)
+      assert out.id == 5
+      assert out.amount == nil
+    end
+
+    test "required decimal i64 wire with :default substitutes from padding" do
+      v1 = %SE.DecWfReqDefV1{id: 8}
+      {:ok, bin} = SE.DecWfReqDefV1.encode(v1)
+
+      assert {:ok, out} = SE.DecWfReqDefV2.decode(bin)
+      assert out.id == 8
+      assert Decimal.equal?(out.amount, Decimal.new("0"))
+    end
+  end
+
+  describe "custom Enum type appended with :since (Tier 2)" do
+    test "v1 binary → v2 optional enum field decodes nil" do
+      v1 = %SE.EnumEvolV1{id: 1001}
+      {:ok, bin} = SE.EnumEvolV1.encode(v1)
+
+      assert {:ok, out} = SE.EnumEvolV2.decode(bin)
+      assert out.id == 1001
+      assert out.side == nil
+    end
+  end
+
+  describe "padded_union batch + struct :since (new)" do
+    test "v1 padded batch → v2 adds fixed field; heterogeneous entries preserved" do
+      entries = [
+        %SE.BatchPaddedTiny{x: 11},
+        %SE.BatchPaddedWide{a: 22, b: 33},
+        %SE.BatchPaddedTiny{x: 44}
+      ]
+
+      v1 = %SE.BatchPaddedParentV1{sid: 0xAABBCCDD, cmds: entries}
+      {:ok, bin} = SE.BatchPaddedParentV1.encode(v1)
+
+      assert {:ok, out} = SE.BatchPaddedParentV2.decode(bin)
+      assert out.sid == 0xAABBCCDD
+      assert out.epoch == nil
+      assert GridCodec.Batch.count(out.cmds) == 3
+
+      assert [{0, 0, d0}, {1, 1, d1}, {2, 0, d2}] = GridCodec.Batch.to_list(out.cmds)
+      assert d0 == %SE.BatchPaddedTiny{x: 11}
+      assert d1 == %SE.BatchPaddedWide{a: 22, b: 33}
+      assert d2 == %SE.BatchPaddedTiny{x: 44}
+    end
+  end
+
+  describe "scalar group + parent :since (new)" do
+    test "v1 u32 list → v2 adds fixed field; scores list unchanged" do
+      v1 = %SE.ScalarScoresV1{owner: 999, scores: [1, 2, 3, 4]}
+      {:ok, bin} = SE.ScalarScoresV1.encode(v1)
+
+      assert {:ok, out} = SE.ScalarScoresV2.decode(bin)
+      assert out.owner == 999
+      assert out.version_tag == nil
+      assert out.scores == [1, 2, 3, 4]
+    end
+  end
+
+  describe "payload-only decode vs version-aware padding (new)" do
+    test "header:false cannot cross-decode when V2 grows the fixed block — padding needs Header.block_length" do
+      v1 = %SE.ReqSinceAltV1{id: 5, price: 7}
+      {:ok, payload} = SE.ReqSinceAltV1.encode(v1, header: false)
+
+      # Version padding is applied only after Header.decode/1 supplies the writer's
+      # block_length; payload-only decode expects the full V2 fixed payload.
+      assert {:error, :invalid_binary} =
+               SE.ReqSinceAltV2WithDefault.decode(payload, header: false)
+    end
+
+    test "same-version payload-only roundtrip still works" do
+      v1 = %SE.ReqSinceAltV1{id: 11, price: 22}
+      {:ok, payload} = SE.ReqSinceAltV1.encode(v1, header: false)
+      assert {:ok, out} = SE.ReqSinceAltV1.decode(payload, header: false)
+      assert out.id == 11
+      assert out.price == 22
+    end
+  end
+
+  describe "lazy group iteration + required inner field (new)" do
+    test "Group.stream/1 propagates required-field throw from entry decode" do
+      v1 = %SE.GroupPadWriterV1{id: 1, items: [%{qty: nil}]}
+      {:ok, bin} = SE.GroupPadWriterV1.encode(v1)
+      assert {:ok, out} = SE.GroupPadReqReaderV2.decode(bin)
+
+      assert catch_throw(out.items |> GridCodec.Group.stream() |> Enum.to_list()) ==
+               {:grid_codec_required_field_absent, :qty}
     end
   end
 

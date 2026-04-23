@@ -36,6 +36,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   | Rule | Meaning |
   |------|---------|
   | `WIRE_FIELD_REMOVED` | Field removed from struct |
+  | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without `default:` (historical events decode to `{:error, {:required_field_absent, field}}`); add `default:` to make the append safe |
   | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
   | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed |
   | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed |
@@ -191,6 +192,9 @@ defmodule GridCodec.Breaking.Rules.Wire do
             | acc
           ]
 
+        old_f == nil and new_f != nil ->
+          check_field_added(acc, new, new_f, new_schema, path)
+
         old_f != nil and new_f != nil and old_f.type != new_f.type ->
           check_field_type_change(acc, old, new, old_f, new_f, idx, new_schema, path)
 
@@ -221,6 +225,72 @@ defmodule GridCodec.Breaking.Rules.Wire do
           acc
       end
     end)
+  end
+
+  # Flags appended fixed-block fields with effective presence `:required` and
+  # no `:default`.
+  #
+  # Historical payloads (written before the append) are shorter than the new
+  # block length. `decode_versioned_payload/2` pads them from
+  # `@__null_fixed_block__`, which is synthesized from each type's null
+  # sentinel (zeros for integers, NaN for floats, i64_min for decimals backed
+  # by i64, etc.). For a `:required` field, that sentinel would decode as
+  # `nil`, violating the typespec — so the runtime now rejects the decode
+  # with `{:error, {:required_field_absent, field}}` unless the field
+  # declares a `:default` for the decoder to substitute.
+  #
+  # Safe appends:
+  #   * `presence: :required, default: <value>` — historical events decode
+  #     with the default (round-trippable via encode).
+  #   * `presence: :optional` — historical events decode as `nil` (the
+  #     typespec already admits `nil`).
+  #   * Introduce a new message type.
+  defp check_field_added(issues, struct, new_f, new_schema, path) do
+    cond do
+      effective_presence(new_f) != :required ->
+        issues
+
+      variable_length_field?(new_f, new_schema) ->
+        issues
+
+      new_f.default != nil ->
+        issues
+
+      true ->
+        [
+          %Issue{
+            rule: :WIRE_FIELD_ADDED_REQUIRED,
+            category: :wire,
+            message:
+              ~s(Field "#{new_f.name}" was appended as a required fixed-block field ) <>
+                "without a :default. Historical events written before this change decode " <>
+                "to {:error, {:required_field_absent, :#{new_f.name}}} because the type's " <>
+                "null sentinel would otherwise surface as nil and violate the typespec. " <>
+                "Declare a :default to supply a decode-time fallback, or use presence: " <>
+                ":optional, or introduce a new message type.",
+            path: path,
+            location: %{struct: struct.name, field: new_f.name}
+          }
+          | issues
+        ]
+    end
+  end
+
+  # Effective presence combines the explicit `presence:` option with the
+  # trailing `?` shorthand. Default (neither set) is `:required`.
+  defp effective_presence(%{presence: presence})
+       when presence in [:required, :optional, :constant],
+       do: presence
+
+  defp effective_presence(%{optional: true}), do: :optional
+  defp effective_presence(_field), do: :required
+
+  # A field is variable-length if its resolved wire size is `:variable`.
+  # Unknown types (e.g. enums, unresolved custom types) are conservatively
+  # treated as fixed-block, since they participate in the same null-padding
+  # path on short historical payloads.
+  defp variable_length_field?(%{type: type}, schema) do
+    WireSizes.resolve(type, schema.types) == :variable
   end
 
   defp check_field_opts(issues, new_struct, old_f, new_f, path) do

@@ -157,9 +157,86 @@ These require coordinated deployment or snapshot version bumping:
   offsets shift for all subsequent fields.
 - **Reordering fixed fields** — binary layout changes.
 - **Removing a field** — the decoder expects bytes that are no longer present.
+- **Appending a `:required` fixed-block field without a `:default`** — the
+  decoder now rejects historical events with
+  `{:error, {:required_field_absent, field}}` because the null-sentinel
+  padding would otherwise surface as `nil`, violating the typespec. Declare
+  a `:default` on the new field to make the append safe (old events decode
+  with the default). See below.
 - **Reusing a `template_id`** for a different message shape.
 - **Using the same `{schema_id, template_id}` for two codecs with different
   versions at the same time** as if version were part of identity. It is not.
+
+## Safely Appending a Required Field
+
+The fixed-block null-padding path that makes appending new fixed fields
+backward-compatible has a hazard for `:required` fields: when a historical
+(shorter) payload is decoded by a newer codec, the decoder pads the missing
+trailing bytes from a precomputed block synthesized from each field's **type
+null sentinel** — zero bytes for integers, NaN for floats, `i64_min` for
+decimals backed by i64, an empty binary pattern for fixed-size strings, etc.
+
+For a `:required` field, that sentinel would decode as `nil`, which violates
+the declared typespec (the field's Elixir type forbids `nil`) and breaks
+round-tripping (`encode/1` rejects `nil` for `:required`). To prevent that,
+the decoder now enforces `:required` at read time:
+
+- If the field declares a `:default`, the decoder **substitutes the default**
+  whenever the wire value would otherwise be `nil`. The struct is fully
+  populated and round-trips cleanly through `encode/1`.
+- If the field has no `:default`, the decoder returns
+  **`{:error, {:required_field_absent, field}}`**. The historical event
+  cannot be materialized without code changes.
+
+This applies uniformly across every built-in type and every custom type
+whose `decode_value_ast/1` maps its null sentinel to `nil`. Custom types
+that never produce `nil` (no null mapping) are unaffected because the
+check's `nil` branch is unreachable by construction.
+
+### Recipes for appending a required field
+
+1. **Declare a `:default` alongside `:required`** (recommended for additive
+   evolution):
+
+   ```elixir
+   field :counter, :u32, presence: :required, default: 0
+   field :price, {:decimal, scale: 8}, wire_format: :i64,
+         presence: :required, default: Decimal.new("0.00000000")
+   ```
+
+   Historical events decode with the default. New events carry the real
+   value. Encode/decode round-trip.
+
+2. **Use `presence: :optional` (or the `?` shorthand)** when `nil` is a
+   sensible meaning for "field wasn't there yet":
+
+   ```elixir
+   field :counter, :u32, presence: :optional
+   # or equivalently:
+   field :counter?, :u32
+   ```
+
+   Historical events decode with `counter = nil`. Callers must handle `nil`
+   explicitly, which matches the typespec.
+
+3. **Introduce a new message type** with a new `template_id` when the
+   semantic break is large enough that old and new events are meaningfully
+   different shapes.
+
+### What `:since` does and doesn't do
+
+`:since` is metadata — it records the version that introduced the field and
+lets `mix grid_codec.breaking` reason about the change. It does **not**
+change the decoder's null-padding or required-enforcement behavior. Use
+`:since` in combination with one of the recipes above, not as a substitute
+for them.
+
+### How the breaking checker catches this
+
+`mix grid_codec.breaking` reports `WIRE_FIELD_ADDED_REQUIRED` for any
+appended `:required` fixed-block field **without a `:default`**. Adding a
+`:default` suppresses the warning (and makes the append actually safe).
+`:optional`, `:constant`, and variable-length appends do not trigger.
 
 ## If You Need To Remove A Field
 
@@ -224,6 +301,32 @@ snapshots decode with `nil` for the new field. No replay needed. If you make a
 breaking change (type change, reorder), bump `snapshot_version` in your Commanded
 config to force a replay.
 
+## Test coverage in this repo
+
+Cross-version scenarios (`encode` with an older codec module, `decode` with a
+newer one) live in `test/grid_codec/schema_evolution_test.exs`, backed by shared
+fixtures in `test/support/z_schema_evolution_fixtures.ex` (compiled with the test
+app so async tests can reference them safely). That suite covers `:required` +
+`:since`, `field_defaults`, groups, `typed_frames` and `padded_union` batches,
+scalar `group ... of:` lists, appended `:constant` fields, `wire_format: :i64`
+decimals, custom `Enum` types, lazy `Group.stream/1` error propagation, and
+payload-only decode boundaries.
+
+`test/grid_codec/schema_evolution_generative_test.exs` runs StreamData
+properties over many random valid V1 payloads for several of those fixtures.
+
+`test/grid_codec/required_fields_invariant_test.exs` property-checks that any
+successful same-version `decode` never leaves a top-level `:required` field as
+`nil` (and materializes groups / batch entries to check nested required fields
+where generators apply). The `example_app` includes
+`test/example_app/schema_evolution_migration_test.exs` as a consumer-style
+migration smoke test.
+
+Payload-only binaries (`encode(..., header: false)` / `decode(..., header: false)`)
+cannot participate in the same `:since` padding path as full frames: the
+decoder learns the writer’s fixed-block size from `GridCodec.Header.block_length`,
+so cross-version evolution tests should use the default headered encode/decode.
+
 ## Breaking Checker Rule Reference
 
 `mix grid_codec.breaking` reports rules in two categories:
@@ -239,6 +342,7 @@ config to force a replay.
 | `WIRE_STRUCT_REMOVED` | Struct definition removed | Keep struct or introduce migration/new message type |
 | `WIRE_TEMPLATE_ID_CHANGED` | `template_id` changed for existing struct | Keep `template_id` stable for same wire message |
 | `WIRE_FIELD_REMOVED` | Field removed from struct | Keep field or create new message type |
+| `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without a `:default` — historical events decode to `{:error, {:required_field_absent, field}}` | Declare a `:default`, or use `presence: :optional`, or introduce a new message type |
 | `WIRE_FIELD_REORDERED` | Fixed field order changed | Restore original order |
 | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed | Treat as type migration; add a new field instead |
 | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed | Keep original introduction version |

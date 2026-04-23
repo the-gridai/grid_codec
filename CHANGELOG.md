@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-04-24
+
+### Changed
+
+- **Decode-time enforcement of `presence: :required`** (typespec preservation).
+  The decoder now refuses to surface `nil` for a `:required` field: when a
+  historical (shorter) payload is padded from the type's null sentinel or a
+  current payload carries a sentinel-equivalent value in a required slot,
+  `decode/2` returns `{:error, {:required_field_absent, field}}` instead of
+  silently producing a struct whose required field is `nil` — which would have
+  violated the declared `@type t :: %__MODULE__{required_field: non_nil}` and
+  been rejected by a subsequent `encode/1` anyway. This applies uniformly to
+  every built-in type (integers, floats, decimals, uuid, char_array, bitset,
+  enum, prefixed_id) and to any custom type whose `decode_value_ast/1` maps
+  its null sentinel to `nil`. Custom types that do not map to `nil` are
+  unaffected (the nil branch is dead code by construction). The fix is the
+  default; there is no flag to disable it because the previous behavior
+  violated the public type contract.
+
+### Added
+
+- **`:default` on `:required` fields is now a decode-time fallback too.**
+  Previously `:default` was encode-only: it filled in missing struct fields
+  at encode time but did not participate in decode. It now serves double duty:
+  when a `:required` field's wire value would otherwise decode as `nil` (e.g.
+  historical padding or a sentinel-valued slot), the decoder substitutes the
+  declared `:default` and the struct round-trips cleanly through `encode/1`.
+  This is the recommended way to safely append a new `:required` field to an
+  existing schema — declare a sensible default and old events decode to that
+  value with no consumer changes required.
+
+- **`WIRE_FIELD_ADDED_REQUIRED` breaking-check rule** — `mix grid_codec.breaking`
+  flags appended fixed-block fields with `presence: :required` when no
+  `:default` is declared. With the new decode-time enforcement, such appends
+  cause every historical event to decode to
+  `{:error, {:required_field_absent, field}}`; the rule catches this at CI
+  time before the schema ships. Declaring a `:default` suppresses the rule
+  (and makes the append genuinely safe). `presence: :optional`, `:constant`
+  value fields, variable-length fields, and added-but-unchanged schemas do
+  not trigger. Resolves
+  [#12](https://github.com/Spectral-Finance/grid_codec/issues/12). See
+  `docs/schema-evolution.md` ("Safely appending a required field").
+
+- **Regression and evolution test coverage** — shared codecs in
+  `test/support/z_schema_evolution_fixtures.ex`; deterministic tests for
+  `padded_union` batches, scalar `group … of:` lists, lazy `Group.stream/1`
+  required-field propagation, and payload-only (`header: false`) decode
+  boundaries; generative cross-version checks in
+  `test/grid_codec/schema_evolution_generative_test.exs`; required-field
+  contract property in `test/grid_codec/required_fields_invariant_test.exs`;
+  decode contract tests in `test/grid_codec/required_decode_test.exs`; example
+  app migration smoke in
+  `example_app/test/example_app/schema_evolution_migration_test.exs`.
+  `docs/schema-evolution.md` documents the new tests and payload-only
+  evolution limits.
+
 ## [0.40.1] - 2026-04-03
 
 ### Fixed

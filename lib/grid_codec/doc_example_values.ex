@@ -137,7 +137,7 @@ defmodule GridCodec.DocExampleValues do
 
     case domain do
       GridCodec.Types.UUID ->
-        {:ok, "<<0::128>>"}
+        {:ok, "<<1::128>>"}
 
       GridCodec.Types.UUIDString ->
         {:ok, ~s("00000000-0000-4000-8000-000000000001")}

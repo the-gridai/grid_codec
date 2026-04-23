@@ -2228,8 +2228,89 @@ defmodule GridCodec.Struct.Compiler do
 
         value_ast
       end
+      |> wrap_required_decode(opts, name)
       |> then(fn final_ast -> {name, final_ast} end)
     end)
+  end
+
+  # Enforce :required presence at decode time.
+  #
+  # Historical events (written before a required field was appended) are
+  # padded from each field's type-null sentinel by `decode_versioned_payload/2`.
+  # Without this wrapper, the padded sentinel would round-trip through the
+  # type's `decode_value_ast/1` and surface as `nil` for a field whose typespec
+  # declares a non-nil value, silently violating the contract and breaking
+  # any downstream code that relies on the typespec.
+  #
+  # This wrapper makes `default:` serve double duty for required fields:
+  #   * with `default:` declared  -> substitute the default on nil (round-trippable)
+  #   * without `default:`        -> throw, caught at the decode boundary and
+  #                                  surfaced as `{:error, {:required_field_absent, field}}`
+  #
+  # Types that never produce nil (custom types without a null sentinel /
+  # without `decode_value_ast/1`) are unaffected: the nil branch is dead code
+  # since their value_ast cannot evaluate to nil. This lets the same mechanism
+  # safely cover every type — built-in, Enum/Bitset, and user-defined.
+  defp wrap_required_decode(value_ast, opts, field_name) do
+    presence = Keyword.get(opts, :presence, :optional)
+
+    if presence == :required do
+      case Keyword.get(opts, :default) do
+        nil ->
+          quote do
+            case unquote(value_ast) do
+              nil -> throw({:grid_codec_required_field_absent, unquote(field_name)})
+              __v__ -> __v__
+            end
+          end
+
+        default ->
+          quote do
+            case unquote(value_ast) do
+              nil -> unquote(Macro.escape(default))
+              __v__ -> __v__
+            end
+          end
+      end
+    else
+      value_ast
+    end
+  end
+
+  # True iff any field on this struct (including fields inside groups) uses
+  # presence: :required. Used to decide whether to wrap the generated decoder
+  # body in a try/catch for the throw emitted by `wrap_required_decode/3`.
+  # Group entries live in separate `defp __decode_<name>_entry__` functions, but
+  # their throws propagate up the call stack, so the catch must live at the
+  # struct decoder body whenever any reachable field is required.
+  defp any_required?(fixed_fields, var_fields, groups) do
+    required_in? = fn fields ->
+      Enum.any?(fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :presence, :optional) == :required
+      end)
+    end
+
+    required_in?.(fixed_fields) or required_in?.(var_fields) or
+      Enum.any?(groups, fn {_name, _block, gopts} ->
+        required_in?.(Keyword.get(gopts, :__resolved_fields__, []))
+      end)
+  end
+
+  # Wrap a decoder body so throws from `wrap_required_decode/3` surface as a
+  # structured `{:error, {:required_field_absent, field}}` at the decode/1
+  # boundary. Only emitted when the struct has at least one :required field,
+  # so simple schemas pay zero runtime/compile-time cost.
+  defp maybe_wrap_required_catch(body_ast, false), do: body_ast
+
+  defp maybe_wrap_required_catch(body_ast, true) do
+    quote do
+      try do
+        unquote(body_ast)
+      catch
+        :throw, {:grid_codec_required_field_absent, __field__} ->
+          {:error, {:required_field_absent, __field__}}
+      end
+    end
   end
 
   # ============================================================================
@@ -2791,8 +2872,10 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, value_ast}
+        {name, wrap_required_decode(value_ast, opts, name)}
       end)
+
+    wrap_required? = any_required?(fixed_fields, var_fields, groups)
 
     var_decoding = generate_var_decoder(var_fields)
 
@@ -2838,16 +2921,19 @@ defmodule GridCodec.Struct.Compiler do
             end
         end
 
-      quote do
-        case binary do
-          <<unquote_splicing(fixed_patterns), rest::binary>> ->
-            result = unquote(result_ast)
-            {:ok, result}
+      body =
+        quote do
+          case binary do
+            <<unquote_splicing(fixed_patterns), rest::binary>> ->
+              result = unquote(result_ast)
+              {:ok, result}
 
-          _ ->
-            {:error, :invalid_binary}
+            _ ->
+              {:error, :invalid_binary}
+          end
         end
-      end
+
+      maybe_wrap_required_catch(body, wrap_required?)
     end
   end
 
@@ -2894,8 +2980,10 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, value_ast}
+        {name, wrap_required_decode(value_ast, opts, name)}
       end)
+
+    wrap_required? = any_required?(fixed_fields, var_fields, groups)
 
     if fixed_patterns == [] and groups == [] and var_fields == [] do
       quote do
@@ -2954,16 +3042,19 @@ defmodule GridCodec.Struct.Compiler do
             end
         end
 
-      quote do
-        case binary do
-          <<unquote_splicing(fixed_patterns), rest::binary>> ->
-            result = unquote(result_ast)
-            {:ok, result}
+      body =
+        quote do
+          case binary do
+            <<unquote_splicing(fixed_patterns), rest::binary>> ->
+              result = unquote(result_ast)
+              {:ok, result}
 
-          _ ->
-            {:error, :invalid_binary}
+            _ ->
+              {:error, :invalid_binary}
+          end
         end
-      end
+
+      maybe_wrap_required_catch(body, wrap_required?)
     end
   end
 
