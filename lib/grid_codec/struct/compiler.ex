@@ -2342,10 +2342,13 @@ defmodule GridCodec.Struct.Compiler do
     quote do
       @doc false
       @spec __gridcodec_required_field__(term(), atom()) :: term() | no_return()
-      defp __gridcodec_required_field__(nil, field_name),
-        do: :erlang.apply(:erlang, :throw, [{:grid_codec_required_field_absent, field_name}])
-
-      defp __gridcodec_required_field__(value, _field_name), do: value
+      defp __gridcodec_required_field__(value, field_name) do
+        if :erlang.is_map_key(value, %{nil => true}) do
+          :erlang.apply(:erlang, :throw, [{:grid_codec_required_field_absent, field_name}])
+        else
+          value
+        end
+      end
     end
   end
 

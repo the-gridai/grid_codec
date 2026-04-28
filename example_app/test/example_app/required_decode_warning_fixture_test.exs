@@ -2,6 +2,7 @@ defmodule ExampleApp.RequiredDecodeWarningFixtureTest do
   use ExUnit.Case, async: true
 
   alias ExampleApp.Events.RequiredDecodeDefaultOnlyFixture
+  alias ExampleApp.Events.RequiredInlineStringWrapperFixture
   alias ExampleApp.Events.RequiredDecodeMixedDefaultFixture
   alias ExampleApp.Events.RequiredDecodeWarningFixture
   alias ExampleApp.Events.RequiredDecodeWarningOptionalWriter
@@ -88,5 +89,20 @@ defmodule ExampleApp.RequiredDecodeWarningFixtureTest do
     assert decoded.id == 5
     assert decoded.uuid_text == @uuid_text
     assert decoded.medium_text == "present"
+  end
+
+  test "required domain string wrappers compile and decode in the example app" do
+    orig = %RequiredInlineStringWrapperFixture{
+      service_family: "llm",
+      model_family: "gpt",
+      unit_name: "tokens"
+    }
+
+    assert {:ok, bin} = RequiredInlineStringWrapperFixture.encode(orig)
+    assert {:ok, decoded} = RequiredInlineStringWrapperFixture.decode(bin)
+
+    assert decoded.service_family == "llm"
+    assert decoded.model_family == "gpt"
+    assert decoded.unit_name == "tokens"
   end
 end

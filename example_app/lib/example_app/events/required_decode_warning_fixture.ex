@@ -84,3 +84,96 @@ defmodule ExampleApp.Events.RequiredDecodeMixedDefaultFixture do
     field :long_text, :string32
   end
 end
+
+defmodule ExampleApp.Events.RequiredServiceFamilyName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule ExampleApp.Events.RequiredModelFamilyName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule ExampleApp.Events.RequiredUnitName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule ExampleApp.Events.RequiredInlineStringWrapperFixture do
+  @moduledoc false
+
+  alias ExampleApp.Events.RequiredModelFamilyName
+  alias ExampleApp.Events.RequiredServiceFamilyName
+  alias ExampleApp.Events.RequiredUnitName
+
+  use GridCodec.Struct,
+    template_id: 9914,
+    version: 1
+
+  defcodec do
+    field :service_family, RequiredServiceFamilyName, presence: :required
+    field :model_family, RequiredModelFamilyName, presence: :required
+    field :unit_name, RequiredUnitName, presence: :required
+  end
+end

@@ -84,3 +84,96 @@ defmodule GridCodec.TestSupport.RequiredDecodeMixedDefaultFixture do
     field :long_text, :string32
   end
 end
+
+defmodule GridCodec.TestSupport.RequiredServiceFamilyName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule GridCodec.TestSupport.RequiredModelFamilyName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule GridCodec.TestSupport.RequiredUnitName do
+  @moduledoc false
+  @behaviour GridCodec.Type
+
+  @impl true
+  def size, do: :variable
+
+  @impl true
+  def alignment, do: 1
+
+  @impl true
+  def null_value, do: nil
+
+  @impl true
+  def encode_ast(_field_name, _default, _endian, _data_var),
+    do: raise("variable string wrappers are encoded by the compiler var-data section")
+
+  @impl true
+  def decode_pattern_ast(_var, _endian),
+    do: raise("variable string wrappers are decoded by the compiler var-data section")
+
+  @impl true
+  def getter_ast(_offset, _endian, _payload_var), do: nil
+end
+
+defmodule GridCodec.TestSupport.RequiredInlineStringWrapperFixture do
+  @moduledoc false
+
+  alias GridCodec.TestSupport.RequiredModelFamilyName
+  alias GridCodec.TestSupport.RequiredServiceFamilyName
+  alias GridCodec.TestSupport.RequiredUnitName
+
+  use GridCodec.Struct,
+    template_id: 9946,
+    version: 1
+
+  defcodec do
+    field :service_family, RequiredServiceFamilyName, presence: :required
+    field :model_family, RequiredModelFamilyName, presence: :required
+    field :unit_name, RequiredUnitName, presence: :required
+  end
+end

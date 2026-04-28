@@ -5,6 +5,7 @@ defmodule GridCodec.RequiredDecodeWarningTest do
   alias GridCodec.TestSupport.RequiredDecodeMixedDefaultFixture
   alias GridCodec.TestSupport.RequiredDecodeWarningFixture
   alias GridCodec.TestSupport.RequiredDecodeWarningOptionalWriter
+  alias GridCodec.TestSupport.RequiredInlineStringWrapperFixture
 
   @raw_uuid <<0x55, 0x0E, 0x84, 0x00, 0xE2, 0x9B, 0x41, 0xD4, 0xA7, 0x16, 0x44, 0x66, 0x55, 0x44,
               0x00, 0x00>>
@@ -104,5 +105,20 @@ defmodule GridCodec.RequiredDecodeWarningTest do
     assert decoded.id == 5
     assert decoded.uuid_text == @uuid_text
     assert decoded.medium_text == "present"
+  end
+
+  test "required refined string wrappers compile and decode" do
+    orig = %RequiredInlineStringWrapperFixture{
+      service_family: "llm",
+      model_family: "gpt",
+      unit_name: "tokens"
+    }
+
+    assert {:ok, bin} = RequiredInlineStringWrapperFixture.encode(orig)
+    assert {:ok, decoded} = RequiredInlineStringWrapperFixture.decode(bin)
+
+    assert decoded.service_family == "llm"
+    assert decoded.model_family == "gpt"
+    assert decoded.unit_name == "tokens"
   end
 end

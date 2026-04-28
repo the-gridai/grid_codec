@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.6] - 2026-04-28
+
+### Fixed
+
+- **Required-field helper nil checks avoid per-clause unreachability warnings** —
+  generated codecs now use a single helper clause with an opaque runtime nil
+  check for required fields without `:default`, avoiding Elixir 1.18
+  `--warnings-as-errors` failures for domain string wrapper fields while
+  preserving `{:error, {:required_field_absent, field}}`. Extended root and
+  `example_app` fixtures to cover consumer-style `:string16` wrapper modules.
+  Closes [#19](https://github.com/Spectral-Finance/grid_codec/issues/19).
+
 ## [0.41.5] - 2026-04-28
 
 ### Fixed
