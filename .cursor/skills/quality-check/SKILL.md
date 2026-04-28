@@ -41,7 +41,12 @@ cd example_app && mix test
 
 ```bash
 mix dialyzer
+cd example_app && mix dialyzer --force-check
 ```
+
+Use `--force-check` for the example app because `grid_codec` is a local path
+dependency there; without a forced PLT check, Dialyzer can report stale
+unknown-function/type warnings or miss generated-code regressions.
 
 **Pass criteria:** Zero format issues, zero credo issues, zero compile warnings
 in both projects, all tests green. If any fail, fix before proceeding.
@@ -64,6 +69,13 @@ Check:
 - [ ] `new/1` has tests for valid, invalid, and edge cases (including OOR integers, unknown enum values, malformed UUIDs)
 - [ ] Schema export affinity (`schema:` option on custom types) tested
 - [ ] Breaking change rules have tests for all 27 WIRE and 9 SOURCE rules
+- [ ] Breaking rule severity/policy changes have both rule-level tests and
+  `mix grid_codec.breaking` task tests, so non-blocking warnings stay
+  non-blocking by default and can still be escalated.
+- [ ] Generated-code warning regressions have fixtures in `test/support` and
+  `example_app/lib` that compile under `--warnings-as-errors`; when the issue is
+  Dialyzer-specific, verify with `mix dialyzer` and
+  `cd example_app && mix dialyzer --force-check`.
 
 **Find gaps:**
 ```bash

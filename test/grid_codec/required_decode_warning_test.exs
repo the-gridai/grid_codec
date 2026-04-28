@@ -1,6 +1,8 @@
 defmodule GridCodec.RequiredDecodeWarningTest do
   use ExUnit.Case, async: true
 
+  alias GridCodec.TestSupport.RequiredDecodeDefaultOnlyFixture
+  alias GridCodec.TestSupport.RequiredDecodeMixedDefaultFixture
   alias GridCodec.TestSupport.RequiredDecodeWarningFixture
   alias GridCodec.TestSupport.RequiredDecodeWarningOptionalWriter
 
@@ -63,5 +65,44 @@ defmodule GridCodec.RequiredDecodeWarningTest do
 
     assert {:error, {:required_field_absent, :medium_text}} =
              RequiredDecodeWarningFixture.decode(bin, header: false)
+  end
+
+  test "required fields with defaults use default-only helper arity" do
+    orig = %RequiredDecodeWarningOptionalWriter{
+      id: nil,
+      raw_uuid: nil,
+      uuid_text: nil,
+      string_default: "default",
+      short_text: "short",
+      medium_text: nil,
+      long_text: "long"
+    }
+
+    assert {:ok, payload} = RequiredDecodeWarningOptionalWriter.encode(orig, header: false)
+    assert {:ok, decoded} = RequiredDecodeDefaultOnlyFixture.decode(payload, header: false)
+
+    assert decoded.id == 42
+    assert decoded.raw_uuid == <<1::128>>
+    assert decoded.uuid_text == @uuid_text
+    assert decoded.medium_text == "legacy"
+  end
+
+  test "mixed required fields use both helper arities" do
+    orig = %RequiredDecodeWarningOptionalWriter{
+      id: 5,
+      raw_uuid: @raw_uuid,
+      uuid_text: nil,
+      string_default: "default",
+      short_text: "short",
+      medium_text: "present",
+      long_text: "long"
+    }
+
+    assert {:ok, payload} = RequiredDecodeWarningOptionalWriter.encode(orig, header: false)
+    assert {:ok, decoded} = RequiredDecodeMixedDefaultFixture.decode(payload, header: false)
+
+    assert decoded.id == 5
+    assert decoded.uuid_text == @uuid_text
+    assert decoded.medium_text == "present"
   end
 end

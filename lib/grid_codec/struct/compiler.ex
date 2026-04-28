@@ -402,10 +402,10 @@ defmodule GridCodec.Struct.Compiler do
       # Auto-generated batch union encoder/decoder
       unquote_splicing(batch_fns)
 
-      # Required-field decode enforcement helper (only generated when needed)
+      # Required-field decode enforcement helpers (only generated when used)
       unquote(
         generate_required_field_decode_helpers(
-          any_required?(fixed_fields, var_fields, processed_groups)
+          required_field_decode_helper_usage(fixed_fields, var_fields, processed_groups)
         )
       )
 
@@ -2303,9 +2303,42 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp generate_required_field_decode_helpers(false), do: quote(do: nil)
+  defp required_field_decode_helper_usage(fixed_fields, var_fields, groups) do
+    fields =
+      fixed_fields ++
+        var_fields ++
+        Enum.flat_map(groups, fn {_name, _block, opts} ->
+          Keyword.get(opts, :__resolved_fields__, [])
+        end)
 
-  defp generate_required_field_decode_helpers(true) do
+    Enum.reduce(fields, %{without_default?: false, with_default?: false}, fn {_name, _type, _mod,
+                                                                              opts},
+                                                                             acc ->
+      if Keyword.get(opts, :presence, :optional) == :required do
+        if Keyword.get(opts, :default) == nil do
+          %{acc | without_default?: true}
+        else
+          %{acc | with_default?: true}
+        end
+      else
+        acc
+      end
+    end)
+  end
+
+  defp generate_required_field_decode_helpers(%{without_default?: false, with_default?: false}),
+    do: quote(do: nil)
+
+  defp generate_required_field_decode_helpers(usage) do
+    quote do
+      unquote(generate_required_field_without_default_helper(usage.without_default?))
+      unquote(generate_required_field_with_default_helper(usage.with_default?))
+    end
+  end
+
+  defp generate_required_field_without_default_helper(false), do: quote(do: nil)
+
+  defp generate_required_field_without_default_helper(true) do
     quote do
       @doc false
       @spec __gridcodec_required_field__(term(), atom()) :: term() | no_return()
@@ -2313,7 +2346,13 @@ defmodule GridCodec.Struct.Compiler do
         do: :erlang.apply(:erlang, :throw, [{:grid_codec_required_field_absent, field_name}])
 
       defp __gridcodec_required_field__(value, _field_name), do: value
+    end
+  end
 
+  defp generate_required_field_with_default_helper(false), do: quote(do: nil)
+
+  defp generate_required_field_with_default_helper(true) do
+    quote do
       @doc false
       @spec __gridcodec_required_field__(term(), atom(), term()) :: term()
       defp __gridcodec_required_field__(nil, _field_name, default), do: default

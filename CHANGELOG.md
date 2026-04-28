@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.5] - 2026-04-28
+
+### Fixed
+
+- **Required-field helper codegen emits only used arities** — codecs with
+  required fields exclusively with or without `:default` no longer emit unused
+  private helper clauses that fail `mix compile --warnings-as-errors`. Added
+  root and `example_app` fixtures for no-default, default-only, and mixed
+  required fields so this generated-code shape is covered. Closes
+  [#19](https://github.com/Spectral-Finance/grid_codec/issues/19).
+
 ## [0.41.4] - 2026-04-28
 
 ### Changed
@@ -72,8 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`GridCodec.Type.required_field_decode_never_nil?/0`** — optional behaviour
-  callback documented in `GridCodec.Type`. A `test/support` fixture codec
+- **`required_field_decode_never_nil?/0` callback** — optional behaviour callback
+  documented in `GridCodec.Type`. A `test/support` fixture codec
   (`GridCodec.TestSupport.RequiredCharArrayFixture`) is compiled in `MIX_ENV=test`
   so CI’s `mix compile --warnings-as-errors` step covers this path.
 

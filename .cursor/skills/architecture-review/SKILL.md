@@ -130,13 +130,13 @@ defcodec (Elixir macros)  →  __schema__/0 (runtime metadata)
                                     ↓
                            mix grid_codec.breaking
                                     ↓
-                           WIRE (22) + SOURCE (8) issues
+                           WIRE (27) + SOURCE (9) issues
 ```
 
 **Key modules:**
 - `lib/grid_codec/schema/parser.ex` — tokenizer + recursive descent parser for `.grid`; `@syntax N` validation; `current_syntax/0`; formal spec in `@moduledoc`
 - `lib/grid_codec/schema/formatter.ex` — `__schema__/0` → `.grid` string; `format/5`, `format_master/5`, `format_struct_file/3`, `format_enum_file/2` accept `opts` (`:syntax`, `:imports`); `current_syntax/0`; `detect_all_enums/1`, `referenced_enums/2` for cross-schema enum tracking
-- `lib/grid_codec/breaking/` — differ, checker, rules (Wire 22 rules + Source 8 rules), config
+- `lib/grid_codec/breaking/` — differ, checker, policy, rules (Wire 27 rules + Source 9 rules), config
 - `lib/grid_codec/struct.ex` — `generate_from_struct_def` loads `.grid` → compiler; `types:` option for explicit type name mapping; `Registry.lookup_enum_by_name/1` auto-resolve fallback
 - `lib/grid_codec/registry.ex` — `lookup_enum_by_name/1` resolves short enum names to modules
 

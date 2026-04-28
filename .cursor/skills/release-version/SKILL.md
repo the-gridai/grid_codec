@@ -27,6 +27,7 @@ cd example_app && MIX_ENV=test mix compile --warnings-as-errors
 cd example_app && mix format --check-formatted
 cd example_app && mix credo --strict
 cd example_app && mix test
+cd example_app && mix dialyzer --force-check
 ```
 
 All must pass with zero issues. If any fail, fix before proceeding.
@@ -98,6 +99,7 @@ cd example_app && MIX_ENV=test mix compile --warnings-as-errors
 cd example_app && mix format --check-formatted
 cd example_app && mix credo --strict
 cd example_app && mix test
+cd example_app && mix dialyzer --force-check
 cd example_app && mix run benchmarks/quick_bench.exs
 ```
 

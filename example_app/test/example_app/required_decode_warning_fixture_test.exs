@@ -1,6 +1,8 @@
 defmodule ExampleApp.RequiredDecodeWarningFixtureTest do
   use ExUnit.Case, async: true
 
+  alias ExampleApp.Events.RequiredDecodeDefaultOnlyFixture
+  alias ExampleApp.Events.RequiredDecodeMixedDefaultFixture
   alias ExampleApp.Events.RequiredDecodeWarningFixture
   alias ExampleApp.Events.RequiredDecodeWarningOptionalWriter
 
@@ -44,5 +46,47 @@ defmodule ExampleApp.RequiredDecodeWarningFixtureTest do
 
     assert {:error, {:required_field_absent, :medium_text}} =
              RequiredDecodeWarningFixture.decode(bin, header: false)
+  end
+
+  test "default-only required fields compile and decode in the example app" do
+    orig = %RequiredDecodeWarningOptionalWriter{
+      id: nil,
+      raw_uuid: nil,
+      uuid_text: nil,
+      string_default: nil,
+      short_text: nil,
+      medium_text: nil,
+      long_text: nil
+    }
+
+    assert {:ok, payload} = RequiredDecodeWarningOptionalWriter.encode(orig, header: false)
+    assert {:ok, decoded} = RequiredDecodeDefaultOnlyFixture.decode(payload, header: false)
+
+    assert decoded.id == 42
+    assert decoded.raw_uuid == <<1::128>>
+    assert decoded.uuid_text == @uuid_text
+    assert decoded.string_default == "default"
+    assert decoded.short_text == "short"
+    assert decoded.medium_text == "legacy"
+    assert decoded.long_text == "long"
+  end
+
+  test "mixed default and no-default required fields compile and decode in the example app" do
+    orig = %RequiredDecodeWarningOptionalWriter{
+      id: 5,
+      raw_uuid: @raw_uuid,
+      uuid_text: nil,
+      string_default: "default",
+      short_text: "short",
+      medium_text: "present",
+      long_text: "long"
+    }
+
+    assert {:ok, payload} = RequiredDecodeWarningOptionalWriter.encode(orig, header: false)
+    assert {:ok, decoded} = RequiredDecodeMixedDefaultFixture.decode(payload, header: false)
+
+    assert decoded.id == 5
+    assert decoded.uuid_text == @uuid_text
+    assert decoded.medium_text == "present"
   end
 end

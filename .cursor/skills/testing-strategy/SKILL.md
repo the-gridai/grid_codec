@@ -240,8 +240,8 @@ end
 **Test files:**
 - `test/grid_codec/schema/parser_test.exs` — `@syntax` directive tests, imports, standalone definitions
 - `test/grid_codec/breaking/field_opts_test.exs` — parser, formatter, and breaking rules for field options
-- `test/grid_codec/breaking/wire_rules_test.exs` — all 22 WIRE rules (incl. `WIRE_SYNTAX_VERSION_CHANGED`)
-- `test/grid_codec/breaking/source_rules_test.exs` — all 8 SOURCE rules
+- `test/grid_codec/breaking/wire_rules_test.exs` — all 27 WIRE rules (incl. `WIRE_SYNTAX_VERSION_CHANGED` and severity policy expectations)
+- `test/grid_codec/breaking/source_rules_test.exs` — all 9 SOURCE rules
 - `test/grid_codec/breaking/parser_batch_test.exs` — batch parsing
 - `test/mix/tasks/grid_codec_export_test.exs` — `@syntax` output, `--syntax` flag, self-contained files, cross-schema imports
 
@@ -258,6 +258,8 @@ end
 | New field option | Parser test, formatter round-trip, breaking rule test |
 | New .grid syntax | Parser `@syntax` test + formatter export test |
 | New breaking rule | Positive (triggers) + negative (no false positive) test |
+| Breaking rule severity/policy change | Rule-level severity test + `mix grid_codec.breaking` task test for blocking/non-blocking behavior + override/escalation test |
+| Generated code warning/Dialyzer fix | `test/support` fixture compiled by `MIX_ENV=test mix compile --warnings-as-errors`; consumer-style fixture in `example_app/lib`; focused tests for runtime behavior; run `mix dialyzer` and `cd example_app && mix dialyzer --force-check` |
 | `@syntax` change | Parser validation test, formatter emission test, `WIRE_SYNTAX_VERSION_CHANGED` test |
 | Cross-schema enum | Export test verifying relative import paths + self-contained files |
 | `types:` option | Compiler test with explicit mapping + auto-resolve fallback |
@@ -274,8 +276,8 @@ end
 | `telemetry_test.exs` | Telemetry event emission, disabled mode |
 | `struct_codec_test.exs` | Struct-specific codec edge cases |
 | `breaking/field_opts_test.exs` | Parser, formatter round-trip, breaking rules for field opts |
-| `breaking/wire_rules_test.exs` | All 22 WIRE breaking change rules (incl. `WIRE_SYNTAX_VERSION_CHANGED`) |
-| `breaking/source_rules_test.exs` | All 8 SOURCE breaking change rules |
+| `breaking/wire_rules_test.exs` | All 27 WIRE breaking change rules (incl. `WIRE_SYNTAX_VERSION_CHANGED`) |
+| `breaking/source_rules_test.exs` | All 9 SOURCE breaking change rules |
 | `breaking/parser_batch_test.exs` | Batch/any_of .grid syntax |
 | `breaking/config_test.exs` | Breaking change config loading |
 | `schema/formatter_test.exs` | .grid file generation from schema metadata |
