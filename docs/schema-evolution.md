@@ -1,8 +1,9 @@
 # Schema Evolution
 
-GridCodec supports backward-compatible schema evolution using the `:since` field
-option and SBE-style `block_length` padding. Older binaries are decoded correctly
-by newer codecs — new fields come back as `nil`.
+GridCodec supports backward-compatible fixed-block schema evolution using the
+`:since` field option and SBE-style `block_length` padding. Older binaries are
+decoded correctly by newer codecs when new fixed-block fields can be padded from
+null sentinels or defaults.
 
 ## Recommended Versioning Model
 
@@ -15,7 +16,7 @@ For an existing message type, keep the same wire identity:
 Then evolve the layout additively:
 
 - append new fixed fields at the end and mark them with `since: <new_version>`
-- add new groups or var-data fields in a backward-compatible way
+- add new groups in a backward-compatible way
 - deploy new readers before new writers
 
 Do **not** treat `version` as part of the dispatch key. In GridCodec, dispatch
@@ -51,10 +52,12 @@ an older binary:
 1. The decoder reads `block_length` from the header.
 2. If the binary's fixed block is shorter than the current codec expects, the
    missing bytes are filled with precomputed null sentinels.
-3. New fields decode as `nil`. Existing fields decode normally.
-4. Variable-length fields (strings) and groups after the fixed block are
-   unaffected — the decoder splits at the header's `block_length`, not the
-   codec's current length.
+3. Compatible new fixed-block fields decode as `nil` or as their declared
+   `:default`. Existing fields decode normally.
+4. Existing variable-length fields (strings) and groups after the fixed block
+   are unaffected — the decoder splits at the header's `block_length`, not the
+   codec's current length. Newly added variable-length fields are different:
+   historical payloads have no tail bytes for their length prefix.
 
 This happens automatically. No custom migration code is needed.
 
@@ -140,8 +143,8 @@ Fields without `:since` are not included (they are implicitly version 1).
 
 These changes are backward-compatible (older binaries decode correctly):
 
-- **Add optional fields at the end** with `:since` — they decode as `nil` from
-  older binaries.
+- **Add optional fixed-block fields at the end** with `:since` — they decode as
+  `nil` from older binaries.
 - **Keep the same `{schema_id, template_id}` and bump `version`** when evolving
   an existing message shape compatibly.
 - **Add new message types** with a new `template_id`.
@@ -163,6 +166,10 @@ These require coordinated deployment or snapshot version bumping:
   padding would otherwise surface as `nil`, violating the typespec. Declare
   a `:default` on the new field to make the append safe (old events decode
   with the default). See below.
+- **Appending a variable-length field** — historical events do not include the
+  new field's length prefix or payload bytes, and the current decoder does not
+  synthesize missing var-data. Introduce a new message type or use a
+  compatibility shim at the deserializer boundary.
 - **Reusing a `template_id`** for a different message shape.
 - **Using the same `{schema_id, template_id}` for two codecs with different
   versions at the same time** as if version were part of identity. It is not.
@@ -207,8 +214,8 @@ check's `nil` branch is unreachable by construction.
    Historical events decode with the default. New events carry the real
    value. Encode/decode round-trip.
 
-2. **Use `presence: :optional` (or the `?` shorthand)** when `nil` is a
-   sensible meaning for "field wasn't there yet":
+2. **Use `presence: :optional` (or the `?` shorthand) for fixed-block fields**
+   when `nil` is a sensible meaning for "field wasn't there yet":
 
    ```elixir
    field :counter, :u32, presence: :optional
@@ -236,7 +243,9 @@ for them.
 `mix grid_codec.breaking` reports `WIRE_FIELD_ADDED_REQUIRED` for any
 appended `:required` fixed-block field **without a `:default`**. Adding a
 `:default` suppresses the warning (and makes the append actually safe).
-`:optional`, `:constant`, and variable-length appends do not trigger.
+`:optional` fixed-block fields and `:constant` value fields do not trigger.
+Variable-length additions report `WIRE_VAR_FIELD_ADDED` because historical
+events have no var-data bytes for the new field.
 
 ## If You Need To Remove A Field
 
@@ -289,17 +298,18 @@ This prevents silent data corruption from unknown fields.
 
 ## Deployment Strategy
 
-1. Deploy the new codec version to all **consumers** first. They can decode both
-   old and new binaries.
+1. Deploy the new codec version to all **consumers** first. For compatible
+   changes, they can decode both old and new binaries.
 2. Then deploy the new version to **producers**. New binaries are now written with
    the updated schema.
-3. Old binaries in event stores or snapshot stores continue to decode correctly
-   indefinitely.
+3. For compatible changes, old binaries in event stores or snapshot stores
+   continue to decode correctly indefinitely.
 
-For aggregate snapshots specifically: if you add a field with `:since`, existing
-snapshots decode with `nil` for the new field. No replay needed. If you make a
-breaking change (type change, reorder), bump `snapshot_version` in your Commanded
-config to force a replay.
+For aggregate snapshots specifically: if you add a compatible fixed-block field
+with `:since`, existing snapshots decode with `nil` or the declared default for
+the new field. No replay needed. If you make a breaking change (type change,
+var-data append, reorder), bump `snapshot_version` in your Commanded config to
+force a replay.
 
 ## Test coverage in this repo
 
@@ -343,6 +353,7 @@ so cross-version evolution tests should use the default headered encode/decode.
 | `WIRE_TEMPLATE_ID_CHANGED` | `template_id` changed for existing struct | Keep `template_id` stable for same wire message |
 | `WIRE_FIELD_REMOVED` | Field removed from struct | Keep field or create new message type |
 | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without a `:default` — historical events decode to `{:error, {:required_field_absent, field}}` | Declare a `:default`, or use `presence: :optional`, or introduce a new message type |
+| `WIRE_VAR_FIELD_ADDED` | Variable-length field added — historical events do not have bytes for the new length prefix/payload | Introduce a new message type or add a deserializer compatibility shim |
 | `WIRE_FIELD_REORDERED` | Fixed field order changed | Restore original order |
 | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed | Treat as type migration; add a new field instead |
 | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed | Keep original introduction version |

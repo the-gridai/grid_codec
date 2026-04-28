@@ -37,6 +37,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   |------|---------|
   | `WIRE_FIELD_REMOVED` | Field removed from struct |
   | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without `default:` (historical events decode to `{:error, {:required_field_absent, field}}`); add `default:` to make the append safe |
+  | `WIRE_VAR_FIELD_ADDED` | Variable-length field added (historical events have no var-data bytes for the new field) |
   | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
   | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed |
   | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed |
@@ -178,7 +179,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
   defp check_fields(issues, %StructDef{} = old, %StructDef{} = new, new_schema, path) do
     field_diffs = Differ.diff_fields(old.fields, new.fields)
 
-    Enum.reduce(field_diffs, issues, fn {idx, old_f, new_f}, acc ->
+    field_diffs
+    |> Enum.reduce(issues, fn {idx, old_f, new_f}, acc ->
       cond do
         old_f != nil and new_f == nil ->
           [
@@ -225,6 +227,41 @@ defmodule GridCodec.Breaking.Rules.Wire do
           acc
       end
     end)
+    |> check_var_fields_added(old, new, new_schema, path)
+  end
+
+  # Flags variable-length fields that were not present in the baseline.
+  #
+  # Historical payloads have no var-data bytes for the new field. Unlike the
+  # fixed block, the decoder cannot synthesize a missing length prefix from
+  # `@__null_fixed_block__`, so appending even an optional `:string16` can raise
+  # while decoding old events.
+  defp check_var_fields_added(issues, %StructDef{} = old, %StructDef{} = new, new_schema, path) do
+    old_var_names =
+      old.fields
+      |> Enum.filter(&variable_length_field?(&1, new_schema))
+      |> MapSet.new(& &1.name)
+
+    new.fields
+    |> Enum.filter(&variable_length_field?(&1, new_schema))
+    |> Enum.reject(&MapSet.member?(old_var_names, &1.name))
+    |> Enum.reduce(issues, fn field, acc ->
+      [
+        %Issue{
+          rule: :WIRE_VAR_FIELD_ADDED,
+          category: :wire,
+          message:
+            ~s(Variable-length field "#{field.name}" was added. Historical events ) <>
+              "written before this change have no var-data bytes for the field, so " <>
+              "the decoder may fail while reading its length prefix. Introduce a new " <>
+              "message type, keep the field out of the existing schema, or add a " <>
+              "deserializer-level compatibility shim.",
+          path: path,
+          location: %{struct: new.name, field: field.name}
+        }
+        | acc
+      ]
+    end)
   end
 
   # Flags appended fixed-block fields with effective presence `:required` and
@@ -242,15 +279,15 @@ defmodule GridCodec.Breaking.Rules.Wire do
   # Safe appends:
   #   * `presence: :required, default: <value>` — historical events decode
   #     with the default (round-trippable via encode).
-  #   * `presence: :optional` — historical events decode as `nil` (the
-  #     typespec already admits `nil`).
+  #   * `presence: :optional` on fixed-block fields — historical events decode
+  #     as `nil` (the typespec already admits `nil`).
   #   * Introduce a new message type.
   defp check_field_added(issues, struct, new_f, new_schema, path) do
     cond do
-      effective_presence(new_f) != :required ->
+      variable_length_field?(new_f, new_schema) ->
         issues
 
-      variable_length_field?(new_f, new_schema) ->
+      effective_presence(new_f) != :required ->
         issues
 
       new_f.default != nil ->

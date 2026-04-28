@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.2] - 2026-04-28
+
+### Fixed
+
+- **`WIRE_VAR_FIELD_ADDED` breaking-check rule** — `mix grid_codec.breaking`
+  now flags newly added variable-length fields such as optional `:string16`.
+  Historical payloads do not contain the new field's length prefix or payload
+  bytes, so current decoders can fail while reading old events. The schema
+  evolution guide now treats var-data appends as breaking until runtime
+  mitigation exists. Closes
+  [#15](https://github.com/Spectral-Finance/grid_codec/issues/15).
+
 ## [0.41.1] - 2026-04-24
 
 ### Fixed

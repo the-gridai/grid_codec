@@ -155,7 +155,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
       refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
     end
 
-    test "does not flag appended variable-length field (string)" do
+    test "does not flag appended variable-length field as required fixed-block field" do
       old = """
       schema T { id: 1 }
       struct Order (template_id: 1) {
@@ -261,6 +261,62 @@ defmodule GridCodec.Breaking.WireRulesTest do
       """
 
       refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(schema, schema))
+    end
+  end
+
+  describe "WIRE_VAR_FIELD_ADDED" do
+    test "flags appended optional variable-length field" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        price: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 2) {
+        id: uuid_string
+        price: u64
+        note: string16, presence: optional, since: 2
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_VAR_FIELD_ADDED in rules(issues)
+      assert Enum.any?(issues, &(&1.message =~ "note"))
+    end
+
+    test "flags appended default-presence variable-length field" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        note: string16
+      }
+      """
+
+      assert :WIRE_VAR_FIELD_ADDED in rules(check(old, new))
+    end
+
+    test "does not flag unchanged variable-length field" do
+      schema = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        note: string16, presence: optional
+      }
+      """
+
+      refute :WIRE_VAR_FIELD_ADDED in rules(check(schema, schema))
     end
   end
 

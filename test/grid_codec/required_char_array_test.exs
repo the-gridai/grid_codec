@@ -17,6 +17,8 @@ defmodule GridCodec.RequiredCharArrayTest do
     orig = %RequiredCharArrayFixture{id: 1, code: ""}
 
     assert {:ok, bin} = RequiredCharArrayFixture.encode(orig)
-    assert {:ok, %RequiredCharArrayFixture{id: 1, code: ""}} = RequiredCharArrayFixture.decode(bin)
+
+    assert {:ok, %RequiredCharArrayFixture{id: 1, code: ""}} =
+             RequiredCharArrayFixture.decode(bin)
   end
 end
