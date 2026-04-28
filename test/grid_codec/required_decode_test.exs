@@ -146,6 +146,34 @@ defmodule GridCodec.RequiredDecodeTest do
     end
   end
 
+  defmodule V2StringRequiredNoDefault do
+    @moduledoc false
+    use GridCodec.Struct,
+      template_id: 9_100,
+      schema_id: 91,
+      version: 2,
+      field_defaults: [presence: :required]
+
+    defcodec do
+      field :id, :u64
+      field :note, :string16, since: 2
+    end
+  end
+
+  defmodule V2StringRequiredWithDefault do
+    @moduledoc false
+    use GridCodec.Struct,
+      template_id: 9_100,
+      schema_id: 91,
+      version: 2,
+      field_defaults: [presence: :required]
+
+    defcodec do
+      field :id, :u64
+      field :note, :string16, since: 2, default: "legacy"
+    end
+  end
+
   setup_all do
     {:ok, v1_binary} = V1.encode(%V1{id: 42})
     {:ok, v1_binary: v1_binary}
@@ -173,6 +201,11 @@ defmodule GridCodec.RequiredDecodeTest do
 
       assert field == :price
     end
+
+    test "string16: missing appended var-data returns structured error", %{v1_binary: v1} do
+      assert {:error, {:required_field_absent, :note}} =
+               V2StringRequiredNoDefault.decode(v1)
+    end
   end
 
   # ============================================================================
@@ -196,6 +229,12 @@ defmodule GridCodec.RequiredDecodeTest do
                V2UUIDRequiredWithDefault.decode(v1)
 
       assert tid == <<0xCA, 0xFE, 0xBA, 0xBE, 0::96>>
+    end
+
+    test "string16: missing appended var-data decodes to declared default",
+         %{v1_binary: v1} do
+      assert {:ok, %V2StringRequiredWithDefault{id: 42, note: "legacy"}} =
+               V2StringRequiredWithDefault.decode(v1)
     end
 
     test "decoded struct round-trips cleanly (encode → decode is stable)",

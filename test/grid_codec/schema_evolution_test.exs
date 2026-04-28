@@ -127,6 +127,69 @@ defmodule GridCodec.SchemaEvolutionTest do
     end
   end
 
+  defmodule MissingVarBaseV1 do
+    use GridCodec.Struct, template_id: 906, schema_id: 50, version: 1
+
+    defcodec do
+      field :id, :u64
+    end
+  end
+
+  defmodule MissingString16V2 do
+    use GridCodec.Struct, template_id: 906, schema_id: 50, version: 2
+
+    defcodec do
+      field :id, :u64
+      field :configuration_json, :string16, presence: :optional, since: 2
+    end
+  end
+
+  defmodule MissingString32V2 do
+    use GridCodec.Struct, template_id: 908, schema_id: 50, version: 2
+
+    defcodec do
+      field :id, :u64
+      field :configuration_json, :string32, presence: :optional, since: 2
+    end
+  end
+
+  defmodule MissingVar32BaseV1 do
+    use GridCodec.Struct, template_id: 908, schema_id: 50, version: 1
+
+    defcodec do
+      field :id, :u64
+    end
+  end
+
+  defmodule ExistingAndAppendedVarV1 do
+    use GridCodec.Struct, template_id: 907, schema_id: 50, version: 1
+
+    defcodec do
+      field :id, :u64
+      field :name, :string16
+    end
+  end
+
+  defmodule ExistingAndAppendedVarV2 do
+    use GridCodec.Struct, template_id: 907, schema_id: 50, version: 2
+
+    defcodec do
+      field :id, :u64
+      field :name, :string16
+      field :configuration_json, :string16, presence: :optional, since: 2
+    end
+  end
+
+  defmodule OptionalFixedNoVersionReader do
+    use GridCodec.Struct, template_id: 905, schema_id: 50, version: 1
+
+    defcodec do
+      field :id, :u64
+      field :count, :u32
+      field :balance_after, :i64, presence: :optional
+    end
+  end
+
   # Tier 1/2 evolution codecs live in test/support/schema_evolution_fixtures.ex
   # (GridCodec.TestSupport.SchemaEvo.*) so async tests and invariant properties
   # can reference them reliably.
@@ -203,6 +266,36 @@ defmodule GridCodec.SchemaEvolutionTest do
     end
   end
 
+  describe "missing appended variable-length fields" do
+    test "optional string16 appended in v2 decodes nil when historical tail has no prefix" do
+      v1 = %MissingVarBaseV1{id: 7}
+      {:ok, binary} = MissingVarBaseV1.encode(v1)
+
+      assert {:ok, result} = MissingString16V2.decode(binary)
+      assert result.id == 7
+      assert result.configuration_json == nil
+    end
+
+    test "optional string32 appended in v2 decodes nil when historical tail has no prefix" do
+      v1 = %MissingVar32BaseV1{id: 8}
+      {:ok, binary} = MissingVar32BaseV1.encode(v1)
+
+      assert {:ok, result} = MissingString32V2.decode(binary)
+      assert result.id == 8
+      assert result.configuration_json == nil
+    end
+
+    test "existing variable field is preserved and appended variable field decodes nil" do
+      v1 = %ExistingAndAppendedVarV1{id: 9, name: "historical"}
+      {:ok, binary} = ExistingAndAppendedVarV1.encode(v1)
+
+      assert {:ok, result} = ExistingAndAppendedVarV2.decode(binary)
+      assert result.id == 9
+      assert result.name == "historical"
+      assert result.configuration_json == nil
+    end
+  end
+
   describe "version-aware decode with mixed types" do
     test "uuid and bool fields preserved, decimal and timestamp default to nil" do
       uuid = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>
@@ -248,6 +341,18 @@ defmodule GridCodec.SchemaEvolutionTest do
       assert result.id == 100
       assert result.offset == nil
       assert result.delta == nil
+    end
+  end
+
+  describe "short fixed block without version bump" do
+    test "optional fixed-width append decodes nil from historical block_length" do
+      v1 = %NoSinceV1{id: 42, count: 10}
+      {:ok, binary} = NoSinceV1.encode(v1)
+
+      assert {:ok, result} = OptionalFixedNoVersionReader.decode(binary)
+      assert result.id == 42
+      assert result.count == 10
+      assert result.balance_after == nil
     end
   end
 

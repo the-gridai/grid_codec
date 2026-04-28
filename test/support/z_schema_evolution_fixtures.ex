@@ -291,3 +291,39 @@ defmodule GridCodec.TestSupport.SchemaEvo.ScalarScoresV2 do
     group :scores, of: :u32
   end
 end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarAppendBaseV1 do
+  use GridCodec.Struct, template_id: 1984, version: 1
+
+  defcodec do
+    field :id, :u64
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarAppendStringV2 do
+  use GridCodec.Struct, template_id: 1984, version: 2
+
+  defcodec do
+    field :id, :u64
+    field :note, :string16, since: 2, presence: :optional
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarAppendExistingV1 do
+  use GridCodec.Struct, template_id: 1985, version: 1
+
+  defcodec do
+    field :id, :u64
+    field :name, :string16
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarAppendExistingV2 do
+  use GridCodec.Struct, template_id: 1985, version: 2
+
+  defcodec do
+    field :id, :u64
+    field :name, :string16
+    field :note, :string16, since: 2, presence: :optional
+  end
+end

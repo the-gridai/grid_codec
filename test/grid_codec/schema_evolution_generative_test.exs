@@ -59,6 +59,32 @@ defmodule GridCodec.SchemaEvolutionGenerativeTest do
       end
     end
 
+    property "VarAppendString: missing appended string16 decodes nil for historical payloads" do
+      check all(id <- integer(0..9_999_999_999_999_999)) do
+        v1 = %SE.VarAppendBaseV1{id: id}
+        assert {:ok, bin} = SE.VarAppendBaseV1.encode(v1)
+        assert {:ok, out} = SE.VarAppendStringV2.decode(bin)
+        assert out.id == id
+        assert out.note == nil
+      end
+    end
+
+    property "VarAppendExisting: existing string survives and appended string decodes nil" do
+      name_gen = one_of([constant(nil), string(:alphanumeric, max_length: 64)])
+
+      check all(
+              id <- integer(0..9_999_999_999_999_999),
+              name <- name_gen
+            ) do
+        v1 = %SE.VarAppendExistingV1{id: id, name: name}
+        assert {:ok, bin} = SE.VarAppendExistingV1.encode(v1)
+        assert {:ok, out} = SE.VarAppendExistingV2.decode(bin)
+        assert out.id == id
+        assert out.name == if(name == "", do: nil, else: name)
+        assert out.note == nil
+      end
+    end
+
     property "BatchPaddedUnion: mixed tiny/wide entries round-trip through V2 reader" do
       tiny_gen = map(integer(0..9_999_999_999_999_999), fn x -> %SE.BatchPaddedTiny{x: x} end)
 

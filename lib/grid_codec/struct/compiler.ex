@@ -3029,16 +3029,11 @@ defmodule GridCodec.Struct.Compiler do
             {group_steps, group_pairs, group_final_rest} = generate_inline_group_steps(groups)
 
             {var_bindings, _var_final_rest} =
-              Enum.reduce(var_fields, {[], group_final_rest}, fn {name, type, _module, _opts},
-                                                                 {bindings, r_var} ->
+              Enum.reduce(var_fields, {[], group_final_rest}, fn field, {bindings, r_var} ->
+                {name, _type, _module, _opts} = field
                 value_var = Macro.var(name, __MODULE__)
                 new_rest_var = Macro.var(:"__rest_var_#{name}__", __MODULE__)
-                decode_call = var_decode_ast(type, r_var)
-
-                binding =
-                  quote do
-                    {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
-                  end
+                binding = build_var_decode_binding(field, r_var, value_var, new_rest_var)
 
                 {bindings ++ [binding], new_rest_var}
               end)
@@ -3079,17 +3074,11 @@ defmodule GridCodec.Struct.Compiler do
     # Generate sequential decoding for each var field
     # Each step consumes part of 'rest' and produces a value
     {decode_bindings, final_rest_var} =
-      Enum.reduce(var_fields, {[], quote(do: rest)}, fn {name, type, _module, _opts},
-                                                        {bindings, rest_var} ->
+      Enum.reduce(var_fields, {[], quote(do: rest)}, fn field, {bindings, rest_var} ->
+        {name, _type, _module, _opts} = field
         value_var = Macro.var(name, __MODULE__)
         new_rest_var = Macro.var(:"rest_after_#{name}", __MODULE__)
-
-        decode_call = var_decode_ast(type, rest_var)
-
-        binding =
-          quote do
-            {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
-          end
+        binding = build_var_decode_binding(field, rest_var, value_var, new_rest_var)
 
         {bindings ++ [binding], new_rest_var}
       end)
@@ -3242,17 +3231,11 @@ defmodule GridCodec.Struct.Compiler do
 
   defp generate_var_decoder(var_fields) do
     {decode_bindings, final_rest_var} =
-      Enum.reduce(var_fields, {[], quote(do: var_rest)}, fn {name, type, _module, _opts},
-                                                            {bindings, rest_var} ->
+      Enum.reduce(var_fields, {[], quote(do: var_rest)}, fn field, {bindings, rest_var} ->
+        {name, _type, _module, _opts} = field
         value_var = Macro.var(:"var_#{name}", __MODULE__)
         new_rest_var = Macro.var(:"var_rest_after_#{name}", __MODULE__)
-
-        decode_call = var_decode_ast(type, rest_var)
-
-        binding =
-          quote do
-            {unquote(value_var), unquote(new_rest_var)} = unquote(decode_call)
-          end
+        binding = build_var_decode_binding(field, rest_var, value_var, new_rest_var)
 
         {bindings ++ [binding], new_rest_var}
       end)
@@ -3267,6 +3250,34 @@ defmodule GridCodec.Struct.Compiler do
       {%{unquote_splicing(map_pairs)}, unquote(final_rest_var)}
     end
   end
+
+  defp build_var_decode_binding({name, type, module, opts}, rest_var, value_var, new_rest_var) do
+    raw_var = Macro.var(:"raw_var_#{name}", __MODULE__)
+    missing_raw_var = Macro.var(:"missing_raw_var_#{name}", __MODULE__)
+
+    decoded_value =
+      raw_var
+      |> wrap_required_decode(opts, name, module, nil)
+
+    missing_value =
+      missing_raw_var
+      |> wrap_required_decode(opts, name, module, nil)
+
+    quote do
+      {unquote(value_var), unquote(new_rest_var)} =
+        if byte_size(unquote(rest_var)) < unquote(var_prefix_size(type)) do
+          unquote(missing_raw_var) = nil
+          {unquote(missing_value), <<>>}
+        else
+          {unquote(raw_var), __rest_after_var__} = unquote(var_decode_ast(type, rest_var))
+          {unquote(decoded_value), __rest_after_var__}
+        end
+    end
+  end
+
+  defp var_prefix_size(:string8), do: 1
+  defp var_prefix_size(:string32), do: 4
+  defp var_prefix_size(_type), do: 2
 
   # ============================================================================
   # Inline Getter Macro Generation

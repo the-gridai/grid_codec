@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.3] - 2026-04-28
+
+### Fixed
+
+- **Runtime compatibility for appended optional fields** — decoders now
+  synthesize missing trailing field values when reading historical payloads
+  that predate an append. Short fixed blocks are padded from the codec's
+  null-sentinel block, even when the codec author forgot to bump `version:`,
+  and missing `:string8` / `:string16` / `:string32` length prefixes decode as
+  `nil`. Required fields with `:default` still substitute the default; required
+  fields without `:default` still return
+  `{:error, {:required_field_absent, field}}`. Closes
+  [#16](https://github.com/Spectral-Finance/grid_codec/issues/16).
+
 ## [0.41.2] - 2026-04-28
 
 ### Fixed
