@@ -205,9 +205,10 @@ defmodule GridCodec.Type do
   Declares that this type's decode path for non-`wire_format:` fields never
   yields Elixir `nil` for any on-wire input.
 
-  When `true`, the struct compiler may omit the `case … nil ->` wrapper used
-  for `presence: :required` decode-time enforcement. That avoids a dead `nil`
-  clause, which Elixir 1.18+ can reject under `mix compile --warnings-as-errors`.
+  This callback is retained for type metadata compatibility. Current compilers
+  route `presence: :required` decode-time enforcement through generated private
+  helper functions, so generated codec modules no longer need to omit inline
+  nil clauses for never-nil types.
 
   Return **`false`** (the default when this callback is absent) whenever
   `decode_value_ast/1` can produce `nil` for a null sentinel or other wire

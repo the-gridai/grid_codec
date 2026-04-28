@@ -2,9 +2,10 @@ defmodule GridCodec.Breaking.Policy do
   @moduledoc """
   Applies severity policy to breaking-change issues.
 
-  Existing wire and source compatibility issues default to `:error`. Documentation
-  drift is reported by default without failing CI unless the project opts into a
-  stricter policy.
+  Existing wire and source compatibility issues default to `:error`, except for
+  advisory rules whose runtime failure mode is mitigated. Documentation drift is
+  reported by default without failing CI unless the project opts into a stricter
+  policy.
   """
 
   alias GridCodec.Breaking.Issue
@@ -52,6 +53,7 @@ defmodule GridCodec.Breaking.Policy do
     severity in fail_on
   end
 
+  defp default_severity(:WIRE_VAR_FIELD_ADDED, :wire), do: :info
   defp default_severity(rule, :docs), do: Map.get(@default_doc_severities, rule, :warning)
   defp default_severity(_rule, _category), do: :error
 end

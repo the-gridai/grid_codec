@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.4] - 2026-04-28
+
+### Changed
+
+- **`WIRE_VAR_FIELD_ADDED` is informational by default** — now that GridCodec
+  0.41.3 decoders synthesize missing optional/defaulted var-data for historical
+  payloads, appended variable-length fields no longer block
+  `mix grid_codec.breaking` under the default `fail_on: [:error]` policy.
+  Projects that want to forbid var-data appends can still set
+  `severity_overrides: %{WIRE_VAR_FIELD_ADDED: :error}`. Closes
+  [#17](https://github.com/Spectral-Finance/grid_codec/issues/17).
+
+### Fixed
+
+- **Required-field decode no longer emits inline unreachable nil clauses** —
+  generated decoders now route `presence: :required` nil enforcement through a
+  runtime helper, preserving `{:error, {:required_field_absent, field}}` and
+  `:default` behavior without triggering Dialyzer `pattern_match_cov` warnings
+  for codecs that use required `:string*`, `:uuid`, or `:uuid_string` fields.
+  Added root and `example_app` regression codecs so strict compile and Dialyzer
+  paths keep covering this generated-code shape. Closes
+  [#18](https://github.com/Spectral-Finance/grid_codec/issues/18).
+
 ## [0.41.3] - 2026-04-28
 
 ### Fixed

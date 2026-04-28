@@ -2,6 +2,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
   use ExUnit.Case, async: true
 
   alias GridCodec.Breaking.Checker
+  alias GridCodec.Breaking.Policy
 
   @path "test.grid"
 
@@ -265,7 +266,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
   end
 
   describe "WIRE_VAR_FIELD_ADDED" do
-    test "flags appended optional variable-length field" do
+    test "flags appended optional variable-length field as non-blocking info by default" do
       old = """
       schema T { id: 1 }
       struct Order (template_id: 1) {
@@ -284,8 +285,34 @@ defmodule GridCodec.Breaking.WireRulesTest do
       """
 
       issues = check(old, new)
-      assert :WIRE_VAR_FIELD_ADDED in rules(issues)
-      assert Enum.any?(issues, &(&1.message =~ "note"))
+      assert issue = Enum.find(issues, &(&1.rule == :WIRE_VAR_FIELD_ADDED))
+      assert issue.severity == :info
+      refute Policy.blocking?(issue, [:error])
+      assert issue.message =~ "note"
+      assert issue.message =~ "GridCodec 0.41.3+"
+    end
+
+    test "severity_overrides can escalate appended variable-length fields to error" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        note: string16
+      }
+      """
+
+      issues = check(old, new, %{severity_overrides: %{WIRE_VAR_FIELD_ADDED: :error}})
+
+      assert issue = Enum.find(issues, &(&1.rule == :WIRE_VAR_FIELD_ADDED))
+      assert issue.severity == :error
+      assert Policy.blocking?(issue, [:error])
     end
 
     test "flags appended default-presence variable-length field" do

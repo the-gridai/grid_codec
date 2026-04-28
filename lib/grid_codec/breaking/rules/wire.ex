@@ -37,7 +37,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   |------|---------|
   | `WIRE_FIELD_REMOVED` | Field removed from struct |
   | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without `default:` (historical events decode to `{:error, {:required_field_absent, field}}`); add `default:` to make the append safe |
-  | `WIRE_VAR_FIELD_ADDED` | Variable-length field added (historical events have no var-data bytes for the new field) |
+  | `WIRE_VAR_FIELD_ADDED` | Variable-length field added (informational by default; GridCodec 0.41.3+ readers synthesize missing optional/defaulted var-data) |
   | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
   | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed |
   | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed |
@@ -252,10 +252,11 @@ defmodule GridCodec.Breaking.Rules.Wire do
           category: :wire,
           message:
             ~s(Variable-length field "#{field.name}" was added. Historical events ) <>
-              "written before this change have no var-data bytes for the field, so " <>
-              "the decoder may fail while reading its length prefix. Introduce a new " <>
-              "message type, keep the field out of the existing schema, or add a " <>
-              "deserializer-level compatibility shim.",
+              "written before this change have no var-data bytes for the field. " <>
+              "GridCodec 0.41.3+ decoders synthesize missing optional/defaulted " <>
+              "var-data as nil or the declared default, so this is informational " <>
+              "by default. If the field is conceptually a new event shape, " <>
+              "introduce a new message type instead.",
           path: path,
           location: %{struct: new.name, field: field.name}
         }

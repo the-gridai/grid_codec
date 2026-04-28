@@ -402,6 +402,13 @@ defmodule GridCodec.Struct.Compiler do
       # Auto-generated batch union encoder/decoder
       unquote_splicing(batch_fns)
 
+      # Required-field decode enforcement helper (only generated when needed)
+      unquote(
+        generate_required_field_decode_helpers(
+          any_required?(fixed_fields, var_fields, processed_groups)
+        )
+      )
+
       # Field validation (when validate: true)
       unquote(
         generate_validate_fn(
@@ -2233,63 +2240,31 @@ defmodule GridCodec.Struct.Compiler do
     end)
   end
 
-  # Enforce :required presence at decode time.
-  #
-  # Historical events (written before a required field was appended) are
-  # padded from each field's type-null sentinel by `decode_versioned_payload/2`.
-  # Without this wrapper, the padded sentinel would round-trip through the
-  # type's `decode_value_ast/1` and surface as `nil` for a field whose typespec
-  # declares a non-nil value, silently violating the contract and breaking
-  # any downstream code that relies on the typespec.
-  #
-  # This wrapper makes `default:` serve double duty for required fields:
-  #   * with `default:` declared  -> substitute the default on nil (round-trippable)
-  #   * without `default:`        -> throw, caught at the decode boundary and
-  #                                  surfaced as `{:error, {:required_field_absent, field}}`
-  #
-  # Types that never produce Elixir `nil` after decode still received the same
-  # wrapper in 0.41.0; for some (notably `CharArray`) the `nil` match is
-  # unreachable and trips `--warnings-as-errors`. Those types may implement
-  # `GridCodec.Type.required_field_decode_never_nil?/0` returning `true` for
-  # non-`wire_format:` fields only (`decode_as_ast/2` may still yield `nil`).
-  defp wrap_required_decode(value_ast, opts, field_name, domain_module, wire_module) do
+  # Enforce :required presence at decode time. The runtime helper keeps the nil
+  # branch out of generated codec modules so Dialyzer does not flag unreachable
+  # inline cases for types whose decoded domain can never be nil.
+  defp wrap_required_decode(value_ast, opts, field_name, _domain_module, _wire_module) do
     presence = Keyword.get(opts, :presence, :optional)
 
-    cond do
-      presence != :required ->
-        value_ast
+    if presence != :required do
+      value_ast
+    else
+      case Keyword.get(opts, :default) do
+        nil ->
+          quote do
+            __gridcodec_required_field__(unquote(value_ast), unquote(field_name))
+          end
 
-      skip_required_decode_nil_guard?(domain_module, wire_module) ->
-        value_ast
-
-      true ->
-        case Keyword.get(opts, :default) do
-          nil ->
-            quote do
-              case unquote(value_ast) do
-                nil -> throw({:grid_codec_required_field_absent, unquote(field_name)})
-                __v__ -> __v__
-              end
-            end
-
-          default ->
-            quote do
-              case unquote(value_ast) do
-                nil -> unquote(Macro.escape(default))
-                __v__ -> __v__
-              end
-            end
-        end
+        default ->
+          quote do
+            __gridcodec_required_field__(
+              unquote(value_ast),
+              unquote(field_name),
+              unquote(Macro.escape(default))
+            )
+          end
+      end
     end
-  end
-
-  defp skip_required_decode_nil_guard?(_domain_module, wire_module)
-       when not is_nil(wire_module),
-       do: false
-
-  defp skip_required_decode_nil_guard?(domain_module, nil) do
-    function_exported?(domain_module, :required_field_decode_never_nil?, 0) and
-      domain_module.required_field_decode_never_nil?()
   end
 
   # True iff any field on this struct (including fields inside groups) uses
@@ -2325,6 +2300,24 @@ defmodule GridCodec.Struct.Compiler do
         :throw, {:grid_codec_required_field_absent, __field__} ->
           {:error, {:required_field_absent, __field__}}
       end
+    end
+  end
+
+  defp generate_required_field_decode_helpers(false), do: quote(do: nil)
+
+  defp generate_required_field_decode_helpers(true) do
+    quote do
+      @doc false
+      @spec __gridcodec_required_field__(term(), atom()) :: term() | no_return()
+      defp __gridcodec_required_field__(nil, field_name),
+        do: :erlang.apply(:erlang, :throw, [{:grid_codec_required_field_absent, field_name}])
+
+      defp __gridcodec_required_field__(value, _field_name), do: value
+
+      @doc false
+      @spec __gridcodec_required_field__(term(), atom(), term()) :: term()
+      defp __gridcodec_required_field__(nil, _field_name, default), do: default
+      defp __gridcodec_required_field__(value, _field_name, _default), do: value
     end
   end
 

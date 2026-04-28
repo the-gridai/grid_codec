@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.41.3"
+  @version "0.41.4"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do

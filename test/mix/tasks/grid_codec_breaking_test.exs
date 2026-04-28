@@ -106,6 +106,56 @@ defmodule Mix.Tasks.GridCodec.BreakingTest do
     end)
   end
 
+  test "task reports appended variable fields as non-blocking info by default",
+       %{example_app_dir: dir} do
+    schema_path = Path.join(dir, "priv/schemas/events/schema.grid")
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string
+    }
+    """)
+
+    git!(Path.dirname(dir), ["add", "."])
+
+    git!(Path.dirname(dir), [
+      "-c",
+      "user.name=GridCodec Tests",
+      "-c",
+      "user.email=tests@example.com",
+      "commit",
+      "-m",
+      "baseline with struct"
+    ])
+
+    File.write!(schema_path, """
+    @syntax 1
+
+    schema Events {
+      id: 100
+      version: 1
+    }
+
+    struct Order (template_id: 1, version: 2) {
+      id: uuid_string
+      note: string16, presence: optional, since: 2
+    }
+    """)
+
+    File.cd!(dir, fn ->
+      output = capture_task(fn -> Breaking.run(["--against", "HEAD"]) end)
+      assert output =~ "non-blocking issue"
+      assert output =~ "[info] [wire] WIRE_VAR_FIELD_ADDED"
+    end)
+  end
+
   test "task fails when policy escalates documentation issues", %{example_app_dir: dir} do
     schema_path = Path.join(dir, "priv/schemas/events/schema.grid")
     config_path = Path.join(dir, ".grid_codec.exs")

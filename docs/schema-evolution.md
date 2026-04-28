@@ -251,9 +251,18 @@ for them.
 appended `:required` fixed-block field **without a `:default`**. Adding a
 `:default` suppresses the warning (and makes the append actually safe).
 `:optional` fixed-block fields and `:constant` value fields do not trigger.
-Variable-length additions report `WIRE_VAR_FIELD_ADDED` so teams explicitly
-review reader version requirements; GridCodec 0.41.3+ readers can synthesize
-missing optional var-data as `nil`.
+Variable-length additions report `WIRE_VAR_FIELD_ADDED` at `:info` severity by
+default so teams explicitly review reader version requirements; GridCodec
+0.41.3+ readers can synthesize missing optional var-data as `nil`.
+
+If your project wants to forbid variable-length appends entirely, escalate the
+rule in `.grid_codec.exs`:
+
+```elixir
+%{
+  severity_overrides: %{WIRE_VAR_FIELD_ADDED: :error}
+}
+```
 
 ## If You Need To Remove A Field
 
@@ -361,7 +370,7 @@ so cross-version evolution tests should use the default headered encode/decode.
 | `WIRE_TEMPLATE_ID_CHANGED` | `template_id` changed for existing struct | Keep `template_id` stable for same wire message |
 | `WIRE_FIELD_REMOVED` | Field removed from struct | Keep field or create new message type |
 | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without a `:default` — historical events decode to `{:error, {:required_field_absent, field}}` | Declare a `:default`, or use `presence: :optional`, or introduce a new message type |
-| `WIRE_VAR_FIELD_ADDED` | Variable-length field added — historical events do not have bytes for the new length prefix/payload | Ensure all readers use GridCodec 0.41.3+ for optional/defaulted appends, or introduce a new message type |
+| `WIRE_VAR_FIELD_ADDED` | Variable-length field added — historical events do not have bytes for the new length prefix/payload; informational by default on GridCodec 0.41.3+ | Ensure all readers use GridCodec 0.41.3+ for optional/defaulted appends, introduce a new message type, or set `severity_overrides` to escalate |
 | `WIRE_FIELD_REORDERED` | Fixed field order changed | Restore original order |
 | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed | Treat as type migration; add a new field instead |
 | `WIRE_FIELD_SINCE_CHANGED` | `since` metadata changed | Keep original introduction version |
