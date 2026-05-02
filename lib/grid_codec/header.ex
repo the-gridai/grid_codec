@@ -50,6 +50,8 @@ defmodule GridCodec.Header do
           version: non_neg_integer()
         }
 
+  @type t :: header_info()
+
   @doc """
   Returns the header size in bytes.
   """

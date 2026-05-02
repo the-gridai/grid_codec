@@ -495,6 +495,27 @@ end
 - `validate: false` — skipped by `new/1` entirely
 - Skipped by `.grid` export
 
+### Struct Lifecycle Hooks
+
+Codecs may define optional `before_encode/2` and `after_decode/2` callbacks to
+normalize between runtime shape and wire shape:
+
+```elixir
+@impl GridCodec.Struct
+def before_encode(%__MODULE__{} = struct, header_or_nil), do: struct
+
+@impl GridCodec.Struct
+def after_decode(%__MODULE__{} = struct, header_or_nil), do: {:ok, struct}
+```
+
+- `before_encode/2` runs before generated validation and binary encoding. Use it
+  to copy durable state out of runtime caches/indexes into `.grid` fields.
+- `after_decode/2` runs after wire decode and receives decoded header metadata
+  when available (or `nil` for payload-only decode). Use it to rebuild derived
+  virtual fields such as lookup maps.
+- Hooks may return the struct directly, `{:ok, struct}`, or `{:error, reason}`.
+- Hooks are runtime-only Elixir behavior and are not exported to `.grid`.
+
 ### Validation Pipelines
 
 GridCodec supports three validation layers:

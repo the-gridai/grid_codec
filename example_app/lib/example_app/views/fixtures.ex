@@ -31,6 +31,34 @@ defmodule ExampleApp.Views.Fixtures do
   end
 
   @doc """
+  Builds a sample account in the runtime shape used by aggregate command
+  handlers: reservations live in a virtual index and are materialized into the
+  durable group by `CurrencyAccount.before_encode/2`.
+  """
+  def runtime_account(count \\ 10_000) when is_integer(count) and count >= 0 do
+    reservations =
+      for i <- 1..count do
+        %Reservation{
+          reservation_id: i,
+          order_id: 1_000_000 + i,
+          amount: 100_000 + rem(i, 5000),
+          active: rem(i, 3) != 0,
+          expires_at: DateTime.from_unix!(@base_us + i, :microsecond)
+        }
+      end
+
+    %CurrencyAccount{
+      account_id: 42,
+      reservations: [],
+      reservation_index: Map.new(reservations, &{&1.reservation_id, &1}),
+      active_reservation_ids:
+        reservations
+        |> Enum.filter(& &1.active)
+        |> Enum.map(& &1.reservation_id)
+    }
+  end
+
+  @doc """
   Builds a sample command envelope with `count` heterogeneous commands.
   """
   def command_envelope(count \\ 10_000) when is_integer(count) and count >= 0 do

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-05-02
+
+### Added
+
+- **Struct lifecycle hooks for runtime/wire normalization** — generated codecs
+  now honor optional `before_encode/2` and `after_decode/2` callbacks. Hooks can
+  normalize runtime structs into persisted wire state before validation/encoding
+  and rebuild derived runtime fields after decode with header metadata when
+  available. Hook failures may return `{:error, reason}`. Closes
+  [#20](https://github.com/Spectral-Finance/grid_codec/issues/20).
+
 ## [0.41.6] - 2026-04-28
 
 ### Fixed

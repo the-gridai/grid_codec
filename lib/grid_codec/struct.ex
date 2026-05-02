@@ -16,6 +16,8 @@ defmodule GridCodec.Struct do
   - **Runtime lookups**: Generate named alternate access paths over groups and batches with `lookups do`
   - **Validation pipelines**: Compose accumulating struct validations with `validations do`
     / `invariants do`, plus refined custom types for field-local rules
+  - **Lifecycle hooks**: Optional `before_encode/2` and `after_decode/2`
+    callbacks normalize between runtime structs and persisted wire structs
 
   ## Quick Example
 
@@ -261,6 +263,38 @@ defmodule GridCodec.Struct do
   module changes the derived ID.
   """
 
+  @typedoc """
+  Result accepted from lifecycle hooks.
+
+  Hooks may return the normalized struct directly, `{:ok, struct}`, or
+  `{:error, reason}` to stop the encode/decode operation.
+  """
+  @type lifecycle_result(struct_type) ::
+          struct_type | {:ok, struct_type} | {:error, term()}
+
+  @doc """
+  Optional hook invoked before encoding.
+
+  Use this to normalize a runtime struct into the wire-backed shape before
+  generated validation and encoding run. The second argument is the target
+  header metadata when encoding a framed binary, or `nil` for payload-only
+  encoding (`header: false`).
+  """
+  @callback before_encode(struct(), GridCodec.Header.t() | nil) ::
+              lifecycle_result(struct())
+
+  @doc """
+  Optional hook invoked after decoding.
+
+  Use this to rebuild derived runtime fields such as indexes or caches from the
+  decoded wire fields. The second argument is the decoded header metadata when
+  available, or `nil` when decoding payload-only binaries.
+  """
+  @callback after_decode(struct(), GridCodec.Header.t() | nil) ::
+              lifecycle_result(struct())
+
+  @optional_callbacks before_encode: 2, after_decode: 2
+
   @doc false
   defmacro __using__(opts \\ []) do
     opts = resolve_schema_option(opts)
@@ -284,6 +318,8 @@ defmodule GridCodec.Struct do
       true ->
         # Standard defcodec approach
         quote do
+          @behaviour GridCodec.Struct
+
           import GridCodec.Struct, only: [defcodec: 1]
 
           import GridCodec,
@@ -412,6 +448,8 @@ defmodule GridCodec.Struct do
       |> Keyword.delete(:types)
 
     quote do
+      @behaviour GridCodec.Struct
+
       import GridCodec.Struct, only: [defcodec: 1]
 
       import GridCodec,

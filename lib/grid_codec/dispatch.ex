@@ -219,8 +219,8 @@ defmodule GridCodec.Dispatch do
                 if header.version > max_version do
                   {:error, {:version_too_new, header.version, max_version}}
                 else
-                  # Payload doesn't have header, use header: false
-                  case module.decode(payload, header: false) do
+                  # Payload doesn't have header, but pass decoded metadata to lifecycle hooks.
+                  case module.decode(payload, header: false, __gridcodec_header__: header) do
                     {:ok, data} -> {:ok, data, module}
                     {:error, _} = error -> error
                   end

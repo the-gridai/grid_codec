@@ -338,7 +338,10 @@ defmodule Mix.Tasks.Compile.GridCodec do
     all_clauses =
       Enum.map(codecs, fn %{module: mod, schema_id: sid, template_id: tid} ->
         pattern = {:{}, [], [sid, tid]}
-        body = quote(do: unquote(mod).decode(payload, header: false))
+
+        body =
+          quote(do: unquote(mod).decode(payload, header: false, __gridcodec_header__: header))
+
         {:->, [], [[pattern], body]}
       end)
 

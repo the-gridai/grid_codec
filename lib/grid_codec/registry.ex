@@ -453,7 +453,7 @@ defmodule GridCodec.Registry do
             {:error, :unknown_codec}
 
           module ->
-            module.decode(payload, header: false)
+            module.decode(payload, header: false, __gridcodec_header__: header)
         end
 
       {:error, _} = error ->
@@ -470,7 +470,7 @@ defmodule GridCodec.Registry do
               {:error, :unknown_codec}
 
             module ->
-              module.decode(payload, header: false)
+              module.decode(payload, header: false, __gridcodec_header__: header)
           end
 
         {:error, _} = error ->

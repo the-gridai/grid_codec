@@ -131,6 +131,17 @@ ExampleApp.lookup_usage()
 The lookup examples in `views/` are also part of the example app's Dialyzer
 coverage, so they double as integration tests for normal consumer usage.
 
+### Lifecycle Hooks
+
+`CurrencyAccount` also demonstrates struct lifecycle hooks for aggregate
+snapshots. The `.grid` contract persists durable `reservations`, while runtime
+code can keep virtual indexes such as `reservation_index` and
+`active_reservation_ids`.
+
+`before_encode/2` materializes the durable group from the runtime index when
+needed. `after_decode/2` rebuilds the virtual indexes after loading the binary
+snapshot and records the decoded schema version from header metadata.
+
 ## Benefits
 
 1. **Struct-based API** - Natural Elixir struct syntax

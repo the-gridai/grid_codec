@@ -130,6 +130,8 @@ defmodule GridCodec.Struct.Compiler do
     normalized_from_blocks = normalize_from_blocks(from_blocks, resolved_fields)
     normalized_validations = normalize_validations(validations, resolved_fields, env.module)
     validation_active = validate_enabled or normalized_validations != []
+    before_encode_hook? = Module.defines?(env.module, {:before_encode, 2}, :def)
+    after_decode_hook? = Module.defines?(env.module, {:after_decode, 2}, :def)
 
     # Build struct field list with defaults (includes group names with default [])
     struct_type_ast = build_struct_type_ast(resolved_fields, groups)
@@ -201,7 +203,11 @@ defmodule GridCodec.Struct.Compiler do
       var_fields: Enum.map(var_fields, fn {name, _, _, _} -> name end),
       field_versions: field_versions,
       type: type_name,
-      virtual_fields: virtual_field_meta
+      virtual_fields: virtual_field_meta,
+      lifecycle_hooks: %{
+        before_encode: before_encode_hook?,
+        after_decode: after_decode_hook?
+      }
     }
 
     # Generate encoder/decoder AST (using processed_groups with auto-generated codecs)
@@ -235,6 +241,13 @@ defmodule GridCodec.Struct.Compiler do
     header_binary =
       <<block_length::little-16, template_id::little-16, schema_id::little-16,
         version::little-16>>
+
+    header_info = %{
+      block_length: block_length,
+      template_id: template_id,
+      schema_id: schema_id,
+      version: version
+    }
 
     module = env.module
 
@@ -389,6 +402,7 @@ defmodule GridCodec.Struct.Compiler do
 
       # Store header for encode/decode
       @__gridcodec_header_opts__ unquote(header_opts)
+      @__gridcodec_header_info__ unquote(Macro.escape(header_info))
       @__gridcodec_header__ unquote(header_binary)
       @__gridcodec_header_size__ 8
 
@@ -420,6 +434,9 @@ defmodule GridCodec.Struct.Compiler do
         )
       )
 
+      # Lifecycle hooks (only call user-defined callbacks when present)
+      unquote(generate_lifecycle_helpers(module, before_encode_hook?, after_decode_hook?))
+
       # Encode/Decode API with optional telemetry
       unquote(
         generate_encode_api(
@@ -431,6 +448,7 @@ defmodule GridCodec.Struct.Compiler do
           telemetry_min_duration,
           generate_typespec,
           validation_active,
+          before_encode_hook?,
           encode_doc_telemetry,
           encode_doc_plain
         )
@@ -453,13 +471,16 @@ defmodule GridCodec.Struct.Compiler do
         if validation_active do
           quote do
             def new_binary(%unquote(module){} = struct) do
-              case __validate__(struct) do
-                :ok ->
-                  payload = encode_payload(struct)
-                  {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+              with {:ok, struct} <-
+                     __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                case __validate__(struct) do
+                  :ok ->
+                    payload = encode_payload(struct)
+                    {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
 
-                {:error, error} ->
-                  {:error, error}
+                  {:error, error} ->
+                    {:error, error}
+                end
               end
             rescue
               e in GridCodec.ValidationError -> {:error, e}
@@ -468,8 +489,11 @@ defmodule GridCodec.Struct.Compiler do
         else
           quote do
             def new_binary(%unquote(module){} = struct) do
-              payload = encode_payload(struct)
-              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+              with {:ok, struct} <-
+                     __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                payload = encode_payload(struct)
+                {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+              end
             end
           end
         end
@@ -481,21 +505,50 @@ defmodule GridCodec.Struct.Compiler do
         case __cast__(attrs) do
           {:ok, coerced} ->
             unquote(
-              if validation_active do
+              if before_encode_hook? do
                 quote do
-                  case __validate__(coerced) do
-                    :ok ->
-                      payload = encode_map(coerced)
-                      {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                  struct = struct(unquote(module), coerced)
 
-                    {:error, error} ->
-                      {:error, error}
+                  with {:ok, struct} <-
+                         __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                    unquote(
+                      if validation_active do
+                        quote do
+                          case __validate__(struct) do
+                            :ok ->
+                              payload = encode_payload(struct)
+                              {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+
+                            {:error, error} ->
+                              {:error, error}
+                          end
+                        end
+                      else
+                        quote do
+                          payload = encode_payload(struct)
+                          {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                        end
+                      end
+                    )
                   end
                 end
               else
-                quote do
-                  payload = encode_map(coerced)
-                  {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                if validation_active do
+                  quote do
+                    case __validate__(coerced) do
+                      :ok ->
+                        payload = encode_map(coerced)
+                        {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+
+                      {:error, error} ->
+                        {:error, error}
+                    end
+                  end
+                else
+                  quote do
+                    payload = encode_map(coerced)
+                    {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                  end
                 end
               end
             )
@@ -4052,6 +4105,55 @@ defmodule GridCodec.Struct.Compiler do
   end
 
   # ============================================================================
+  # Lifecycle Hook Generation
+  # ============================================================================
+
+  defp generate_lifecycle_helpers(module, before_encode_hook?, after_decode_hook?) do
+    before_encode_ast =
+      if before_encode_hook? do
+        quote do
+          defp __gridcodec_before_encode__(%unquote(module){} = struct, header) do
+            GridCodec.Struct.Lifecycle.normalize_before_encode(
+              unquote(module),
+              before_encode(struct, header)
+            )
+          end
+        end
+      else
+        quote do
+          defmacrop __gridcodec_before_encode__(struct, _header) do
+            quote do: {:ok, unquote(struct)}
+          end
+        end
+      end
+
+    after_decode_ast =
+      if after_decode_hook? do
+        quote do
+          defp __gridcodec_after_decode_result__({:ok, %unquote(module){} = struct}, header) do
+            GridCodec.Struct.Lifecycle.normalize_after_decode(
+              unquote(module),
+              after_decode(struct, header)
+            )
+          end
+
+          defp __gridcodec_after_decode_result__(other, _header), do: other
+        end
+      else
+        quote do
+          defmacrop __gridcodec_after_decode_result__(result, _header) do
+            result
+          end
+        end
+      end
+
+    quote do
+      unquote(before_encode_ast)
+      unquote(after_decode_ast)
+    end
+  end
+
+  # ============================================================================
   # Encode/Decode API Generation (extracted to reduce __before_compile__ complexity)
   # ============================================================================
 
@@ -4065,6 +4167,7 @@ defmodule GridCodec.Struct.Compiler do
          min_duration,
          generate_typespec,
          validation_active,
+         _before_encode_hook?,
          encode_doc_telemetry,
          encode_doc_plain
        ) do
@@ -4090,76 +4193,82 @@ defmodule GridCodec.Struct.Compiler do
           unquote(
             if validation_active do
               quote do
-                case __validate__(struct) do
-                  :ok ->
-                    try do
-                      start = :erlang.monotonic_time()
-                      payload = encode_payload(struct)
-                      binary = <<@__gridcodec_header__::binary, payload::binary>>
-                      duration = :erlang.monotonic_time() - start
+                with {:ok, struct} <-
+                       __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                  case __validate__(struct) do
+                    :ok ->
+                      try do
+                        start = :erlang.monotonic_time()
+                        payload = encode_payload(struct)
+                        binary = <<@__gridcodec_header__::binary, payload::binary>>
+                        duration = :erlang.monotonic_time() - start
 
-                      if duration >= unquote(min_duration) do
-                        :telemetry.execute(
-                          [:grid_codec, :encode],
-                          %{duration: duration, bytes: byte_size(binary)},
-                          unquote(Macro.escape(telemetry_meta))
-                        )
+                        if duration >= unquote(min_duration) do
+                          :telemetry.execute(
+                            [:grid_codec, :encode],
+                            %{duration: duration, bytes: byte_size(binary)},
+                            unquote(Macro.escape(telemetry_meta))
+                          )
+                        end
+
+                        {:ok, binary}
+                      rescue
+                        e in GridCodec.ValidationError ->
+                          {:error, e}
+
+                        e in ArgumentError ->
+                          msg = Exception.message(e)
+
+                          {:error,
+                           GridCodec.ValidationError.cast_error(
+                             unquote(module),
+                             GridCodec.ValidationError.field_from_argument_error(msg),
+                             :encode,
+                             nil,
+                             msg
+                           )}
                       end
 
-                      {:ok, binary}
-                    rescue
-                      e in GridCodec.ValidationError ->
-                        {:error, e}
-
-                      e in ArgumentError ->
-                        msg = Exception.message(e)
-
-                        {:error,
-                         GridCodec.ValidationError.cast_error(
-                           unquote(module),
-                           GridCodec.ValidationError.field_from_argument_error(msg),
-                           :encode,
-                           nil,
-                           msg
-                         )}
-                    end
-
-                  {:error, error} ->
-                    {:error, error}
+                    {:error, error} ->
+                      {:error, error}
+                  end
                 end
               end
             else
               quote do
-                try do
-                  start = :erlang.monotonic_time()
-                  payload = encode_payload(struct)
-                  binary = <<@__gridcodec_header__::binary, payload::binary>>
-                  duration = :erlang.monotonic_time() - start
+                with {:ok, struct} <-
+                       __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                  try do
+                    start = :erlang.monotonic_time()
+                    payload = encode_payload(struct)
+                    binary = <<@__gridcodec_header__::binary, payload::binary>>
+                    duration = :erlang.monotonic_time() - start
 
-                  if duration >= unquote(min_duration) do
-                    :telemetry.execute(
-                      [:grid_codec, :encode],
-                      %{duration: duration, bytes: byte_size(binary)},
-                      unquote(Macro.escape(telemetry_meta))
-                    )
+                    if duration >= unquote(min_duration) do
+                      :telemetry.execute(
+                        [:grid_codec, :encode],
+                        %{duration: duration, bytes: byte_size(binary)},
+                        unquote(Macro.escape(telemetry_meta))
+                      )
+                    end
+
+                    {:ok, binary}
+                  rescue
+                    e in GridCodec.ValidationError ->
+                      {:error, e}
+
+                    e in ArgumentError ->
+                      msg = Exception.message(e)
+
+                      {:error,
+                       GridCodec.ValidationError.cast_error(
+                         unquote(module),
+                         GridCodec.ValidationError.field_from_argument_error(msg),
+                         :encode,
+                         nil,
+                         msg
+                       )}
                   end
-
-                  {:ok, binary}
-                rescue
-                  e in GridCodec.ValidationError ->
-                    {:error, e}
-
-                  e in ArgumentError ->
-                    msg = Exception.message(e)
-
-                    {:error,
-                     GridCodec.ValidationError.cast_error(
-                       unquote(module),
-                       GridCodec.ValidationError.field_from_argument_error(msg),
-                       :encode,
-                       nil,
-                       msg
-                     )}
                 end
               end
             end
@@ -4170,90 +4279,100 @@ defmodule GridCodec.Struct.Compiler do
           unquote(
             if validation_active do
               quote do
-                case __validate__(struct) do
-                  :ok ->
-                    try do
-                      start = :erlang.monotonic_time()
+                header? = Keyword.get(opts, :header, true)
+                hook_header = if header?, do: @__gridcodec_header_info__, else: nil
 
-                      binary =
-                        if Keyword.get(opts, :header, true) do
-                          payload = encode_payload(struct)
-                          <<@__gridcodec_header__::binary, payload::binary>>
-                        else
-                          encode_payload(struct)
+                with {:ok, struct} <- __gridcodec_before_encode__(struct, hook_header) do
+                  case __validate__(struct) do
+                    :ok ->
+                      try do
+                        start = :erlang.monotonic_time()
+
+                        binary =
+                          if header? do
+                            payload = encode_payload(struct)
+                            <<@__gridcodec_header__::binary, payload::binary>>
+                          else
+                            encode_payload(struct)
+                          end
+
+                        duration = :erlang.monotonic_time() - start
+
+                        if duration >= unquote(min_duration) do
+                          :telemetry.execute(
+                            [:grid_codec, :encode],
+                            %{duration: duration, bytes: byte_size(binary)},
+                            unquote(Macro.escape(telemetry_meta))
+                          )
                         end
 
-                      duration = :erlang.monotonic_time() - start
+                        {:ok, binary}
+                      rescue
+                        e in GridCodec.ValidationError ->
+                          {:error, e}
 
-                      if duration >= unquote(min_duration) do
-                        :telemetry.execute(
-                          [:grid_codec, :encode],
-                          %{duration: duration, bytes: byte_size(binary)},
-                          unquote(Macro.escape(telemetry_meta))
-                        )
+                        e in ArgumentError ->
+                          msg = Exception.message(e)
+
+                          {:error,
+                           GridCodec.ValidationError.cast_error(
+                             unquote(module),
+                             GridCodec.ValidationError.field_from_argument_error(msg),
+                             :encode,
+                             nil,
+                             msg
+                           )}
                       end
 
-                      {:ok, binary}
-                    rescue
-                      e in GridCodec.ValidationError ->
-                        {:error, e}
-
-                      e in ArgumentError ->
-                        msg = Exception.message(e)
-
-                        {:error,
-                         GridCodec.ValidationError.cast_error(
-                           unquote(module),
-                           GridCodec.ValidationError.field_from_argument_error(msg),
-                           :encode,
-                           nil,
-                           msg
-                         )}
-                    end
-
-                  {:error, error} ->
-                    {:error, error}
+                    {:error, error} ->
+                      {:error, error}
+                  end
                 end
               end
             else
               quote do
-                try do
-                  start = :erlang.monotonic_time()
+                header? = Keyword.get(opts, :header, true)
+                hook_header = if header?, do: @__gridcodec_header_info__, else: nil
 
-                  binary =
-                    if Keyword.get(opts, :header, true) do
-                      payload = encode_payload(struct)
-                      <<@__gridcodec_header__::binary, payload::binary>>
-                    else
-                      encode_payload(struct)
+                with {:ok, struct} <- __gridcodec_before_encode__(struct, hook_header) do
+                  try do
+                    start = :erlang.monotonic_time()
+
+                    binary =
+                      if header? do
+                        payload = encode_payload(struct)
+                        <<@__gridcodec_header__::binary, payload::binary>>
+                      else
+                        encode_payload(struct)
+                      end
+
+                    duration = :erlang.monotonic_time() - start
+
+                    if duration >= unquote(min_duration) do
+                      :telemetry.execute(
+                        [:grid_codec, :encode],
+                        %{duration: duration, bytes: byte_size(binary)},
+                        unquote(Macro.escape(telemetry_meta))
+                      )
                     end
 
-                  duration = :erlang.monotonic_time() - start
+                    {:ok, binary}
+                  rescue
+                    e in GridCodec.ValidationError ->
+                      {:error, e}
 
-                  if duration >= unquote(min_duration) do
-                    :telemetry.execute(
-                      [:grid_codec, :encode],
-                      %{duration: duration, bytes: byte_size(binary)},
-                      unquote(Macro.escape(telemetry_meta))
-                    )
+                    e in ArgumentError ->
+                      msg = Exception.message(e)
+
+                      {:error,
+                       GridCodec.ValidationError.cast_error(
+                         unquote(module),
+                         GridCodec.ValidationError.field_from_argument_error(msg),
+                         :encode,
+                         nil,
+                         msg
+                       )}
                   end
-
-                  {:ok, binary}
-                rescue
-                  e in GridCodec.ValidationError ->
-                    {:error, e}
-
-                  e in ArgumentError ->
-                    msg = Exception.message(e)
-
-                    {:error,
-                     GridCodec.ValidationError.cast_error(
-                       unquote(module),
-                       GridCodec.ValidationError.field_from_argument_error(msg),
-                       :encode,
-                       nil,
-                       msg
-                     )}
                 end
               end
             end
@@ -4275,52 +4394,58 @@ defmodule GridCodec.Struct.Compiler do
           unquote(
             if validation_active do
               quote do
-                case __validate__(struct) do
-                  :ok ->
-                    try do
-                      payload = encode_payload(struct)
-                      {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-                    rescue
-                      e in GridCodec.ValidationError ->
-                        {:error, e}
+                with {:ok, struct} <-
+                       __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                  case __validate__(struct) do
+                    :ok ->
+                      try do
+                        payload = encode_payload(struct)
+                        {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                      rescue
+                        e in GridCodec.ValidationError ->
+                          {:error, e}
 
-                      e in ArgumentError ->
-                        msg = Exception.message(e)
+                        e in ArgumentError ->
+                          msg = Exception.message(e)
 
-                        {:error,
-                         GridCodec.ValidationError.cast_error(
-                           unquote(module),
-                           GridCodec.ValidationError.field_from_argument_error(msg),
-                           :encode,
-                           nil,
-                           msg
-                         )}
-                    end
+                          {:error,
+                           GridCodec.ValidationError.cast_error(
+                             unquote(module),
+                             GridCodec.ValidationError.field_from_argument_error(msg),
+                             :encode,
+                             nil,
+                             msg
+                           )}
+                      end
 
-                  {:error, error} ->
-                    {:error, error}
+                    {:error, error} ->
+                      {:error, error}
+                  end
                 end
               end
             else
               quote do
-                try do
-                  payload = encode_payload(struct)
-                  {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-                rescue
-                  e in GridCodec.ValidationError ->
-                    {:error, e}
+                with {:ok, struct} <-
+                       __gridcodec_before_encode__(struct, @__gridcodec_header_info__) do
+                  try do
+                    payload = encode_payload(struct)
+                    {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+                  rescue
+                    e in GridCodec.ValidationError ->
+                      {:error, e}
 
-                  e in ArgumentError ->
-                    msg = Exception.message(e)
+                    e in ArgumentError ->
+                      msg = Exception.message(e)
 
-                    {:error,
-                     GridCodec.ValidationError.cast_error(
-                       unquote(module),
-                       GridCodec.ValidationError.field_from_argument_error(msg),
-                       :encode,
-                       nil,
-                       msg
-                     )}
+                      {:error,
+                       GridCodec.ValidationError.cast_error(
+                         unquote(module),
+                         GridCodec.ValidationError.field_from_argument_error(msg),
+                         :encode,
+                         nil,
+                         msg
+                       )}
+                  end
                 end
               end
             end
@@ -4331,66 +4456,76 @@ defmodule GridCodec.Struct.Compiler do
           unquote(
             if validation_active do
               quote do
-                case __validate__(struct) do
-                  :ok ->
-                    try do
-                      binary =
-                        if Keyword.get(opts, :header, true) do
-                          payload = encode_payload(struct)
-                          <<@__gridcodec_header__::binary, payload::binary>>
-                        else
-                          encode_payload(struct)
-                        end
+                header? = Keyword.get(opts, :header, true)
+                hook_header = if header?, do: @__gridcodec_header_info__, else: nil
 
-                      {:ok, binary}
-                    rescue
-                      e in GridCodec.ValidationError ->
-                        {:error, e}
+                with {:ok, struct} <- __gridcodec_before_encode__(struct, hook_header) do
+                  case __validate__(struct) do
+                    :ok ->
+                      try do
+                        binary =
+                          if header? do
+                            payload = encode_payload(struct)
+                            <<@__gridcodec_header__::binary, payload::binary>>
+                          else
+                            encode_payload(struct)
+                          end
 
-                      e in ArgumentError ->
-                        msg = Exception.message(e)
+                        {:ok, binary}
+                      rescue
+                        e in GridCodec.ValidationError ->
+                          {:error, e}
 
-                        {:error,
-                         GridCodec.ValidationError.cast_error(
-                           unquote(module),
-                           GridCodec.ValidationError.field_from_argument_error(msg),
-                           :encode,
-                           nil,
-                           msg
-                         )}
-                    end
+                        e in ArgumentError ->
+                          msg = Exception.message(e)
 
-                  {:error, error} ->
-                    {:error, error}
+                          {:error,
+                           GridCodec.ValidationError.cast_error(
+                             unquote(module),
+                             GridCodec.ValidationError.field_from_argument_error(msg),
+                             :encode,
+                             nil,
+                             msg
+                           )}
+                      end
+
+                    {:error, error} ->
+                      {:error, error}
+                  end
                 end
               end
             else
               quote do
-                try do
-                  binary =
-                    if Keyword.get(opts, :header, true) do
-                      payload = encode_payload(struct)
-                      <<@__gridcodec_header__::binary, payload::binary>>
-                    else
-                      encode_payload(struct)
-                    end
+                header? = Keyword.get(opts, :header, true)
+                hook_header = if header?, do: @__gridcodec_header_info__, else: nil
 
-                  {:ok, binary}
-                rescue
-                  e in GridCodec.ValidationError ->
-                    {:error, e}
+                with {:ok, struct} <- __gridcodec_before_encode__(struct, hook_header) do
+                  try do
+                    binary =
+                      if header? do
+                        payload = encode_payload(struct)
+                        <<@__gridcodec_header__::binary, payload::binary>>
+                      else
+                        encode_payload(struct)
+                      end
 
-                  e in ArgumentError ->
-                    msg = Exception.message(e)
+                    {:ok, binary}
+                  rescue
+                    e in GridCodec.ValidationError ->
+                      {:error, e}
 
-                    {:error,
-                     GridCodec.ValidationError.cast_error(
-                       unquote(module),
-                       GridCodec.ValidationError.field_from_argument_error(msg),
-                       :encode,
-                       nil,
-                       msg
-                     )}
+                    e in ArgumentError ->
+                      msg = Exception.message(e)
+
+                      {:error,
+                       GridCodec.ValidationError.cast_error(
+                         unquote(module),
+                         GridCodec.ValidationError.field_from_argument_error(msg),
+                         :encode,
+                         nil,
+                         msg
+                       )}
+                  end
                 end
               end
             end
@@ -4430,7 +4565,9 @@ defmodule GridCodec.Struct.Compiler do
             case GridCodec.Header.decode(binary) do
               {:ok, header, payload} ->
                 with :ok <- validate_header(header) do
-                  decode_versioned_payload(payload, header.block_length)
+                  payload
+                  |> decode_versioned_payload(header.block_length)
+                  |> __gridcodec_after_decode_result__(header)
                 end
 
               {:error, _} = error ->
@@ -4458,14 +4595,19 @@ defmodule GridCodec.Struct.Compiler do
               case GridCodec.Header.decode(binary) do
                 {:ok, header, payload} ->
                   with :ok <- validate_header(header) do
-                    decode_versioned_payload(payload, header.block_length)
+                    payload
+                    |> decode_versioned_payload(header.block_length)
+                    |> __gridcodec_after_decode_result__(header)
                   end
 
                 {:error, _} = error ->
                   error
               end
             else
-              decode_payload(binary)
+              __gridcodec_after_decode_result__(
+                decode_payload(binary),
+                Keyword.get(opts, :__gridcodec_header__)
+              )
             end
 
           duration = :erlang.monotonic_time() - start
@@ -4537,7 +4679,9 @@ defmodule GridCodec.Struct.Compiler do
           case GridCodec.Header.decode(binary) do
             {:ok, header, payload} ->
               with :ok <- validate_header(header) do
-                decode_versioned_payload(payload, header.block_length)
+                payload
+                |> decode_versioned_payload(header.block_length)
+                |> __gridcodec_after_decode_result__(header)
               end
 
             {:error, _} = error ->
@@ -4551,14 +4695,19 @@ defmodule GridCodec.Struct.Compiler do
               case GridCodec.Header.decode(binary) do
                 {:ok, header, payload} ->
                   with :ok <- validate_header(header) do
-                    decode_versioned_payload(payload, header.block_length)
+                    payload
+                    |> decode_versioned_payload(header.block_length)
+                    |> __gridcodec_after_decode_result__(header)
                   end
 
                 {:error, _} = error ->
                   error
               end
             else
-              decode_payload(binary)
+              __gridcodec_after_decode_result__(
+                decode_payload(binary),
+                Keyword.get(opts, :__gridcodec_header__)
+              )
             end
 
           __maybe_validate_decoded_result__(result, binary, opts)
@@ -6513,7 +6662,8 @@ defmodule GridCodec.Struct.Compiler do
       end
 
     opts_help =
-      "\n\n      ## Options\n\n      - :header - include header (default true)\n"
+      "\n\n      ## Options\n\n      - :header - include header (default true)\n\n" <>
+        "      Runs `before_encode/2` first when the codec defines that optional hook.\n"
 
     "      Encodes a struct to binary." <> tele_block <> opts_help <> ex
   end
@@ -6545,7 +6695,8 @@ defmodule GridCodec.Struct.Compiler do
     opts_help =
       "\n\n      ## Options\n\n" <>
         "      - :header - expect header (default true)\n" <>
-        "      - :validate - post-decode validation (:none, true or :decoded, :binary, :both; default :none)\n"
+        "      - :validate - post-decode validation (:none, true or :decoded, :binary, :both; default :none)\n\n" <>
+        "      Runs `after_decode/2` after wire decoding when the codec defines that optional hook.\n"
 
     "      Decodes binary to a struct." <> tele_block <> opts_help <> ex
   end
