@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-05-13
+
+### Changed
+
+- **Dependency upgrade: `decimal ~> 3.1`** — bumped the `:decimal` requirement
+  from `~> 2.0` to `~> 3.1`. Consumers pinning Decimal at `< 3.0` must upgrade.
+  Decimal 3.x normalizes the `sign` field to integers (`1` / `-1`) instead of
+  atoms; any consumer code that pattern-matches on `:decimal` internals should
+  be reviewed. Refreshed transitive lockfile entries for `credo`, `ex_doc`,
+  `jason`, `makeup_erlang`, `stream_data`, and `telemetry`.
+- **Example app deps refreshed for Decimal 3.x** — `example_app` now pins
+  `ecto 3.13.6`, `ecto_sql 3.13.5`, `postgrex 0.22.2`, `jason 1.4.5`,
+  `db_connection 2.10.1`, and `telemetry 1.4.2`, the minimum versions that
+  accept `decimal ~> 3.0`.
+- **Credo `max_nesting` bumped from 4 → 5** — Credo 1.7.18 detects deeper
+  nesting in the existing `Breaking.Checker.resolve_schema_imports/4` and
+  `Struct.Compiler.__before_compile__/1` macros. The codec compiler already
+  documents the need for deep AST nesting; the limit was raised to keep that
+  intent unchanged without spurious refactor pressure.
+
 ## [0.42.0] - 2026-05-02
 
 ### Added

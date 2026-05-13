@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.42.0"
+  @version "0.43.0"
   @source_url "https://github.com/Spectral-Finance/grid_codec"
 
   def project do
@@ -87,7 +87,7 @@ defmodule GridCodec.MixProject do
   defp deps do
     [
       # Runtime - Decimal type support
-      {:decimal, "~> 2.0"},
+      {:decimal, "~> 3.1"},
 
       # Telemetry (for instrumented encode/decode + metric definitions)
       {:telemetry, "~> 1.0"},

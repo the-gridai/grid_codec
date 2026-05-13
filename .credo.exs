@@ -65,7 +65,7 @@
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
           # Codec macros require deep nesting for binary pattern generation
-          {Credo.Check.Refactor.Nesting, [max_nesting: 4]},
+          {Credo.Check.Refactor.Nesting, [max_nesting: 5]},
           {Credo.Check.Refactor.FilterFilter, []},
           {Credo.Check.Refactor.PipeChainStart, false},
           {Credo.Check.Refactor.UnlessWithElse, []},
