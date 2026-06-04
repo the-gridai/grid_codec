@@ -1,0 +1,5 @@
+# GridCodec standardizes on asdf for Erlang/Elixir (see .tool-versions).
+# Prevent mise from reading .tool-versions for BEAM tools so it does not shadow
+# ~/.asdf/shims when both are installed.
+[settings]
+idiomatic_version_file_enable_tools = []

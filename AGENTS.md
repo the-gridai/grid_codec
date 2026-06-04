@@ -407,12 +407,19 @@ GridCodec can emit deterministic `iex>` examples on codec modules (default). Con
 # Format check
 mix format --check-formatted
 
-# Static analysis
+# Static analysis (requires Credo >= 1.7.18 on Elixir 1.20)
 mix credo --strict
 
 # Type checking
 mix dialyzer
+
+# Elixir 1.20: also compile test/support and assert zero warnings in tests
+MIX_ENV=test mix compile --warnings-as-errors
+mix test   # grep for warning: — should be empty
 ```
+
+**Elixir 1.20 upgrade notes** (gradual types, dead generated clauses, `getter_returns_binary?/0`,
+bitstring `^pin` in tests): see [`docs/elixir-1.20-upgrade/`](docs/elixir-1.20-upgrade/README.md).
 
 ## Benchmarks
 

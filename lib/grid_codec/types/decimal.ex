@@ -170,7 +170,8 @@ defmodule GridCodec.Types.Decimal do
   Extracts a decimal from a binary at the given offset.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(offset), mantissa::little-signed-64, exponent::signed-8, _::binary>> = binary
+    <<_::binary-size(^offset), mantissa::little-signed-64, exponent::signed-8, _::binary>> =
+      binary
 
     if mantissa == @null_mantissa do
       nil

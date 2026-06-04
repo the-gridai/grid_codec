@@ -355,6 +355,10 @@ defmodule GridCodec.Types.CharArray do
       @impl GridCodec.Type
       def required_field_decode_never_nil?, do: true
 
+      # May return a sub-binary via binary_part/3 — copy: true detaches when needed.
+      @impl GridCodec.Type
+      def getter_returns_binary?, do: true
+
       @impl GridCodec.Type
       def getter_ast(offset, _endian, payload_var) do
         len = @char_array_length

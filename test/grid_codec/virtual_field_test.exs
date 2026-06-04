@@ -2,10 +2,12 @@ defmodule GridCodec.VirtualFieldTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureIO
 
-  defp assert_only_expected_warning(stderr, expected_fragment) do
-    assert stderr =~ "warning:"
+  defp assert_expected_compile_warning(stderr, expected_fragment) do
     assert stderr =~ expected_fragment
-    assert Regex.scan(~r/\bwarning:/, stderr) |> length() == 1
+
+    # Elixir 1.20+ may emit extra gradual-type warnings while compiling generated
+    # code from a failing defmodule; we only require the duplicate-field warning.
+    assert stderr =~ ~r/warning:.*#{Regex.escape(expected_fragment)}/
   end
 
   defmodule BasicVirtual do
@@ -187,7 +189,7 @@ defmodule GridCodec.VirtualFieldTest do
           end
         end)
 
-      assert_only_expected_warning(stderr, "duplicate key :id found in struct")
+      assert_expected_compile_warning(stderr, "duplicate key :id found in struct")
     end
 
     test "rejects duplicate virtual field names" do
@@ -206,7 +208,7 @@ defmodule GridCodec.VirtualFieldTest do
           end
         end)
 
-      assert_only_expected_warning(stderr, "duplicate key :cache found in struct")
+      assert_expected_compile_warning(stderr, "duplicate key :cache found in struct")
     end
   end
 end
