@@ -339,7 +339,7 @@ defmodule GridCodec.Group do
             "Insufficient scalar group data: need #{total_data} bytes, have #{byte_size(rest)}"
     end
 
-    <<entries_bin::binary-size(total_data), group_rest::binary>> = rest
+    <<entries_bin::binary-size(^total_data), group_rest::binary>> = rest
     entries = batch_decoder.(entries_bin, [])
     {entries, group_rest}
   end
@@ -656,7 +656,7 @@ defmodule GridCodec.Group do
   defp decode_all_sequential(<<>>, _bl, _decoder, acc), do: :lists.reverse(acc)
 
   defp decode_all_sequential(data, bl, decoder, acc) do
-    <<entry::binary-size(bl), rest::binary>> = data
+    <<entry::binary-size(^bl), rest::binary>> = data
     {:ok, decoded} = decoder.(entry)
     decode_all_sequential(rest, bl, decoder, [decoded | acc])
   end

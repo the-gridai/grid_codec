@@ -1,0 +1,88 @@
+======== TEST A: draft macro repro ========
+Compiling 2 files (.ex)
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+Generated verify app
+
+======== TEST B: hand-written (no macro) ========
+Compiling 3 files (.ex)
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+ 10 \x{2502}   defp collect_errors({:error, reason}) when is_list(reason), do: reason
+    \x{2502}        ~
+    \x{2502}
+    \x{2514}\x{2500} lib/hand_codec.ex:10:8: GeneratedUnusedClauseRepro.HandCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+ 11 \x{2502}   defp collect_errors({:error, reason}), do: [reason]
+    \x{2502}        ~
+    \x{2502}
+    \x{2514}\x{2500} lib/hand_codec.ex:11:8: GeneratedUnusedClauseRepro.HandCodec.collect_errors/1
+
+Generated verify app
+
+======== TEST C: GridCodec-shaped helper ========
+Compiling 4 files (.ex)
+    warning: function validate_binary/2 is unused
+    \x{2502}
+ 18 \x{2502}   defp validate_binary(_, _), do: {:error, :invalid_binary}
+    \x{2502}        ~
+    \x{2502}
+    \x{2514}\x{2500} lib/gridcodec_shape.ex:18:8: Verify.GridCodecShape (module)
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+ 10 \x{2502}   defp collect_errors({:error, reason}) when is_list(reason), do: reason
+    \x{2502}        ~
+    \x{2502}
+    \x{2514}\x{2500} lib/hand_codec.ex:10:8: GeneratedUnusedClauseRepro.HandCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+ 11 \x{2502}   defp collect_errors({:error, reason}), do: [reason]
+    \x{2502}        ~
+    \x{2502}
+    \x{2514}\x{2500} lib/hand_codec.ex:11:8: GeneratedUnusedClauseRepro.HandCodec.collect_errors/1
+
+    warning: this clause of defp collect_errors/1 is never used (or it will always fail/warn when invoked)
+    \x{2502}
+  3 \x{2502}   use GeneratedUnusedClauseRepro.Generator
+    \x{2502}   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    \x{2502}
+    \x{2514}\x{2500} lib/consumer_codec.ex:3: GeneratedUnusedClauseRepro.ConsumerCodec.collect_errors/1
+
+Generated verify app

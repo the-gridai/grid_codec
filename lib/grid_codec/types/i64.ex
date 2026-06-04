@@ -134,11 +134,11 @@ defmodule GridCodec.Types.I64 do
   def get_value(binary, offset, endian) when is_binary(binary) do
     case endian do
       :little ->
-        <<_::binary-size(offset), value::signed-little-64, _::binary>> = binary
+        <<_::binary-size(^offset), value::signed-little-64, _::binary>> = binary
         if value == @null_val, do: nil, else: value
 
       :big ->
-        <<_::binary-size(offset), value::signed-big-64, _::binary>> = binary
+        <<_::binary-size(^offset), value::signed-big-64, _::binary>> = binary
         if value == @null_val, do: nil, else: value
     end
   end

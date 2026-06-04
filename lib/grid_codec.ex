@@ -477,10 +477,13 @@ defmodule GridCodec do
         other -> other
       end
 
+    # Variable refs are {:name, meta, nil}; remote refs use an atom in the third slot.
     normalize_ref = fn
-      {name, _, context} when is_atom(name) and is_atom(context) -> name
-      {name, _, nil} when is_atom(name) -> name
-      other -> other
+      {name, _, context} when is_atom(name) and (is_atom(context) or context == nil) ->
+        name
+
+      other ->
+        other
     end
 
     validator =

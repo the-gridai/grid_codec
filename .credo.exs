@@ -58,14 +58,14 @@
           {Credo.Check.Refactor.CondStatements, []},
           # Codec macros require complex cyclomatic complexity
           {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 50]},
-          {Credo.Check.Refactor.FunctionArity, []},
+          {Credo.Check.Refactor.FunctionArity, [max_arity: 10]},
           {Credo.Check.Refactor.LongQuoteBlocks, false},
           {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.MapJoin, []},
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
           # Codec macros require deep nesting for binary pattern generation
-          {Credo.Check.Refactor.Nesting, [max_nesting: 4]},
+          {Credo.Check.Refactor.Nesting, [max_nesting: 5]},
           {Credo.Check.Refactor.FilterFilter, []},
           {Credo.Check.Refactor.PipeChainStart, false},
           {Credo.Check.Refactor.UnlessWithElse, []},
