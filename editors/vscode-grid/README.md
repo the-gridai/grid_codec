@@ -1,6 +1,6 @@
 # GridCodec Schema Language — VS Code / Cursor Extension
 
-Syntax highlighting for `.grid` schema definition files used by [GridCodec](https://github.com/Spectral-Finance/grid_codec).
+Syntax highlighting for `.grid` schema definition files used by [GridCodec](https://github.com/the-gridai/grid_codec).
 
 ## Features
 
