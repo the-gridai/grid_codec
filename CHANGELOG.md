@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Open-sourced under the MIT license at [the-gridai/grid_codec](https://github.com/the-gridai/grid_codec). Historical issue links in this file still point at the pre-OSS private repository.
+
 ## [0.43.0] - 2026-05-13
 
 ### Changed

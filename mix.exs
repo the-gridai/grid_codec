@@ -2,7 +2,7 @@ defmodule GridCodec.MixProject do
   use Mix.Project
 
   @version "0.43.0"
-  @source_url "https://github.com/Spectral-Finance/grid_codec"
+  @source_url "https://github.com/the-gridai/grid_codec"
 
   def project do
     [
@@ -104,7 +104,7 @@ defmodule GridCodec.MixProject do
 
   defp package do
     [
-      maintainers: ["Spectral Finance"],
+      maintainers: ["The Grid AI"],
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url

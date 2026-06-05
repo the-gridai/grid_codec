@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Spectral-Finance/grid_codec"
+    "url": "https://github.com/the-gridai/grid_codec"
   },
   "engines": {
     "vscode": "^1.70.0"

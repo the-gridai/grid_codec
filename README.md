@@ -1,6 +1,6 @@
 # GridCodec
 
-[![CI](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml/badge.svg)](https://github.com/Spectral-Finance/grid_codec/actions/workflows/ci.yml)
+[![CI](https://github.com/the-gridai/grid_codec/actions/workflows/ci.yml/badge.svg)](https://github.com/the-gridai/grid_codec/actions/workflows/ci.yml)
 
 High-performance binary codec for BEAM/Elixir with zero-copy field access.
 
@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git", tag: "v0.43.0"}
+    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.43.0"}
   ]
 end
 ```

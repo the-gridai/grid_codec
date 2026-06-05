@@ -43,3 +43,11 @@ coverage_output.txt
 /example_app/cover/
 
 .DS_Store
+
+# Coq / Rocq proof build artifacts (source: proofs/*.v)
+/proofs/*.vo
+/proofs/*.vok
+/proofs/*.vos
+/proofs/*.glob
+/proofs/*.aux
+/proofs/.*.cache
