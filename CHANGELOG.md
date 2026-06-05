@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Open-sourced under the MIT license at [the-gridai/grid_codec](https://github.com/the-gridai/grid_codec). Historical issue links in this file still point at the pre-OSS private repository.
+- **Elixir 1.20 / OTP 29** — `.tool-versions` and CI updated; Credo `~> 1.7.18`. Struct compiler emits validation helpers and `get/3` copy paths only when needed so gradual typing reports no unused clauses on generated codecs. See `docs/elixir-1.20-upgrade/summary.md`.
 
 ## [0.43.0] - 2026-05-13
 

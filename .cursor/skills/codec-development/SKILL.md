@@ -63,7 +63,7 @@ Key generation functions:
 - `get(..., copy: true)` uses `GridCodec.Type.getter_returns_binary?/1` at **macro expansion**
   time only.
 
-See `docs/elixir-1.20-upgrade/investigation-21-errors-warnings.md` and `summary.md`.
+See `docs/elixir-1.20-upgrade/summary.md`.
 
 Related runtime path:
 - `lib/grid_codec/transcoder.ex` — compile-time binary-to-binary field extraction;
