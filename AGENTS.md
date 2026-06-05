@@ -2,6 +2,12 @@
 
 This document provides instructions for AI agents working with the GridCodec library.
 
+## Repository
+
+- **Canonical remote:** `origin` → `git@github.com:the-gridai/grid_codec.git` (public, MIT)
+- **Releases and PRs:** use `the-gridai/grid_codec` on GitHub only
+- The former private `Spectral-Finance/grid_codec` repo is legacy; do not push or open PRs there
+
 ## Project Overview
 
 GridCodec is a high-performance binary codec for BEAM/Elixir with direct field access. The library uses compile-time code generation to create optimized encode/decode functions for structs.
