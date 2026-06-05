@@ -15,19 +15,8 @@ Run these checks sequentially. Report findings after each phase before proceedin
 mix format --check-formatted
 mix credo --strict
 mix compile --warnings-as-errors
-MIX_ENV=test mix compile --warnings-as-errors
 mix test
 ```
-
-**Elixir 1.20+ (gradual types):** `mix compile` alone does **not** compile
-`test/support` codecs or inline `defmodule` blocks inside `.exs` files. You need
-**both** `MIX_ENV=test mix compile --warnings-as-errors` and `mix test` (grep
-output for `warning:` — target zero). See `docs/elixir-1.20-upgrade/` for
-investigation notes (dead validation codegen, `getter_returns_binary?/0`,
-bitstring `^pin` in tests).
-
-**Credo on Elixir 1.20:** pin `{:credo, "~> 1.7.18", ...}` (fixes sigil token
-format crashes on 1.7.17). Root and `example_app` both need the pin.
 
 ### Example app (consumer surface)
 
@@ -78,10 +67,6 @@ Check:
 - [ ] Validation has positive + negative tests per error code (check `validation_test.exs`)
 - [ ] Telemetry has emission + disabled tests (check `telemetry_test.exs`)
 - [ ] `new/1` has tests for valid, invalid, and edge cases (including OOR integers, unknown enum values, malformed UUIDs)
-- [ ] Struct lifecycle hooks (`before_encode/2`, `after_decode/2`) have tests for
-  direct module encode/decode, `GridCodec.decode/1` dispatch, payload-only
-  binaries, `new_binary/1`, hook error returns, invalid hook returns, validation
-  ordering, and a real `example_app` consumer codec
 - [ ] Schema export affinity (`schema:` option on custom types) tested
 - [ ] Breaking change rules have tests for all 27 WIRE and 9 SOURCE rules
 - [ ] Breaking rule severity/policy changes have both rule-level tests and
@@ -91,12 +76,6 @@ Check:
   `example_app/lib` that compile under `--warnings-as-errors`; when the issue is
   Dialyzer-specific, verify with `mix dialyzer` and
   `cd example_app && mix dialyzer --force-check`.
-- [ ] Elixir 1.20: codecs **with** `validations do` compile without unused-clause
-  warnings; codecs **without** must not emit `__errors_from_validation_result__/1`
-  or dead `decode(validate: :both)` paths (see `validation_pipeline_test.exs`,
-  `example_app` `Reservation` vs fast-path events).
-- [ ] Elixir 1.20: `get(..., copy: true)` only wraps types with
-  `getter_returns_binary?/0` (no dead `case` on integer fields).
 
 **Find gaps:**
 ```bash
@@ -117,8 +96,6 @@ Check:
 - [ ] CHANGELOG dates match commit dates
 - [ ] Version in `mix.exs` matches latest CHANGELOG entry
 - [ ] Options documented in `GridCodec.Struct` moduledoc are complete (includes `schema:`, `grid_file:`, `types:`, `validate:`, `telemetry:`)
-- [ ] Struct lifecycle hooks are documented in `GridCodec.Struct`, AGENTS.md,
-  CHANGELOG.md, and example_app README when the example app demonstrates them
 - [ ] AGENTS.md reflects current architecture and profiling workflow
 - [ ] PrefixedId docs cover both generator and macro-only paths
 - [ ] Custom type `schema:` option documented in PrefixedId, CharArray, and Bitset moduledocs
@@ -146,9 +123,6 @@ Check:
 - [ ] Lookup generation produces efficient accessor code (no runtime `Enum.find`)
 - [ ] `validate: true` generates code only when enabled (zero overhead when off)
 - [ ] `telemetry: true` generates code only when enabled
-- [ ] Lifecycle hooks add no generated callback dispatch when a codec does not
-  define hooks; when hooks are present, validation still runs after
-  `before_encode/2` and decode validation composes after `after_decode/2`
 - [ ] Custom type `schema:` option is compile-time only (zero runtime cost)
 - [ ] Dependencies are minimal: runtime = `:decimal`, `:telemetry`, `:telemetry_metrics`; dev/test = `:stream_data`, `:credo`, `:dialyxir`, `:ex_doc`
 

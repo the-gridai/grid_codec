@@ -161,7 +161,7 @@ defmodule GridCodec.Batch.TypedFrames do
   def get(%__MODULE__{} = batch, index) do
     offset = elem(batch.frame_offsets, index)
 
-    <<_::binary-size(^offset), seq::little-32, tag::8, payload_length::little-16,
+    <<_::binary-size(offset), seq::little-32, tag::8, payload_length::little-16,
       payload::binary-size(payload_length), _::binary>> = batch.binary
 
     {^tag, mod, _bl} = Map.fetch!(batch.tag_to_spec, tag)
@@ -190,7 +190,7 @@ defmodule GridCodec.Batch.TypedFrames do
     Enum.reduce((batch.num_entries - 1)..0//-1, [], fn i, acc ->
       frame_offset = elem(batch.frame_offsets, i)
 
-      <<_::binary-size(^frame_offset), _seq::little-32, tag::8, payload_length::little-16,
+      <<_::binary-size(frame_offset), _seq::little-32, tag::8, payload_length::little-16,
         payload::binary-size(payload_length), _::binary>> = batch.binary
 
       if tag == target_tag do

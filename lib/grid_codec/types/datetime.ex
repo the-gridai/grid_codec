@@ -115,7 +115,7 @@ defmodule GridCodec.Types.DateTimeMicros do
   Extracts a datetime_us from a binary at the given offset.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(^offset), us::little-signed-64, _::binary>> = binary
+    <<_::binary-size(offset), us::little-signed-64, _::binary>> = binary
 
     case us do
       0 -> nil
@@ -346,7 +346,7 @@ defmodule GridCodec.Types.DateTimeNanos do
   Extracts a datetime_ns from a binary at the given offset.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(^offset), ns::little-signed-64, _::binary>> = binary
+    <<_::binary-size(offset), ns::little-signed-64, _::binary>> = binary
 
     case ns do
       0 -> nil

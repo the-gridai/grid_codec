@@ -10,9 +10,6 @@ defmodule GridCodec.Types.UUIDString do
   - `:uuid` - Maximum performance, raw 16-byte binary, not JSON-safe
   - `:uuid_string` - JSON-safe, human-readable, slight decode overhead
 
-  The inline getter builds a formatted string (`format_uuid/1`), not a sub-binary.
-  `get(..., copy: true)` is therefore a no-op for this type (no extra copy).
-
   ## Examples
 
       defmodule MyCodec do
@@ -117,8 +114,6 @@ defmodule GridCodec.Types.UUIDString do
     end
   end
 
-  # Getter allocates a new string — do not implement getter_returns_binary?/0.
-
   @impl true
   def getter_ast(offset, _endian, payload_var) do
     null = @null_uuid
@@ -139,7 +134,7 @@ defmodule GridCodec.Types.UUIDString do
   Extracts a UUID from a binary at the given offset, returning as string.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(^offset), value::binary-size(16), _::binary>> = binary
+    <<_::binary-size(offset), value::binary-size(16), _::binary>> = binary
     if value == @null_uuid, do: nil, else: format_uuid(value)
   end
 

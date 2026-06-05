@@ -24,9 +24,6 @@ defmodule GridCodec.Types.UUID do
       require MyCodec
       id = MyCodec.get(binary, :id)  # Sub-binary, no copy!
 
-      # Detach when the original binary must be collected (16-byte copy)
-      id = MyCodec.get(binary, :id, copy: true)
-
   ## Wire Format
 
       Offset  Size  Description
@@ -118,10 +115,6 @@ defmodule GridCodec.Types.UUID do
     end
   end
 
-  # Sub-binary getter — `get(..., copy: true)` may call `:binary.copy/1`.
-  @impl true
-  def getter_returns_binary?, do: true
-
   @impl true
   def getter_ast(offset, _endian, payload_var) do
     null = @null_uuid
@@ -139,7 +132,7 @@ defmodule GridCodec.Types.UUID do
   Extracts a UUID from a binary at the given offset.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(^offset), value::binary-size(16), _::binary>> = binary
+    <<_::binary-size(offset), value::binary-size(16), _::binary>> = binary
     if value == @null_uuid, do: nil, else: value
   end
 

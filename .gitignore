@@ -43,7 +43,3 @@ coverage_output.txt
 /example_app/cover/
 
 .DS_Store
-
-# Elixir 1.20 upgrade experiment artifacts (keep markdown/scripts only)
-/docs/elixir-1.20-upgrade/**/_build/
-/docs/elixir-1.20-upgrade/**/*.log

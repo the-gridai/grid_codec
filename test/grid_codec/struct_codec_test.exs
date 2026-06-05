@@ -418,6 +418,7 @@ defmodule GridCodec.StructCodecTest do
 
       # u32 null sentinel is 0xFFFFFFFF
       assert result == 0xFFFFFFFF
+      refute is_nil(result)
     end
 
     test "match on literal nil matches encoded null sentinel for primitive fields" do

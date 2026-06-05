@@ -135,11 +135,11 @@ defmodule GridCodec.Types.I32 do
     value =
       case endian do
         :little ->
-          <<_::binary-size(^offset), v::signed-little-32, _::binary>> = binary
+          <<_::binary-size(offset), v::signed-little-32, _::binary>> = binary
           v
 
         :big ->
-          <<_::binary-size(^offset), v::signed-big-32, _::binary>> = binary
+          <<_::binary-size(offset), v::signed-big-32, _::binary>> = binary
           v
       end
 
