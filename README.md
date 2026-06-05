@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.44.0"}
+    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.45.0"}
   ]
 end
 ```
@@ -624,8 +624,8 @@ See `example_app/README.md` for details.
 
 ### Requirements
 
-- Elixir 1.18+ (1.19+ recommended for progressive type system warnings)
-- Erlang/OTP 26+ (28+ recommended)
+- Elixir 1.18+ (1.20 recommended; see `.tool-versions` for CI toolchain)
+- Erlang/OTP 27+ (29 recommended for Elixir 1.20)
 
 We use [asdf](https://asdf-vm.com/) for version management. After installing asdf:
 
