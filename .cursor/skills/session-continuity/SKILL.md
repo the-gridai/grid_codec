@@ -40,4 +40,4 @@ Keep a mental model of session progression:
 - What was the starting state (version, baseline numbers)
 - Each change and its measured impact
 - What's shipped vs what's local/experimental
-- What depends on other repos 
+- What depends on other repos

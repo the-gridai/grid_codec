@@ -1,6 +1,6 @@
 ---
 name: cross-repo-review
-description: Review code from other repos (that consume GridCodec) that consume GridCodec. Use when analyzing consumer codebases, suggesting integration improvements, or writing specs for other teams.
+description: Review code from other repos that consume GridCodec. Use when analyzing consumer codebases, suggesting integration improvements, or writing specs for other teams.
 ---
 
 # Cross-Repo Review
