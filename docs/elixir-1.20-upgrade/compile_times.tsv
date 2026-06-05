@@ -1,5 +1,0 @@
-timestamp	label	elixir_otp	project	seconds
-2026-06-04T07:04:45Z	before	Erlang/OTP 28 / Elixir 1.19.4-otp-28	grid_codec	17
-2026-06-04T07:04:45Z	before	Erlang/OTP 28 / Elixir 1.19.4-otp-28	example_app	27
-2026-06-04T07:09:42Z	after	Erlang/OTP 29 / Elixir 1.20.0-otp-29	grid_codec	17
-2026-06-04T07:09:42Z	after	Erlang/OTP 29 / Elixir 1.20.0-otp-29	example_app	26

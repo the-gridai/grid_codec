@@ -179,11 +179,11 @@ For critical bug fixes on a released version:
 Consumer `mix.exs` should pin GridCodec:
 
 ```elixir
-{:grid_codec, git: "git@github.com:Spectral-Finance/grid_codec.git", tag: "vX.Y.Z"}
+{:grid_codec, git: "git@github.com:the-gridai/grid_codec.git", tag: "vX.Y.Z"}
 ```
 
 Or for development against latest main:
 
 ```elixir
-{:grid_codec, git: "git@github.com:Spectral-Finance/grid_codec.git", branch: "main"}
+{:grid_codec, git: "git@github.com:the-gridai/grid_codec.git", branch: "main"}
 ```

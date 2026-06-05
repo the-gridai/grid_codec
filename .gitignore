@@ -44,6 +44,10 @@ coverage_output.txt
 
 .DS_Store
 
-# Elixir 1.20 upgrade experiment artifacts (keep markdown/scripts only)
-/docs/elixir-1.20-upgrade/**/_build/
-/docs/elixir-1.20-upgrade/**/*.log
+# Coq / Rocq proof build artifacts (source: proofs/*.v)
+/proofs/*.vo
+/proofs/*.vok
+/proofs/*.vos
+/proofs/*.glob
+/proofs/*.aux
+/proofs/.*.cache

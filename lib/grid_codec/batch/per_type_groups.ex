@@ -189,7 +189,7 @@ defmodule GridCodec.Batch.PerTypeGroups do
 
     Enum.find_value(0..(group.count - 1)//1, nil, fn i ->
       offset = @group_header_size + i * entry_size
-      <<_::binary-size(^offset), seq::little-32, _::binary>> = group.binary
+      <<_::binary-size(offset), seq::little-32, _::binary>> = group.binary
 
       if seq == target_seq do
         payload = binary_part(group.binary, offset + @seq_size, bl)
@@ -261,10 +261,7 @@ defmodule GridCodec.Batch.PerTypeGroups do
 
   defp decode_at(group, mod, bl, pos) do
     offset = @group_header_size + pos * group.entry_size
-
-    <<_::binary-size(^offset), seq::little-32, payload::binary-size(^bl), _::binary>> =
-      group.binary
-
+    <<_::binary-size(offset), seq::little-32, payload::binary-size(bl), _::binary>> = group.binary
     {:ok, decoded} = mod.decode(payload, header: false)
     {seq, decoded}
   end

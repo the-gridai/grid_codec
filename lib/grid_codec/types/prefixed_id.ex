@@ -41,13 +41,6 @@ defmodule GridCodec.Types.PrefixedId do
         end
       end
 
-  ## Inline getter and `copy: true`
-
-  The getter returns `prefix <> format_uuid/1` — a newly allocated string, not a
-  sub-binary of the payload. This type does **not** implement
-  `getter_returns_binary?/0`, so `get(..., copy: true)` adds no `:binary.copy/1`
-  (avoiding a redundant second copy).
-
   ## Coercion (via `new/1`)
 
   | Input | Result |
@@ -176,8 +169,6 @@ defmodule GridCodec.Types.PrefixedId do
           end
         end
       end
-
-      # New string on read — omit getter_returns_binary?/0 so copy: true stays a no-op.
 
       @impl GridCodec.Type
       def getter_ast(offset, _endian, payload_var) do
@@ -353,7 +344,7 @@ defmodule GridCodec.Types.PrefixedId do
       nil ->
         {:ok, nil}
 
-      <<^prefix::binary-size(^prefix_len), uuid_str::binary-size(36)>> ->
+      <<^prefix::binary-size(prefix_len), uuid_str::binary-size(36)>> ->
         if valid_uuid_string?(uuid_str) do
           {:ok, prefix <> uuid_str}
         else

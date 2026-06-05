@@ -1,8 +1,8 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.42.0"
-  @source_url "https://github.com/Spectral-Finance/grid_codec"
+  @version "0.43.0"
+  @source_url "https://github.com/the-gridai/grid_codec"
 
   def project do
     [
@@ -87,7 +87,7 @@ defmodule GridCodec.MixProject do
   defp deps do
     [
       # Runtime - Decimal type support
-      {:decimal, "~> 2.0"},
+      {:decimal, "~> 3.1"},
 
       # Telemetry (for instrumented encode/decode + metric definitions)
       {:telemetry, "~> 1.0"},
@@ -96,7 +96,7 @@ defmodule GridCodec.MixProject do
       # Dev/Test - Code quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7.18", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :test, runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
@@ -104,7 +104,7 @@ defmodule GridCodec.MixProject do
 
   defp package do
     [
-      maintainers: ["Spectral Finance"],
+      maintainers: ["The Grid AI"],
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url

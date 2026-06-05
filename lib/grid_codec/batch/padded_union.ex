@@ -150,7 +150,7 @@ defmodule GridCodec.Batch.PaddedUnion do
 
     Enum.reduce((batch.num_entries - 1)..0//-1, [], fn i, acc ->
       offset = @header_size + i * batch.envelope_size + @seq_size
-      <<_::binary-size(^offset), tag::8, _::binary>> = batch.binary
+      <<_::binary-size(offset), tag::8, _::binary>> = batch.binary
 
       if tag == target_tag do
         payload_offset = offset + @tag_size

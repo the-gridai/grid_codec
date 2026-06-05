@@ -1,6 +1,6 @@
 # Consumer Integration
 
-Checklist for applications that depend on GridCodec (e.g. market exchange services). Use this when upgrading grid_codec or when reviewing integration quality.
+Checklist for applications that depend on GridCodec (e.g. market exchange services, event pipelines). Use this when upgrading grid_codec or when reviewing integration quality.
 
 ## Version and dependency
 

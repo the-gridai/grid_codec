@@ -10,7 +10,7 @@ Add the dependency in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/Spectral-Finance/grid_codec.git"}
+    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git"}
   ]
 end
 ```

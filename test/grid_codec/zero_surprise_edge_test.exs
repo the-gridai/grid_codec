@@ -406,7 +406,7 @@ defmodule GridCodec.ZeroSurpriseEdgeTest do
 
         if byte_size(bin) > 8 do
           pos = 8
-          <<pre::binary-size(^pos), target, post::binary>> = bin
+          <<pre::binary-size(pos), target, post::binary>> = bin
           flipped = <<pre::binary, Bitwise.bxor(target, 0x01), post::binary>>
 
           result = IntC.decode(flipped)

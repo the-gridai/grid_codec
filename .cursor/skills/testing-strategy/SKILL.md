@@ -5,52 +5,6 @@ description: Write and maintain tests for GridCodec — unit tests, property-bas
 
 # Testing Strategy for GridCodec
 
-## Elixir 1.20 gradual typing (warnings in tests)
-
-Gradual typing surfaces issues at **compile time** for generated code and test
-modules. Treat compiler warnings during `mix test` as failures.
-
-### Compile paths
-
-| Path | What it compiles |
-|------|------------------|
-| `mix compile` (`:dev`) | `lib/` only |
-| `MIX_ENV=test mix compile` | `lib/` + `test/support/` |
-| `mix test` | above + inline `defmodule` in `.exs` files |
-
-Always run `mix test` and assert **zero** `warning:` lines after compiler changes.
-
-### Patterns that avoid false positives and noise
-
-**Bitstring `size(variable)`** — pin variables defined outside the match:
-
-```elixir
-header_size = 8
-<<_::binary-size(^header_size), rest::binary>> = binary
-```
-
-**Intentionally invalid calls** (unsupported compare op, wrong types) — use
-`apply/3` so the gradual checker does not reject the call before `assert_raise`:
-
-```elixir
-assert_raise ArgumentError, fn ->
-  apply(GridCodec, :compare, [binary, field_spec, :in, 100])
-end
-```
-
-**Generated `get(..., copy: true)`** — tests on integer fields should pass
-through unchanged; UUID/char_array tests may use `:binary.referenced_byte_size/1`.
-
-**Match macro** — `match(price: p)` returns raw sentinels, not `nil`; avoid
-`refute result == nil` when `result` is typed as integer (use `refute is_nil/1`
-only when the type allows nil, or assert on the sentinel value).
-
-### Regression fixtures
-
-- `test/support/required_decode_warning_fixture.ex` — required fields / map fallback
-- `test/grid_codec/validation_pipeline_test.exs` — inline codecs with `validations do`
-- `example_app/lib/.../reservation.ex` — consumer codec with validations
-
 ## Test Categories
 
 ### 1. Unit Tests (ExUnit)

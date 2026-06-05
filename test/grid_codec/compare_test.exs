@@ -1,5 +1,4 @@
 defmodule GridCodec.CompareTest do
-  # credo:disable-for-this-file Credo.Check.Refactor.Apply
   use ExUnit.Case, async: true
 
   defmodule SideEnum do
@@ -95,11 +94,9 @@ defmodule GridCodec.CompareTest do
     test "raises on unsupported operators" do
       require CompareCodec
       {:ok, binary} = CompareCodec.encode(%CompareCodec{id: 1, price: 100})
-      field = CompareCodec.field(:price)
 
       assert_raise ArgumentError, ~r/unsupported compare operator/, fn ->
-        # apply/3 avoids Elixir 1.20 gradual-type rejection of :in before assert_raise
-        apply(GridCodec, :compare, [binary, field, :in, 100])
+        GridCodec.compare(binary, CompareCodec.field(:price), :in, 100)
       end
     end
   end
