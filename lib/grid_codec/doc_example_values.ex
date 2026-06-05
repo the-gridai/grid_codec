@@ -225,11 +225,6 @@ defmodule GridCodec.DocExampleValues do
     ]
   end
 
-  defp parameterized_domain(GridCodec.Types.Decimal, _opts), do: {:ok, "Decimal.new(\"1.00\")"}
-
-  defp parameterized_domain(GridCodec.Types.PositiveDecimal, _opts),
-    do: {:ok, "Decimal.new(\"1.00\")"}
-
   defp parameterized_domain(_, _), do: :skip
 
   defp cast_sandbox_field(resolved_fields) do

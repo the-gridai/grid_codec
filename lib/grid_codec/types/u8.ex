@@ -86,7 +86,7 @@ defmodule GridCodec.Types.U8 do
   Extracts a u8 value from a binary at the given offset.
   """
   def get_value(binary, offset, _endian) when is_binary(binary) do
-    <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
+    <<_::binary-size(^offset), value::unsigned-8, _::binary>> = binary
     if value == @null_val, do: nil, else: value
   end
 

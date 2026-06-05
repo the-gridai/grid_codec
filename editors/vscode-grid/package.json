@@ -3,7 +3,7 @@
   "displayName": "GridCodec Schema Language",
   "description": "Syntax highlighting for .grid schema definition files",
   "version": "0.1.0",
-  "publisher": "spectral-finance",
+  "publisher": "the-gridai",
   "license": "MIT",
   "repository": {
     "type": "git",

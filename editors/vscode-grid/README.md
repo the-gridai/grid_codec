@@ -18,7 +18,7 @@ Syntax highlighting for `.grid` schema definition files used by [GridCodec](http
 
 ```bash
 ln -sf /path/to/grid_codec/editors/vscode-grid \
-  ~/.cursor/extensions/spectral-finance.vscode-grid-0.1.0
+  ~/.cursor/extensions/the-gridai.vscode-grid-0.1.0
 ```
 
 Restart Cursor / VS Code after linking.
@@ -28,7 +28,7 @@ Restart Cursor / VS Code after linking.
 Copy the `editors/vscode-grid/` directory to your extensions folder:
 
 ```bash
-cp -r editors/vscode-grid ~/.cursor/extensions/spectral-finance.vscode-grid-0.1.0
+cp -r editors/vscode-grid ~/.cursor/extensions/the-gridai.vscode-grid-0.1.0
 # or for VS Code:
-cp -r editors/vscode-grid ~/.vscode/extensions/spectral-finance.vscode-grid-0.1.0
+cp -r editors/vscode-grid ~/.vscode/extensions/the-gridai.vscode-grid-0.1.0
 ```

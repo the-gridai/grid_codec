@@ -152,7 +152,7 @@ gh run list --branch main --limit 1
 After CI passes:
 - Verify the tag appears on GitHub
 - If publishing to Hex: `mix hex.publish`
-- Update consumer repos (e.g., downstream apps) to reference the new version
+- Update downstream consumer repos to reference the new version
 
 ## Common CI Failures
 

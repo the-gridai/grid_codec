@@ -572,7 +572,7 @@ defmodule GridCodec.Types.Enum do
 
   defp get_raw_value_ast(1, :little) do
     quote do
-      <<_::binary-size(offset), value::unsigned-8, _::binary>> = binary
+      <<_::binary-size(^offset), value::unsigned-8, _::binary>> = binary
       value
     end
   end
@@ -581,28 +581,28 @@ defmodule GridCodec.Types.Enum do
 
   defp get_raw_value_ast(2, :little) do
     quote do
-      <<_::binary-size(offset), value::unsigned-little-16, _::binary>> = binary
+      <<_::binary-size(^offset), value::unsigned-little-16, _::binary>> = binary
       value
     end
   end
 
   defp get_raw_value_ast(2, :big) do
     quote do
-      <<_::binary-size(offset), value::unsigned-big-16, _::binary>> = binary
+      <<_::binary-size(^offset), value::unsigned-big-16, _::binary>> = binary
       value
     end
   end
 
   defp get_raw_value_ast(4, :little) do
     quote do
-      <<_::binary-size(offset), value::unsigned-little-32, _::binary>> = binary
+      <<_::binary-size(^offset), value::unsigned-little-32, _::binary>> = binary
       value
     end
   end
 
   defp get_raw_value_ast(4, :big) do
     quote do
-      <<_::binary-size(offset), value::unsigned-big-32, _::binary>> = binary
+      <<_::binary-size(^offset), value::unsigned-big-32, _::binary>> = binary
       value
     end
   end

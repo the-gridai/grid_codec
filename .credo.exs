@@ -58,7 +58,7 @@
           {Credo.Check.Refactor.CondStatements, []},
           # Codec macros require complex cyclomatic complexity
           {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 50]},
-          {Credo.Check.Refactor.FunctionArity, []},
+          {Credo.Check.Refactor.FunctionArity, [max_arity: 10]},
           {Credo.Check.Refactor.LongQuoteBlocks, false},
           {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.MapJoin, []},

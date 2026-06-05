@@ -85,6 +85,30 @@ defmodule GridCodec.Type do
   For optimal performance, fields can be aligned to their natural boundaries.
   A 64-bit integer starting at an offset divisible by 8 avoids unaligned access.
   The compiler handles padding automatically when `alignment/0 > 1`.
+
+  ## Zero-copy getters and `copy: true`
+
+  The `get/2` macro inlines `getter_ast/3` for fixed fields. Some getters return a
+  **sub-binary** of the payload (notably `:uuid` and fixed `char_array` fields).
+  Those sub-binaries keep the entire original refc binary alive in memory.
+
+  Passing `copy: true` to `get/3` calls `:binary.copy/1` **only** when the field
+  type implements `getter_returns_binary?/0` and returns `true`. The check is
+  resolved at **macro expansion time** (no per-call `function_exported?/3` on
+  hot paths). Scalar getters and types that already allocate a new binary skip
+  the copy wrapper entirely.
+
+  | Type / pattern | `getter_returns_binary?` | `copy: true` effect |
+  |----------------|--------------------------|-------------------|
+  | `:uuid` | `true` | Detach 16-byte sub-binary |
+  | `char_array` | `true` | Detach field slice when needed |
+  | `:uuid_string`, `prefixed_id` | `false` (default) | No-op — getter already builds a new string |
+  | Integers, bool, decimal, … | `false` (default) | No-op — value is not a binary |
+
+  Implement `getter_returns_binary?/0` only when `getter_ast/3` can return a
+  sub-binary that pins the payload. Do **not** enable it for getters that run
+  `format_uuid/1`, string concatenation, or other allocation — `copy: true`
+  would only add an extra full copy with no memory benefit.
   """
 
   # ============================================================================
@@ -251,6 +275,20 @@ defmodule GridCodec.Type do
             ) :: Macro.t() | nil
 
   @doc """
+  Whether `getter_ast/3` can return a sub-binary that pins the payload.
+
+  When `true`, the struct compiler may wrap `get(..., copy: true)` with
+  `:binary.copy/1` for non-nil results so callers can drop the original refc
+  binary. When `false` or omitted, `copy: true` expands to the plain getter
+  with zero extra allocation or copying.
+
+  Return `true` only for true zero-copy sub-binary getters (for example raw
+  `:uuid`). Return `false` for scalars and for getters that already allocate
+  (for example `:uuid_string` and `prefixed_id`, which build new strings).
+  """
+  @callback getter_returns_binary?() :: boolean()
+
+  @doc """
   Compares two decoded values for this type.
 
   Returns one of:
@@ -375,12 +413,24 @@ defmodule GridCodec.Type do
 
   @optional_callbacks decode_value_ast: 1,
                       required_field_decode_never_nil?: 0,
+                      getter_returns_binary?: 0,
                       generator: 0,
                       compare_values: 2,
                       validate_ast: 3,
                       coerce_ast: 1,
                       decode_as_ast: 2,
                       encode_to_wire_ast: 2
+
+  @doc """
+  Returns whether `type_module` opts into `get(..., copy: true)` binary copying.
+
+  Used at compile time when expanding the `get/2` macro. Not called on encode/decode
+  hot paths.
+  """
+  def getter_returns_binary?(type_module) when is_atom(type_module) do
+    function_exported?(type_module, :getter_returns_binary?, 0) and
+      type_module.getter_returns_binary?()
+  end
 
   # ============================================================================
   # Type Registry

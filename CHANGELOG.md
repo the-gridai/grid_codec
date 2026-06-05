@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Elixir 1.20 / OTP 29** — `.tool-versions` and CI updated; Credo `~> 1.7.18`. Struct compiler emits validation helpers and `get/3` copy paths only when needed so gradual typing reports no unused clauses on generated codecs. See `docs/elixir-1.20-upgrade/summary.md`.
+
 ## [0.44.0] - 2026-06-05
 
 ### Changed

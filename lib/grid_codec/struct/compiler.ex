@@ -211,8 +211,15 @@ defmodule GridCodec.Struct.Compiler do
     }
 
     # Generate encoder/decoder AST (using processed_groups with auto-generated codecs)
+    struct_encoder_kind =
+      struct_encoder_kind(fixed_fields, var_fields, processed_groups)
+
     encoder_clauses =
-      generate_encoder_clauses(fixed_fields, var_fields, processed_groups, endian)
+      if struct_encoder_kind == :map_fallback do
+        generate_encoder_clauses(fixed_fields, var_fields, processed_groups, endian)
+      else
+        []
+      end
 
     struct_encoder_body =
       generate_struct_encoder(fixed_fields, var_fields, processed_groups, endian, env.module)
@@ -533,23 +540,11 @@ defmodule GridCodec.Struct.Compiler do
                   end
                 end
               else
-                if validation_active do
-                  quote do
-                    case __validate__(coerced) do
-                      :ok ->
-                        payload = encode_map(coerced)
-                        {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-
-                      {:error, error} ->
-                        {:error, error}
-                    end
-                  end
-                else
-                  quote do
-                    payload = encode_map(coerced)
-                    {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
-                  end
-                end
+                new_binary_payload_from_coerced_ast(
+                  module,
+                  validation_active,
+                  struct_encoder_kind
+                )
               end
             )
 
@@ -570,6 +565,7 @@ defmodule GridCodec.Struct.Compiler do
           template_id,
           telemetry_enabled,
           telemetry_min_duration,
+          validation_active,
           decode_doc_telemetry,
           decode_doc_plain
         )
@@ -581,7 +577,7 @@ defmodule GridCodec.Struct.Compiler do
       end
 
       defp decode_versioned_payload(payload, header_block_length) do
-        <<fixed_data::binary-size(header_block_length), after_fixed::binary>> = payload
+        <<fixed_data::binary-size(^header_block_length), after_fixed::binary>> = payload
         padding_size = @__current_block_length__ - header_block_length
         padding = binary_part(@__null_fixed_block__, header_block_length, padding_size)
         decode_payload(<<fixed_data::binary, padding::binary, after_fixed::binary>>)
@@ -1384,7 +1380,7 @@ defmodule GridCodec.Struct.Compiler do
         null_bytes = null_binary_for_type(effective_module(field), endian)
         size = byte_size(null_bytes)
 
-        <<prefix::binary-size(offset), _::binary-size(size), suffix::binary>> = acc
+        <<prefix::binary-size(^offset), _::binary-size(^size), suffix::binary>> = acc
         <<prefix::binary, null_bytes::binary, suffix::binary>>
       end)
     end
@@ -2420,6 +2416,78 @@ defmodule GridCodec.Struct.Compiler do
   # Encoder Generation
   # ============================================================================
 
+  defp struct_encoder_kind(fixed_fields, var_fields, groups) do
+    has_required =
+      Enum.any?(fixed_fields ++ var_fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :presence) == :required
+      end)
+
+    can_use_fast_path = not has_required
+
+    non_constant_fixed_fields =
+      Enum.reject(fixed_fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :presence) == :constant
+      end)
+
+    has_defaults =
+      Enum.any?(non_constant_fixed_fields, fn {_, _, _, opts} ->
+        Keyword.get(opts, :default) != nil
+      end)
+
+    has_fields = not Enum.empty?(non_constant_fixed_fields) or not Enum.empty?(var_fields)
+
+    cond do
+      can_use_fast_path and groups != [] -> :optimized_struct
+      can_use_fast_path and has_fields and has_defaults -> :optimized_struct
+      can_use_fast_path and has_fields -> :optimized_struct
+      true -> :map_fallback
+    end
+  end
+
+  defp new_binary_payload_from_coerced_ast(module, validation_active, struct_encoder_kind) do
+    encode_payload_ast =
+      if struct_encoder_kind == :map_fallback do
+        quote do
+          payload = encode_map(coerced)
+          {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+        end
+      else
+        quote do
+          struct = struct(unquote(module), coerced)
+          payload = encode_payload(struct)
+          {:ok, <<@__gridcodec_header__::binary, payload::binary>>}
+        end
+      end
+
+    if validation_active do
+      quote do
+        case __validate__(coerced) do
+          :ok -> unquote(encode_payload_ast)
+          {:error, error} -> {:error, error}
+        end
+      end
+    else
+      encode_payload_ast
+    end
+  end
+
+  defp validation_error_result_helpers_ast(true) do
+    quote do
+      defp __validation_error_result__([]), do: :ok
+      defp __validation_error_result__([error]), do: {:error, error}
+
+      defp __validation_error_result__(errors) do
+        {:error, %GridCodec.ValidationErrors{errors: errors}}
+      end
+    end
+  end
+
+  defp validation_error_result_helpers_ast(false) do
+    quote do
+      defp __validation_error_result__([]), do: :ok
+    end
+  end
+
   defp generate_encoder_clauses(fixed_fields, var_fields, groups, endian) do
     has_required =
       Enum.any?(fixed_fields, fn {_, _, _, opts} ->
@@ -3024,19 +3092,32 @@ defmodule GridCodec.Struct.Compiler do
             end
         end
 
-      body =
-        quote do
-          case binary do
-            <<unquote_splicing(fixed_patterns), rest::binary>> ->
-              result = unquote(result_ast)
-              {:ok, result}
-
-            _ ->
-              {:error, :invalid_binary}
-          end
-        end
+      body = decoder_match_body_ast(fixed_patterns, result_ast)
 
       maybe_wrap_required_catch(body, wrap_required?)
+    end
+  end
+
+  # When there is no fixed block, <<rest::binary>> matches every binary(), so a catch-all
+  # error clause is unreachable (Elixir 1.20 gradual types flag this correctly).
+  defp decoder_match_body_ast([], result_ast) do
+    quote do
+      <<rest::binary>> = binary
+      result = unquote(result_ast)
+      {:ok, result}
+    end
+  end
+
+  defp decoder_match_body_ast(fixed_patterns, result_ast) do
+    quote do
+      case binary do
+        <<unquote_splicing(fixed_patterns), rest::binary>> ->
+          result = unquote(result_ast)
+          {:ok, result}
+
+        _ ->
+          {:error, :invalid_binary}
+      end
     end
   end
 
@@ -3140,17 +3221,7 @@ defmodule GridCodec.Struct.Compiler do
             end
         end
 
-      body =
-        quote do
-          case binary do
-            <<unquote_splicing(fixed_patterns), rest::binary>> ->
-              result = unquote(result_ast)
-              {:ok, result}
-
-            _ ->
-              {:error, :invalid_binary}
-          end
-        end
+      body = decoder_match_body_ast(fixed_patterns, result_ast)
 
       maybe_wrap_required_catch(body, wrap_required?)
     end
@@ -3407,10 +3478,11 @@ defmodule GridCodec.Struct.Compiler do
       ## Options
 
       - `:header` — `true` (default) expects framed binary; `false` for payload-only
-      - `:copy` — `true` to detach sub-binary results via `:binary.copy/1`,
-        preventing the original binary from being retained in memory.
-        Only affects binary-typed fields (`:uuid`, `char_array`). Safe to
-        use on any field — non-binary values pass through unchanged.
+      - `:copy` — `true` to detach sub-binary results via `:binary.copy/1` when
+        the field type implements `GridCodec.Type.getter_returns_binary?/0`
+        (for example `:uuid`, fixed `char_array`). Other fields expand to the
+        same code as `copy: false` — no extra allocation. Use only when you need
+        to release the original refc binary while keeping the field value.
 
       ## Examples
 
@@ -3487,7 +3559,7 @@ defmodule GridCodec.Struct.Compiler do
                   end
               end
 
-            if copy do
+            if copy and GridCodec.Type.getter_returns_binary?(type_module) do
               wrap_with_binary_copy(raw_body)
             else
               raw_body
@@ -3522,18 +3594,10 @@ defmodule GridCodec.Struct.Compiler do
 
   @doc false
   def wrap_with_binary_copy(getter_ast) do
-    result_var = Macro.var(:__get_result__, __MODULE__)
-
     quote do
       case unquote(getter_ast) do
-        nil ->
-          nil
-
-        unquote(result_var) when is_binary(unquote(result_var)) ->
-          :binary.copy(unquote(result_var))
-
-        unquote(result_var) ->
-          unquote(result_var)
+        nil -> nil
+        bin -> :binary.copy(bin)
       end
     end
   end
@@ -3628,11 +3692,6 @@ defmodule GridCodec.Struct.Compiler do
             rhs_value_ast =
               if rhs_mode == :binary do
                 quote do
-                  unless is_binary(unquote(rhs_expr_var)) do
-                    raise ArgumentError,
-                          "compare with rhs: :binary expects rhs to be a binary"
-                  end
-
                   unquote(type_module).get_value(
                     unquote(rhs_expr_var),
                     unquote(offset),
@@ -3917,9 +3976,11 @@ defmodule GridCodec.Struct.Compiler do
 
   # Try to encode a literal value at compile time for pattern embedding
   defp encode_literal_for_pattern(value, type_atom, type_module, endian) do
+    # Order matters: nil is an atom in Elixir, so handle is_nil/1 before is_atom/1.
+    # The gradual type checker may flag redundant nil checks; we keep them for readers.
     cond do
       # Nil literal -> encode field null sentinel bytes at compile time
-      value == nil ->
+      is_nil(value) ->
         {:ok, null_binary_for_type(type_module, endian)}
 
       # Already an integer literal
@@ -3927,14 +3988,14 @@ defmodule GridCodec.Struct.Compiler do
         {:ok, value}
 
       # Boolean literals -> encode as 1/0
-      value == true ->
+      value === true ->
         {:ok, 1}
 
-      value == false ->
+      value === false ->
         {:ok, 0}
 
-      # Atom literal (could be enum value)
-      is_atom(value) and not is_nil(value) ->
+      # Atom literal (could be enum value); nil handled above
+      is_atom(value) ->
         encode_atom_for_pattern(value, type_atom, type_module)
 
       # Binary literal (for UUID, etc.)
@@ -4543,9 +4604,12 @@ defmodule GridCodec.Struct.Compiler do
          template_id,
          telemetry?,
          min_duration,
+         validation_active,
          decode_doc_telemetry,
          decode_doc_plain
        ) do
+    maybe_validate_fn = generate_maybe_validate_decoded_result_fn(validation_active)
+
     telemetry_meta = %{
       module: module,
       type_name: type_name,
@@ -4623,52 +4687,7 @@ defmodule GridCodec.Struct.Compiler do
           __maybe_validate_decoded_result__(result, binary, opts)
         end
 
-        defp __maybe_validate_decoded_result__(result, binary, opts) do
-          case Keyword.get(opts, :validate, :none) do
-            mode when mode in [false, :none] ->
-              result
-
-            mode when mode in [true, :decoded] ->
-              case result do
-                {:ok, struct} -> validate_struct(struct)
-                other -> other
-              end
-
-            :binary ->
-              case result do
-                {:ok, struct} ->
-                  case validate_binary(binary, header: Keyword.get(opts, :header, true)) do
-                    :ok -> {:ok, struct}
-                    {:error, _} = error -> error
-                  end
-
-                other ->
-                  other
-              end
-
-            :both ->
-              case result do
-                {:ok, struct} ->
-                  errors =
-                    __errors_from_validation_result__(
-                      validate_binary(binary, header: Keyword.get(opts, :header, true))
-                    ) ++ __errors_from_validation_result__(validate_struct(struct))
-
-                  errors = __dedupe_validation_errors__(errors)
-
-                  case __validation_error_result__(errors) do
-                    :ok -> {:ok, struct}
-                    {:error, error} -> {:error, error}
-                  end
-
-                other ->
-                  other
-              end
-
-            _ ->
-              result
-          end
-        end
+        unquote(maybe_validate_fn)
       end
     else
       quote do
@@ -4713,52 +4732,83 @@ defmodule GridCodec.Struct.Compiler do
           __maybe_validate_decoded_result__(result, binary, opts)
         end
 
-        defp __maybe_validate_decoded_result__(result, binary, opts) do
-          case Keyword.get(opts, :validate, :none) do
-            mode when mode in [false, :none] ->
-              result
+        unquote(maybe_validate_fn)
+      end
+    end
+  end
 
-            mode when mode in [true, :decoded] ->
-              case result do
-                {:ok, struct} -> validate_struct(struct)
-                other -> other
-              end
+  defp generate_maybe_validate_decoded_result_fn(validation_active) do
+    validate_both_ast = decode_validate_both_on_ok_ast(validation_active)
 
-            :binary ->
-              case result do
-                {:ok, struct} ->
-                  case validate_binary(binary, header: Keyword.get(opts, :header, true)) do
-                    :ok -> {:ok, struct}
-                    {:error, _} = error -> error
-                  end
+    quote do
+      defp __maybe_validate_decoded_result__(result, binary, opts) do
+        case Keyword.get(opts, :validate, :none) do
+          mode when mode in [false, :none] ->
+            result
 
-                other ->
-                  other
-              end
+          mode when mode in [true, :decoded] ->
+            case result do
+              {:ok, struct} -> validate_struct(struct)
+              other -> other
+            end
 
-            :both ->
-              case result do
-                {:ok, struct} ->
-                  errors =
-                    __errors_from_validation_result__(
-                      validate_binary(binary, header: Keyword.get(opts, :header, true))
-                    ) ++ __errors_from_validation_result__(validate_struct(struct))
+          :binary ->
+            case result do
+              {:ok, struct} ->
+                case validate_binary(binary, header: Keyword.get(opts, :header, true)) do
+                  :ok -> {:ok, struct}
+                  {:error, _} = error -> error
+                end
 
-                  errors = __dedupe_validation_errors__(errors)
+              other ->
+                other
+            end
 
-                  case __validation_error_result__(errors) do
-                    :ok -> {:ok, struct}
-                    {:error, error} -> {:error, error}
-                  end
+          :both ->
+            unquote(validate_both_ast)
 
-                other ->
-                  other
-              end
-
-            _ ->
-              result
-          end
+          _ ->
+            result
         end
+      end
+    end
+  end
+
+  # When validation_active is false, struct validators are a no-op and post-decode
+  # validate_binary/2 on an already-decoded binary cannot fail; :both matches :binary.
+  defp decode_validate_both_on_ok_ast(true) do
+    quote do
+      case result do
+        {:ok, struct} ->
+          errors =
+            __errors_from_validation_result__(
+              validate_binary(binary, header: Keyword.get(opts, :header, true))
+            ) ++ __errors_from_validation_result__(validate_struct(struct))
+
+          errors = __dedupe_validation_errors__(errors)
+
+          case __validation_error_result__(errors) do
+            :ok -> {:ok, struct}
+            {:error, error} -> {:error, error}
+          end
+
+        other ->
+          other
+      end
+    end
+  end
+
+  defp decode_validate_both_on_ok_ast(false) do
+    quote do
+      case result do
+        {:ok, struct} ->
+          case validate_binary(binary, header: Keyword.get(opts, :header, true)) do
+            :ok -> {:ok, struct}
+            {:error, _} = error -> error
+          end
+
+        other ->
+          other
       end
     end
   end
@@ -5300,20 +5350,25 @@ defmodule GridCodec.Struct.Compiler do
         unquote(decoded_acc_ast)
       end
 
-      defp __collect_binary_validation_errors__(_binary, _header?)
-           when unquote(binary_checks == []) do
-        []
-      end
+      unquote(
+        if binary_checks == [] do
+          quote do
+            defp __collect_binary_validation_errors__(_binary, _header?), do: []
+          end
+        else
+          quote do
+            defp __collect_binary_validation_errors__(binary, true) do
+              unquote_splicing(binary_bindings_header)
+              unquote(binary_acc_ast)
+            end
 
-      defp __collect_binary_validation_errors__(binary, true) do
-        unquote_splicing(binary_bindings_header)
-        unquote(binary_acc_ast)
-      end
-
-      defp __collect_binary_validation_errors__(binary, false) do
-        unquote_splicing(binary_bindings_payload)
-        unquote(binary_acc_ast)
-      end
+            defp __collect_binary_validation_errors__(binary, false) do
+              unquote_splicing(binary_bindings_payload)
+              unquote(binary_acc_ast)
+            end
+          end
+        end
+      )
 
       defp __prepare_validation_binary__(binary, false), do: {:ok, binary}
 
@@ -5330,41 +5385,42 @@ defmodule GridCodec.Struct.Compiler do
         end
       end
 
-      defp __validation_error_result__([]), do: :ok
-      defp __validation_error_result__([error]), do: {:error, error}
+      unquote(validation_error_result_helpers_ast(validation_active))
 
-      defp __validation_error_result__(errors) do
-        {:error, %GridCodec.ValidationErrors{errors: errors}}
-      end
+      unquote(
+        if validation_active do
+          quote do
+            defp __errors_from_validation_result__(:ok), do: []
+            defp __errors_from_validation_result__({:ok, _value}), do: []
 
-      defp __errors_from_validation_result__(:ok), do: []
-      defp __errors_from_validation_result__({:ok, _value}), do: []
+            defp __errors_from_validation_result__(
+                   {:error, %GridCodec.ValidationErrors{errors: errors}}
+                 ),
+                 do: errors
 
-      defp __errors_from_validation_result__(
-             {:error, %GridCodec.ValidationErrors{errors: errors}}
-           ),
-           do: errors
+            defp __errors_from_validation_result__({:error, error}), do: [error]
 
-      defp __errors_from_validation_result__({:error, error}), do: [error]
+            defp __dedupe_validation_errors__(errors) do
+              Enum.uniq_by(errors, fn
+                %GridCodec.ValidationError{
+                  code: code,
+                  details: %{name: name, description: description}
+                } ->
+                  {code, name, description}
 
-      defp __dedupe_validation_errors__(errors) do
-        Enum.uniq_by(errors, fn
-          %GridCodec.ValidationError{
-            code: code,
-            details: %{name: name, description: description}
-          } ->
-            {code, name, description}
+                %GridCodec.ValidationError{
+                  code: code,
+                  details: %{field: field, description: description}
+                } ->
+                  {code, field, description}
 
-          %GridCodec.ValidationError{
-            code: code,
-            details: %{field: field, description: description}
-          } ->
-            {code, field, description}
-
-          %GridCodec.ValidationError{code: code, details: %{description: description}} ->
-            {code, description}
-        end)
-      end
+                %GridCodec.ValidationError{code: code, details: %{description: description}} ->
+                  {code, description}
+              end)
+            end
+          end
+        end
+      )
     end
   end
 
@@ -6405,8 +6461,6 @@ defmodule GridCodec.Struct.Compiler do
       end
     end
   end
-
-  defp generate_lookup_filter_ast(_entry_ast, []), do: quote(do: true)
 
   defp generate_lookup_filter_ast(entry_ast, [first | rest]) do
     Enum.reduce(rest, generate_single_lookup_filter_ast(entry_ast, first), fn filter, acc ->

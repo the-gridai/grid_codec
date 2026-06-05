@@ -323,7 +323,7 @@ defmodule GridCodec.RequiredDecodeTest do
   # statically unreachable — Elixir 1.19's type checker in fact surfaces
   # this as an "unreachable clause" warning for such types, which is the
   # strongest possible evidence that the wrapper is a zero-cost no-op on
-  # them. This property covers all consumer-style user-defined types that
+  # them. This property covers consumer-style user-defined types that
   # wrap a fixed-size opaque payload without a distinguished null sentinel.
   # ============================================================================
 end

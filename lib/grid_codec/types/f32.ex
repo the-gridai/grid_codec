@@ -129,11 +129,11 @@ defmodule GridCodec.Types.F32 do
   def get_value(binary, offset, endian) when is_binary(binary) do
     case endian do
       :little ->
-        <<_::binary-size(offset), value::float-little-32, _::binary>> = binary
+        <<_::binary-size(^offset), value::float-little-32, _::binary>> = binary
         value
 
       :big ->
-        <<_::binary-size(offset), value::float-big-32, _::binary>> = binary
+        <<_::binary-size(^offset), value::float-big-32, _::binary>> = binary
         value
     end
   end

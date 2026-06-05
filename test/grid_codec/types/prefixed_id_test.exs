@@ -312,7 +312,7 @@ defmodule GridCodec.Types.PrefixedIdTest do
 
       header_size = 8
 
-      <<_header::binary-size(header_size), tag::8, uuid_bytes::binary-size(16), _rest::binary>> =
+      <<_header::binary-size(^header_size), tag::8, uuid_bytes::binary-size(16), _rest::binary>> =
         binary
 
       assert tag == 0x01
@@ -324,7 +324,7 @@ defmodule GridCodec.Types.PrefixedIdTest do
       {:ok, binary} = UserCreatedEvent.encode(event)
 
       header_size = 8
-      <<_header::binary-size(header_size), field_bytes::binary-size(17), _rest::binary>> = binary
+      <<_header::binary-size(^header_size), field_bytes::binary-size(17), _rest::binary>> = binary
 
       assert field_bytes == <<0, 0::128>>
     end
@@ -338,7 +338,7 @@ defmodule GridCodec.Types.PrefixedIdTest do
 
       header_size = 8
 
-      <<_header::binary-size(header_size), user_tag::8, _uuid1::binary-size(16), mkt_tag::8,
+      <<_header::binary-size(^header_size), user_tag::8, _uuid1::binary-size(16), mkt_tag::8,
         _uuid2::binary-size(16), _rest::binary>> = binary
 
       assert user_tag == 0x01

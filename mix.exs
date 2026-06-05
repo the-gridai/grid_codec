@@ -96,7 +96,7 @@ defmodule GridCodec.MixProject do
       # Dev/Test - Code quality
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7.18", only: [:dev, :test], runtime: false},
       {:mix_test_watch, "~> 1.0", only: :test, runtime: false},
       {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]

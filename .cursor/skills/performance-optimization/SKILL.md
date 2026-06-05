@@ -69,6 +69,16 @@ For groups, generate dedicated recursive functions instead of using `Enum.map` +
 - `example_app/benchmarks/constructor_bench.exs` — new/1, coercion, validation, content_hash, decode_only
 - `example_app/benchmarks/constructor_profile.exs` — tprof analysis of new/1 internals
 
+## `get(..., copy: true)` (memory vs CPU)
+
+- **Default `get/2`:** zero-copy sub-binary for `:uuid` (no allocation).
+- **`copy: true`:** `:binary.copy/1` only when the type implements
+  `getter_returns_binary?/0` (`:uuid`, fixed `char_array`). Resolved at macro
+  expansion — **no runtime type dispatch**.
+- **Do not** set `getter_returns_binary?` on types that already allocate on read
+  (`:uuid_string`, `prefixed_id`); `copy: true` would add a useless full copy.
+- Integer/bool/`copy: true` expands to the plain getter (identical to `copy: false`).
+
 ## Known Non-Optimizations
 
 ### IOList vs Binary Concatenation for Encode Assembly

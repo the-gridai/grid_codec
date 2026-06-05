@@ -30,6 +30,10 @@ Optional:
 - `validate_ast/3` — pre-encode type validation
 - `coerce_ast/1` — string/external input coercion for `new/1`
 - `decode_as_ast/2` — decode-time wire→domain type coercion for `wire_format:` option
+- `getter_returns_binary?/0` — `true` only when `getter_ast/3` returns a **sub-binary**
+  that pins the payload (`:uuid`, fixed `char_array`). **False/omit** for scalars and
+  getters that allocate (`:uuid_string`, `prefixed_id`) so `get(..., copy: true)` stays
+  a compile-time no-op (no redundant `:binary.copy/1`).
 - `generator/0` — StreamData generator for property tests
 - `compare_values/2` — custom comparison logic
 
@@ -49,6 +53,17 @@ Key generation functions:
 - `generate_inline_group_steps` — inline sequential group parsing
 - `generate_auto_batch_encoder` / `generate_auto_batch_decoder` — JIT-friendly loops
 - `generate_validate_fn` — type-level validation when `validate: true`
+
+**Elixir 1.20 / gradual types — do not emit dead clauses:**
+- Gate `__errors_from_validation_result__/1`, `__dedupe_validation_errors__/1`, and
+  multi-head `__validation_error_result__/1` on `validation_active` (has `validations do`
+  or equivalent).
+- When `validation_active` is false, `decode(validate: :both)` should match `:binary` behavior.
+- Skip `encode_map/1` for fast-path encoders (`struct_encoder_kind != :map_fallback`).
+- `get(..., copy: true)` uses `GridCodec.Type.getter_returns_binary?/1` at **macro expansion**
+  time only.
+
+See `docs/elixir-1.20-upgrade/summary.md`.
 
 Related runtime path:
 - `lib/grid_codec/transcoder.ex` — compile-time binary-to-binary field extraction;
