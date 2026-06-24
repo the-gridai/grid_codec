@@ -247,14 +247,14 @@ defmodule GridCodec.Breaking.Rules.Wire do
          new_schema,
          path
        ) do
-    if not struct_had_wire_tail?(old, new_schema) do
-      issues
-    else
+    if struct_had_wire_tail?(old, new_schema) do
       old_field_names = MapSet.new(old.fields, & &1.name)
 
       new.fields
-      |> Enum.filter(&(not MapSet.member?(old_field_names, &1.name)))
-      |> Enum.filter(&(not variable_length_field?(&1, new_schema)))
+      |> Enum.filter(fn field ->
+        not MapSet.member?(old_field_names, field.name) and
+          not variable_length_field?(field, new_schema)
+      end)
       |> Enum.reduce(issues, fn field, acc ->
         [
           %Issue{
@@ -272,6 +272,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
           | acc
         ]
       end)
+    else
+      issues
     end
   end
 
