@@ -37,6 +37,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   |------|---------|
   | `WIRE_FIELD_REMOVED` | Field removed from struct |
   | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without `default:` (historical events decode to `{:error, {:required_field_absent, field}}`); add `default:` to make the append safe |
+  | `WIRE_FIXED_APPEND_BEFORE_TAIL` | Fixed-block field appended while groups, batches, or variable-length fields already follow the fixed block (historical payloads need `Header.block_length` padding; exercise consolidated `GridCodec.decode/1` in tests) |
   | `WIRE_VAR_FIELD_ADDED` | Variable-length field added (informational by default; GridCodec 0.41.3+ readers synthesize missing optional/defaulted var-data) |
   | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
   | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed |
@@ -150,6 +151,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
       acc
       |> check_template_id(old_struct, new_struct, path)
       |> check_fields(old_struct, new_struct, new_schema, path)
+      |> check_fixed_append_before_tail(old_struct, new_struct, new_schema, path)
       |> check_groups(old_struct, new_struct, new_schema, path)
       |> check_batches(old_struct, new_struct, path)
     end)
@@ -228,6 +230,57 @@ defmodule GridCodec.Breaking.Rules.Wire do
       end
     end)
     |> check_var_fields_added(old, new, new_schema, path)
+  end
+
+  # Flags fixed-block fields appended when the baseline struct already had a
+  # group, batch, or variable-length tail after the fixed block.
+  #
+  # Historical payloads store the tail immediately after the shorter fixed block
+  # recorded in `Header.block_length`. Readers must pad the fixed block to the
+  # current schema width before decoding groups or var-data. Consolidated
+  # `GridCodec.decode/1` supplies `__gridcodec_header__` for that path; add a
+  # regression test when evolving schemas this way.
+  defp check_fixed_append_before_tail(
+         issues,
+         %StructDef{} = old,
+         %StructDef{} = new,
+         new_schema,
+         path
+       ) do
+    if struct_had_wire_tail?(old, new_schema) do
+      old_field_names = MapSet.new(old.fields, & &1.name)
+
+      new.fields
+      |> Enum.filter(fn field ->
+        not MapSet.member?(old_field_names, field.name) and
+          not variable_length_field?(field, new_schema)
+      end)
+      |> Enum.reduce(issues, fn field, acc ->
+        [
+          %Issue{
+            rule: :WIRE_FIXED_APPEND_BEFORE_TAIL,
+            category: :wire,
+            message:
+              ~s(Fixed-block field "#{field.name}" was appended while "#{new.name}" ) <>
+                "already has groups, batches, or variable-length fields after the fixed block. " <>
+                "Historical payloads keep the tail aligned to the wire header's block_length; " <>
+                "verify consolidated GridCodec.decode/1 and header-stripped decode paths " <>
+                "with a regression test.",
+            path: path,
+            location: %{struct: new.name, field: field.name}
+          }
+          | acc
+        ]
+      end)
+    else
+      issues
+    end
+  end
+
+  defp struct_had_wire_tail?(%StructDef{} = struct, schema) do
+    struct.groups != [] or
+      struct.batches != [] or
+      Enum.any?(struct.fields, &variable_length_field?(&1, schema))
   end
 
   # Flags variable-length fields that were not present in the baseline.

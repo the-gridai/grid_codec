@@ -54,6 +54,7 @@ defmodule GridCodec.Breaking.Policy do
   end
 
   defp default_severity(:WIRE_VAR_FIELD_ADDED, :wire), do: :info
+  defp default_severity(:WIRE_FIXED_APPEND_BEFORE_TAIL, :wire), do: :warning
   defp default_severity(rule, :docs), do: Map.get(@default_doc_severities, rule, :warning)
   defp default_severity(_rule, _category), do: :error
 end

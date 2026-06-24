@@ -505,6 +505,22 @@ defmodule GridCodec.SchemaEvolutionTest do
       assert [%{qty: 11}, %{qty: 22}] = GridCodec.Group.to_list(out.items)
     end
 
+    test "header-stripped v1 payload with group → v2 adds :since fixed field; entries unchanged" do
+      v1 = %SE.GroupPadWriterV1{id: 7, items: [%{qty: 11}, %{qty: 22}]}
+      {:ok, bin} = SE.GroupPadWriterV1.encode(v1)
+      {:ok, header, payload} = GridCodec.Header.decode(bin)
+
+      assert {:ok, out} =
+               SE.GroupPadReqReaderV2.decode(payload,
+                 header: false,
+                 __gridcodec_header__: header
+               )
+
+      assert out.id == 7
+      assert out.seq == nil
+      assert [%{qty: 11}, %{qty: 22}] = GridCodec.Group.to_list(out.items)
+    end
+
     test "v1 group entry with nil qty → v2 required inner field errors when materialized" do
       v1 = %SE.GroupPadWriterV1{id: 1, items: [%{qty: nil}]}
       {:ok, bin} = SE.GroupPadWriterV1.encode(v1)
@@ -641,6 +657,44 @@ defmodule GridCodec.SchemaEvolutionTest do
       assert {:ok, out} = SE.ReqSinceAltV1.decode(payload, header: false)
       assert out.id == 11
       assert out.price == 22
+    end
+  end
+
+  describe "header: false versioned decode with var-data before appended fixed field" do
+    test "full binary decode recovers the var-data tail" do
+      v1 = %SE.VarBeforeFixedV1{id: 7, some_string: "historical"}
+      {:ok, binary} = SE.VarBeforeFixedV1.encode(v1)
+
+      assert {:ok, out} = SE.VarBeforeFixedV2.decode(binary)
+      assert out.id == 7
+      assert out.some_string == "historical"
+      assert out.extra == nil
+    end
+
+    test "header-stripped decode recovers the var-data tail" do
+      v1 = %SE.VarBeforeFixedV1{id: 7, some_string: "historical"}
+      {:ok, binary} = SE.VarBeforeFixedV1.encode(v1)
+      {:ok, header, payload} = GridCodec.Header.decode(binary)
+
+      assert {:ok, out} =
+               SE.VarBeforeFixedV2.decode(payload,
+                 header: false,
+                 __gridcodec_header__: header
+               )
+
+      assert out.id == 7
+      assert out.some_string == "historical"
+      assert out.extra == nil
+    end
+
+    test "header-stripped decode without a header still assumes current width" do
+      v2 = %SE.VarBeforeFixedV2{id: 3, some_string: "now", extra: 99}
+      {:ok, payload} = SE.VarBeforeFixedV2.encode(v2, header: false)
+
+      assert {:ok, out} = SE.VarBeforeFixedV2.decode(payload, header: false)
+      assert out.id == 3
+      assert out.some_string == "now"
+      assert out.extra == 99
     end
   end
 

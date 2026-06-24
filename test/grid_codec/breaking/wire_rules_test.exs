@@ -265,6 +265,79 @@ defmodule GridCodec.Breaking.WireRulesTest do
     end
   end
 
+  describe "WIRE_FIXED_APPEND_BEFORE_TAIL" do
+    test "flags fixed-block append when a group tail already exists" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+        group allocations {
+          qty: u32
+        }
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+        auto_transfer: bool, since: 2, presence: optional
+        group allocations {
+          qty: u32
+        }
+      }
+      """
+
+      issues = check(old, new)
+
+      assert issue = Enum.find(issues, &(&1.rule == :WIRE_FIXED_APPEND_BEFORE_TAIL))
+      assert issue.severity == :warning
+      assert issue.message =~ "auto_transfer"
+      assert issue.message =~ "block_length"
+    end
+
+    test "flags fixed-block append when variable-length fields already exist" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+        note: string16
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+        note: string16
+        auto_transfer: bool, since: 2, presence: optional
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_FIXED_APPEND_BEFORE_TAIL in rules(issues)
+    end
+
+    test "does not flag fixed-block append on fixed-only structs" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+        auto_transfer: bool, since: 2, presence: optional
+      }
+      """
+
+      refute :WIRE_FIXED_APPEND_BEFORE_TAIL in rules(check(old, new))
+    end
+  end
+
   describe "WIRE_VAR_FIELD_ADDED" do
     test "flags appended optional variable-length field as non-blocking info by default" do
       old = """
