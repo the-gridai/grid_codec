@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-06-24
+
+### Fixed
+
+- **Header-stripped versioned decode** — honor `Header.block_length` when decoding
+  with `__gridcodec_header__` so historical fixed-block payloads keep group and
+  var-data tails aligned after schema evolution (fixes consolidated
+  `GridCodec.decode/1` / EventStore-style paths). Closes
+  [the-gridai/grid_codec#3](https://github.com/the-gridai/grid_codec/issues/3).
+
+### Added
+
+- **`WIRE_FIXED_APPEND_BEFORE_TAIL`** — breaking-change warning when fixed-block
+  fields are appended to structs that already have group, batch, or variable-length
+  tails (default severity `:warning`).
+- **Example app** — `GroupTailPaddingV2` regression tests for module decode,
+  `GridCodec.decode/1`, and header-stripped decode.
+
 ## [0.45.0] - 2026-06-05
 
 ### Changed

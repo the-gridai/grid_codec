@@ -5,10 +5,12 @@
 
 schema events {
   id: 100
-  version: 1
+  version: 2
 }
 
+import "example_app/events/group_tail_allocation.grid"
 import "example_app/events/trade_settled.grid"
+import "group_tail_padding.grid"
 import "market_created.grid"
 import "order_created.grid"
 import "order_created_no_typespec.grid"

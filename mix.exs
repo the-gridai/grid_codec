@@ -1,7 +1,7 @@
 defmodule GridCodec.MixProject do
   use Mix.Project
 
-  @version "0.45.0"
+  @version "0.45.1"
   @source_url "https://github.com/the-gridai/grid_codec"
 
   def project do
