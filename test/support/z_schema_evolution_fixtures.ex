@@ -327,3 +327,22 @@ defmodule GridCodec.TestSupport.SchemaEvo.VarAppendExistingV2 do
     field :note, :string16, since: 2, presence: :optional
   end
 end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarBeforeFixedV1 do
+  use GridCodec.Struct, template_id: 1986, version: 1
+
+  defcodec do
+    field :id, :u64
+    field :some_string, :string16, presence: :required
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.VarBeforeFixedV2 do
+  use GridCodec.Struct, template_id: 1986, version: 2
+
+  defcodec do
+    field :id, :u64
+    field :some_string, :string16, presence: :required
+    field :extra, :i64, since: 2, presence: :optional
+  end
+end

@@ -583,6 +583,30 @@ defmodule GridCodec.Struct.Compiler do
         decode_payload(<<fixed_data::binary, padding::binary, after_fixed::binary>>)
       end
 
+      # Internal: decode a header-stripped payload, honoring the originating
+      # header's block_length when one is supplied via :__gridcodec_header__.
+      #
+      # Registry/EventStore callers strip the header and re-enter via
+      # `decode(payload, header: false, __gridcodec_header__: header)`. Older
+      # events carry a shorter fixed block; routing them through
+      # `decode_versioned_payload/2` pads the fixed block up to the current
+      # schema width so group and var-data tails stay correctly aligned. When no
+      # header is supplied, assume a current-width payload.
+      defp decode_payload_with_optional_header(binary, opts) do
+        header = Keyword.get(opts, :__gridcodec_header__)
+
+        payload_result =
+          case header do
+            %{block_length: block_length} when is_integer(block_length) ->
+              decode_versioned_payload(binary, block_length)
+
+            _ ->
+              decode_payload(binary)
+          end
+
+        __gridcodec_after_decode_result__(payload_result, header)
+      end
+
       # Internal: decode payload only (no header)
       defp decode_payload(binary) when is_binary(binary) do
         unquote(struct_decoder_body)
@@ -4668,10 +4692,7 @@ defmodule GridCodec.Struct.Compiler do
                   error
               end
             else
-              __gridcodec_after_decode_result__(
-                decode_payload(binary),
-                Keyword.get(opts, :__gridcodec_header__)
-              )
+              decode_payload_with_optional_header(binary, opts)
             end
 
           duration = :erlang.monotonic_time() - start
@@ -4723,10 +4744,7 @@ defmodule GridCodec.Struct.Compiler do
                   error
               end
             else
-              __gridcodec_after_decode_result__(
-                decode_payload(binary),
-                Keyword.get(opts, :__gridcodec_header__)
-              )
+              decode_payload_with_optional_header(binary, opts)
             end
 
           __maybe_validate_decoded_result__(result, binary, opts)
