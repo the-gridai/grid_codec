@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GridCodec.Group.parse_with_rest!/3` short-binary guard** — the batch/typed-group
+  variant lacked the guard that `parse_with_rest!/2` already had, so historical
+  payloads missing an appended `since:` group raised an uncatchable
+  `FunctionClauseError` instead of the catchable `ArgumentError "Group binary too
+  short"`. After the v0.45.1 header-stripped `block_length` fix, decode reaches
+  appended groups on historical payloads; consumers that rescue the
+  `ArgumentError` to synthesize or pad a missing group can intercept it again.
+  Ported from Spectral-Finance/grid_codec v0.43.2.
+
 ## [0.45.1] - 2026-06-24
 
 ### Fixed

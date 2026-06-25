@@ -346,3 +346,35 @@ defmodule GridCodec.TestSupport.SchemaEvo.VarBeforeFixedV2 do
     field :extra, :i64, since: 2, presence: :optional
   end
 end
+
+# Regression fixtures for the appended-group short-binary guard
+# (`GridCodec.Group.parse_with_rest!/3`). v1 has no group; v2 appends a typed
+# `since: 2` group. A historical v1 payload has an empty tail where the group
+# header is expected, which must raise a CATCHABLE ArgumentError (so consumers
+# can synthesize an empty group / pad) rather than an uncatchable
+# FunctionClauseError.
+defmodule GridCodec.TestSupport.SchemaEvo.AppendedGroupEntry do
+  use GridCodec.Struct, template_id: 1988, version: 1
+
+  defcodec do
+    field :a, :u32
+    field :b, :u32
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.AppendedGroupV1 do
+  use GridCodec.Struct, template_id: 1987, version: 1
+
+  defcodec do
+    field :id, :u64
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.AppendedGroupV2 do
+  use GridCodec.Struct, template_id: 1987, version: 2
+
+  defcodec do
+    field :id, :u64
+    group :queue, of: GridCodec.TestSupport.SchemaEvo.AppendedGroupEntry, since: 2
+  end
+end
