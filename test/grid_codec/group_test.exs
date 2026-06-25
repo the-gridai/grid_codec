@@ -118,6 +118,46 @@ defmodule GridCodec.GroupTest do
     end
   end
 
+  describe "parse_with_rest!/2 and /3" do
+    test "parse_with_rest!/2 raises catchable ArgumentError on empty/short binary" do
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        Group.parse_with_rest!("", &decode_entry/1)
+      end
+
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        Group.parse_with_rest!(<<0, 1, 2>>, &decode_entry/1)
+      end
+    end
+
+    test "parse_with_rest!/3 raises catchable ArgumentError on empty/short binary" do
+      # Regression: the batch variant previously had no short-binary guard, so an
+      # empty tail (a historical payload missing an appended `since:` group)
+      # raised an uncatchable FunctionClauseError instead of the catchable
+      # ArgumentError consumers rescue to synthesize an empty group.
+      batch_decoder = fn _binary, acc -> acc end
+
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        Group.parse_with_rest!("", &decode_entry/1, batch_decoder)
+      end
+
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        Group.parse_with_rest!(<<0, 1, 2>>, &decode_entry/1, batch_decoder)
+      end
+    end
+
+    test "parse_with_rest!/3 parses a well-formed group and returns the rest" do
+      entries = [%{price: 100, qty: 10}, %{price: 200, qty: 20}]
+      binary = Group.encode(entries, &encode_entry/1)
+      batch_decoder = fn _binary, acc -> acc end
+
+      {group, rest} = Group.parse_with_rest!(binary <> "tail", &decode_entry/1, batch_decoder)
+
+      assert Group.count(group) == 2
+      assert Group.block_length(group) == 12
+      assert rest == "tail"
+    end
+  end
+
   describe "get_entry/2" do
     test "returns entry at index" do
       entries = [%{price: 100, qty: 10}, %{price: 200, qty: 20}]

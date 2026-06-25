@@ -454,6 +454,12 @@ defmodule GridCodec.Group do
           (binary() -> {:ok, map()} | {:error, term()}),
           (binary(), [map()] -> [map()])
         ) :: {t(), binary()}
+  def parse_with_rest!(binary, _entry_decoder, _batch_decoder)
+      when byte_size(binary) < @header_size do
+    raise ArgumentError,
+          "Group binary too short: #{byte_size(binary)} bytes, need #{@header_size}"
+  end
+
   def parse_with_rest!(
         <<block_length::little-16, num_in_group::little-16, rest::binary>> = binary,
         entry_decoder,

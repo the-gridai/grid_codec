@@ -698,6 +698,46 @@ defmodule GridCodec.SchemaEvolutionTest do
     end
   end
 
+  describe "appended :since group on historical payload raises catchable error" do
+    # When v2 appends a typed group, a historical v1 payload has an empty tail
+    # where the group header is expected. Group.parse_with_rest!/3 previously
+    # lacked a short-binary guard and raised an uncatchable FunctionClauseError;
+    # it now raises a catchable ArgumentError so consumers can detect the missing
+    # group and synthesize/pad it (grid_codec does not yet version-gate groups).
+    test "Mod.decode/1 (header path) raises catchable ArgumentError" do
+      v1 = %SE.AppendedGroupV1{id: 999}
+      {:ok, binary} = SE.AppendedGroupV1.encode(v1)
+
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        SE.AppendedGroupV2.decode(binary)
+      end
+    end
+
+    test "registry-style header-stripped decode raises catchable ArgumentError" do
+      v1 = %SE.AppendedGroupV1{id: 999}
+      {:ok, binary} = SE.AppendedGroupV1.encode(v1)
+      {:ok, header, payload} = GridCodec.Header.decode(binary)
+
+      assert_raise ArgumentError, ~r/Group binary too short/, fn ->
+        SE.AppendedGroupV2.decode(payload, header: false, __gridcodec_header__: header)
+      end
+    end
+
+    test "same-version payload with present group still decodes" do
+      entries = [
+        %SE.AppendedGroupEntry{a: 1, b: 2},
+        %SE.AppendedGroupEntry{a: 3, b: 4}
+      ]
+
+      v2 = %SE.AppendedGroupV2{id: 7, queue: entries}
+      {:ok, binary} = SE.AppendedGroupV2.encode(v2)
+
+      assert {:ok, out} = SE.AppendedGroupV2.decode(binary)
+      assert out.id == 7
+      assert [%{a: 1, b: 2}, %{a: 3, b: 4}] = GridCodec.Group.to_list(out.queue)
+    end
+  end
+
   describe "lazy group iteration + required inner field (new)" do
     test "Group.stream/1 propagates required-field throw from entry decode" do
       v1 = %SE.GroupPadWriterV1{id: 1, items: [%{qty: nil}]}
