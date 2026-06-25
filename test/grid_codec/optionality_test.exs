@@ -225,8 +225,8 @@ defmodule GridCodec.OptionalityTest do
       assert decoded.version == 2
       assert decoded.id == 100
       assert decoded.count == nil
-      # flags with nil encodes as nil (0 is default when field is omitted from map)
-      assert decoded.flags == nil
+      # flags with nil encodes the null sentinel, which decodes to the declared default.
+      assert decoded.flags == 0
     end
 
     test "required field still returns error" do

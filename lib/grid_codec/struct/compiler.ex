@@ -2308,9 +2308,40 @@ defmodule GridCodec.Struct.Compiler do
 
         value_ast
       end
+      |> wrap_optional_decode_default(opts)
       |> wrap_required_decode(opts, name, domain_module, wire_module)
       |> then(fn final_ast -> {name, final_ast} end)
     end)
+  end
+
+  # Apply decode-time defaults for non-required fields too. A missing historical
+  # field and an explicit null sentinel both decode to nil; when the schema
+  # declares a concrete default, nil should materialize as that value.
+  defp wrap_optional_decode_default(value_ast, opts) do
+    case optional_decode_default(opts) do
+      {:ok, default} ->
+        quote do
+          case unquote(value_ast) do
+            nil -> unquote(Macro.escape(default))
+            value -> value
+          end
+        end
+
+      :error ->
+        value_ast
+    end
+  end
+
+  defp optional_decode_default(opts) do
+    presence = Keyword.get(opts, :presence, :optional)
+
+    case {presence, Keyword.fetch(opts, :default)} do
+      {:required, _} -> :error
+      {:constant, _} -> :error
+      {_, {:ok, nil}} -> :error
+      {_, {:ok, default}} -> {:ok, default}
+      {_, :error} -> :error
+    end
   end
 
   # Enforce :required presence at decode time. The runtime helper keeps the nil
@@ -3067,7 +3098,12 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, wrap_required_decode(value_ast, opts, name, module, wire_module)}
+        value_ast =
+          value_ast
+          |> wrap_optional_decode_default(opts)
+          |> wrap_required_decode(opts, name, module, wire_module)
+
+        {name, value_ast}
       end)
 
     wrap_required? = any_required?(fixed_fields, var_fields, groups)
@@ -3188,7 +3224,12 @@ defmodule GridCodec.Struct.Compiler do
               end
           end
 
-        {name, wrap_required_decode(value_ast, opts, name, module, wire_module)}
+        value_ast =
+          value_ast
+          |> wrap_optional_decode_default(opts)
+          |> wrap_required_decode(opts, name, module, wire_module)
+
+        {name, value_ast}
       end)
 
     wrap_required? = any_required?(fixed_fields, var_fields, groups)
@@ -3436,20 +3477,25 @@ defmodule GridCodec.Struct.Compiler do
 
   defp build_var_decode_binding({name, type, module, opts}, rest_var, value_var, new_rest_var) do
     raw_var = Macro.var(:"raw_var_#{name}", __MODULE__)
-    missing_raw_var = Macro.var(:"missing_raw_var_#{name}", __MODULE__)
 
     decoded_value =
       raw_var
+      |> wrap_optional_decode_default(opts)
       |> wrap_required_decode(opts, name, module, nil)
 
     missing_value =
-      missing_raw_var
-      |> wrap_required_decode(opts, name, module, nil)
+      case optional_decode_default(opts) do
+        {:ok, default} ->
+          Macro.escape(default)
+
+        :error ->
+          quote(do: nil)
+          |> wrap_required_decode(opts, name, module, nil)
+      end
 
     quote do
       {unquote(value_var), unquote(new_rest_var)} =
         if byte_size(unquote(rest_var)) < unquote(var_prefix_size(type)) do
-          unquote(missing_raw_var) = nil
           {unquote(missing_value), <<>>}
         else
           {unquote(raw_var), __rest_after_var__} = unquote(var_decode_ast(type, rest_var))
