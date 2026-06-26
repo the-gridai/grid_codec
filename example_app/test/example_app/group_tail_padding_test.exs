@@ -33,7 +33,7 @@ defmodule ExampleApp.GroupTailPaddingTest do
 
     assert {:ok, out} = GroupTailPaddingV2.decode(bin)
     assert out.id == 42
-    assert out.auto_transfer == nil
+    assert out.auto_transfer == false
     assert [%GroupTailAllocation{qty: 7}] = out.allocations
   end
 
@@ -47,7 +47,7 @@ defmodule ExampleApp.GroupTailPaddingTest do
 
     assert {:ok, %GroupTailPaddingV2{} = out} = GridCodec.decode(bin)
     assert out.id == 99
-    assert out.auto_transfer == nil
+    assert out.auto_transfer == false
     assert [%GroupTailAllocation{qty: 11}, %GroupTailAllocation{qty: 22}] = out.allocations
   end
 
@@ -67,7 +67,7 @@ defmodule ExampleApp.GroupTailPaddingTest do
              )
 
     assert out.id == 7
-    assert out.auto_transfer == nil
+    assert out.auto_transfer == false
     assert [%GroupTailAllocation{qty: 3}] = out.allocations
   end
 end

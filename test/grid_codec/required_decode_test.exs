@@ -129,6 +129,45 @@ defmodule GridCodec.RequiredDecodeTest do
     end
   end
 
+  defmodule V2U32OptionalWithDefault do
+    @moduledoc false
+    use GridCodec.Struct,
+      template_id: 9_100,
+      schema_id: 91,
+      version: 2
+
+    defcodec do
+      field :id, :u64
+      field :counter, :u32, since: 2, default: 0
+    end
+  end
+
+  defmodule V2BoolOptionalWithDefault do
+    @moduledoc false
+    use GridCodec.Struct,
+      template_id: 9_100,
+      schema_id: 91,
+      version: 2
+
+    defcodec do
+      field :id, :u64
+      field :flag, :bool, since: 2, presence: :optional, default: false
+    end
+  end
+
+  defmodule V2StringOptionalWithDefault do
+    @moduledoc false
+    use GridCodec.Struct,
+      template_id: 9_100,
+      schema_id: 91,
+      version: 2
+
+    defcodec do
+      field :id, :u64
+      field :note, :string16, since: 2, presence: :optional, default: "legacy"
+    end
+  end
+
   # A bool required field with a concrete default — bool DOES export
   # `decode_value_ast/1` (it maps 0xFF to nil), so the required-check is
   # active and the default path applies.
@@ -286,14 +325,33 @@ defmodule GridCodec.RequiredDecodeTest do
   end
 
   # ============================================================================
-  # Optional fields and "nil-free" types are unaffected
+  # Optional fields without defaults and "nil-free" types are unaffected.
+  # Optional fields with defaults materialize those defaults on nil.
   # ============================================================================
 
   describe "unchanged behavior" do
-    test ":optional required-adjacent field still decodes to nil for historical data",
+    test ":optional required-adjacent field without default still decodes to nil for historical data",
          %{v1_binary: v1} do
       assert {:ok, %V2Optional{id: 42, counter: nil}} =
                V2Optional.decode(v1)
+    end
+
+    test ":optional u32 with default decodes historical padding to the default",
+         %{v1_binary: v1} do
+      assert {:ok, %V2U32OptionalWithDefault{id: 42, counter: 0}} =
+               V2U32OptionalWithDefault.decode(v1)
+    end
+
+    test ":optional bool with false default decodes historical padding to false",
+         %{v1_binary: v1} do
+      assert {:ok, %V2BoolOptionalWithDefault{id: 42, flag: false}} =
+               V2BoolOptionalWithDefault.decode(v1)
+    end
+
+    test ":optional string16 with default decodes missing historical var-data to the default",
+         %{v1_binary: v1} do
+      assert {:ok, %V2StringOptionalWithDefault{id: 42, note: "legacy"}} =
+               V2StringOptionalWithDefault.decode(v1)
     end
 
     test "bool: required with default decodes historical payloads to the default",
