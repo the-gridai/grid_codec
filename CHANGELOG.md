@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.3] - 2026-06-26
+
+### Fixed
+
+- **Optional decode defaults** — optional fields with a declared `default:` now
+  materialize that default when decoded bytes represent `nil`, including
+  historical fixed-block padding and missing historical var-data. This makes
+  `presence: :optional, default: false` decode as `false` instead of `nil`,
+  matching the schema contract used by required fields with defaults.
+
 ## [0.45.2] - 2026-06-25
 
 ### Fixed
