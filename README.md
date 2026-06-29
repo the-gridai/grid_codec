@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.45.3"}
+    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.46.0"}
   ]
 end
 ```
@@ -457,7 +457,7 @@ Configure with `.grid_codec.exs`:
 ```
 
 The breaking change tool resolves `import` directives automatically, so it works with
-both the new directory structure and legacy flat files. Rules: 27 WIRE (binary
+both the new directory structure and legacy flat files. Rules: 31 WIRE (binary
 compatibility) + 9 SOURCE (API compatibility), plus documentation-drift rules that
 default to non-blocking severities unless your policy escalates them. See the
 [Schema evolution guide](docs/schema-evolution.md) for details.
