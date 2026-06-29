@@ -417,6 +417,10 @@ defmodule GridCodec.Struct.Compiler do
       @__null_fixed_block__ unquote(null_fixed_block)
       @__current_block_length__ unquote(block_length)
 
+      @doc false
+      @spec __null_fixed_block__() :: binary()
+      def __null_fixed_block__, do: @__null_fixed_block__
+
       # Auto-generated group entry codecs
       unquote_splicing(auto_group_fns)
 
@@ -1393,6 +1397,41 @@ defmodule GridCodec.Struct.Compiler do
     |> Map.new()
   end
 
+  # Enforce append-only `:since` ordering inside an inline group entry, mirroring
+  # `validate_since_ordering/1` for the top-level fixed block. Entry version
+  # padding is a trailing append, so newer fields must come after older ones.
+  defp validate_group_since_ordering!(group_name, resolved_fields) do
+    since_values =
+      Enum.map(resolved_fields, fn {_name, _type, _module, opts} ->
+        Keyword.get(opts, :since, 1)
+      end)
+
+    unless since_values == Enum.sort(since_values) do
+      labels =
+        Enum.map(resolved_fields, fn {name, _type, _module, opts} ->
+          "#{name} (since: #{Keyword.get(opts, :since, 1)})"
+        end)
+
+      raise CompileError,
+        description:
+          "Fields with :since in group :#{group_name} must be declared after all " <>
+            "earlier-version fields so historical entries pad correctly. " <>
+            "Group field order: #{Enum.join(labels, ", ")}"
+    end
+  end
+
+  # Build the null-sentinel block for an inline group entry. Group entries are
+  # fixed-size only with no alignment, so offsets are a simple cumulative sum of
+  # each field's effective (wire) size.
+  defp compute_group_null_block(resolved_fields, block_length, endian) do
+    {field_offsets, _} =
+      Enum.reduce(resolved_fields, {%{}, 0}, fn {name, _t, _m, _o} = field, {acc, offset} ->
+        {Map.put(acc, name, offset), offset + effective_size(field)}
+      end)
+
+    compute_null_fixed_block(resolved_fields, field_offsets, block_length, endian)
+  end
+
   defp compute_null_fixed_block(fixed_fields, field_offsets, block_length, endian) do
     if block_length == 0 do
       <<>>
@@ -1784,7 +1823,7 @@ defmodule GridCodec.Struct.Compiler do
           encoder_fn = generate_typed_group_entry_encoder(name, of_value)
           decoder_fn = generate_typed_group_entry_decoder(name, of_value)
           batch_encoder_fn = generate_direct_group_batch_encoder(name, block_length)
-          batch_decoder_fn = generate_typed_group_batch_decoder(name, of_value, block_length)
+          batch_decoder_fn = generate_typed_group_batch_decoder(name, of_value)
 
           encoder_fn_name = :"__encode_#{name}_entry__"
           decoder_fn_name = :"__decode_#{name}_entry__"
@@ -1826,6 +1865,8 @@ defmodule GridCodec.Struct.Compiler do
                   "Group entries must have only fixed-size fields."
           end
 
+          validate_group_since_ordering!(name, resolved)
+
           encoder_fn = generate_auto_entry_encoder(name, resolved, endian)
           decoder_fn = generate_auto_entry_decoder(name, resolved, endian)
           batch_encoder_fn = generate_auto_batch_encoder(name, resolved, endian)
@@ -1843,6 +1884,8 @@ defmodule GridCodec.Struct.Compiler do
           block_length =
             Enum.reduce(resolved, 0, fn f, acc -> acc + effective_size(f) end)
 
+          null_block = compute_group_null_block(resolved, block_length, endian)
+
           updated_opts =
             opts
             |> Keyword.put(:entry_encoder, encoder_capture)
@@ -1851,6 +1894,7 @@ defmodule GridCodec.Struct.Compiler do
             |> Keyword.put(:batch_decoder, batch_decoder_capture)
             |> Keyword.put(:block_length, block_length)
             |> Keyword.put(:__resolved_fields__, resolved)
+            |> Keyword.put(:__null_block__, null_block)
 
           {{name, block, updated_opts},
            acc_fns ++ [encoder_fn, decoder_fn, batch_encoder_fn, batch_decoder_fn]}
@@ -2175,19 +2219,25 @@ defmodule GridCodec.Struct.Compiler do
     end
   end
 
-  defp generate_typed_group_batch_decoder(group_name, module, block_length) do
+  # The fast-path batch decoder strides by the entry module's *current* block
+  # length read at decode time (not a value baked at parent-compile time), so a
+  # recompiled entry module that gained a field is picked up. This path only
+  # runs when the wire entry size matches the current size; version padding for
+  # shorter historical entries is handled by `GridCodec.Group.to_list/1`.
+  defp generate_typed_group_batch_decoder(group_name, module) do
     fn_name = :"__decode_all_#{group_name}__"
-    entry_var = Macro.var(:entry_binary, __MODULE__)
 
     quote do
-      defp unquote(fn_name)(<<>>, acc), do: :lists.reverse(acc)
+      defp unquote(fn_name)(data, acc) do
+        unquote(fn_name)(data, acc, unquote(module).block_length())
+      end
 
-      defp unquote(fn_name)(
-             <<unquote(entry_var)::binary-size(unquote(block_length)), rest::binary>>,
-             acc
-           ) do
-        {:ok, decoded} = unquote(module).decode(unquote(entry_var), header: false)
-        unquote(fn_name)(rest, [decoded | acc])
+      defp unquote(fn_name)(<<>>, acc, _bl), do: :lists.reverse(acc)
+
+      defp unquote(fn_name)(data, acc, bl) do
+        <<entry_binary::binary-size(^bl), rest::binary>> = data
+        {:ok, decoded} = unquote(module).decode(entry_binary, header: false)
+        unquote(fn_name)(rest, [decoded | acc], bl)
       end
     end
   end
@@ -3425,13 +3475,49 @@ defmodule GridCodec.Struct.Compiler do
               end
 
             batch_decoder ->
-              quote do
-                {unquote(group_var), unquote(new_rest)} =
-                  GridCodec.Group.parse_with_rest!(
-                    unquote(rest_var),
-                    unquote(decoder),
-                    unquote(batch_decoder)
-                  )
+              of_module = Keyword.get(opts, :__of_module__)
+              inline_null_block = Keyword.get(opts, :__null_block__)
+              current_bl = Keyword.get(opts, :block_length)
+
+              cond do
+                # Typed fixed group: read current entry size + null block from the
+                # entry module at decode time so a recompiled entry module that
+                # gained a field is picked up.
+                of_module != nil ->
+                  quote do
+                    {unquote(group_var), unquote(new_rest)} =
+                      GridCodec.Group.parse_with_rest!(
+                        unquote(rest_var),
+                        unquote(decoder),
+                        unquote(batch_decoder),
+                        unquote(of_module).block_length(),
+                        unquote(of_module).__null_fixed_block__()
+                      )
+                  end
+
+                # Inline fixed group: current entry size + null block are baked at
+                # the parent's compile time.
+                inline_null_block != nil and is_integer(current_bl) ->
+                  quote do
+                    {unquote(group_var), unquote(new_rest)} =
+                      GridCodec.Group.parse_with_rest!(
+                        unquote(rest_var),
+                        unquote(decoder),
+                        unquote(batch_decoder),
+                        unquote(current_bl),
+                        unquote(inline_null_block)
+                      )
+                  end
+
+                true ->
+                  quote do
+                    {unquote(group_var), unquote(new_rest)} =
+                      GridCodec.Group.parse_with_rest!(
+                        unquote(rest_var),
+                        unquote(decoder),
+                        unquote(batch_decoder)
+                      )
+                  end
               end
 
             true ->

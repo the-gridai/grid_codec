@@ -533,6 +533,112 @@ defmodule GridCodec.Breaking.WireRulesTest do
     end
   end
 
+  describe "WIRE_GROUP_FIELD_ADDED_REQUIRED" do
+    test "flags required group field appended without default" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+        }
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+          qty: u32, since: 2, presence: required
+        }
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_GROUP_FIELD_ADDED_REQUIRED in rules(issues)
+    end
+
+    test "optional appended group field is safe" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+        }
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+          qty: u32, since: 2, presence: optional
+        }
+      }
+      """
+
+      assert check(old, new) == []
+    end
+
+    test "required+default appended group field is safe" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+        }
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+          qty: u32, since: 2, presence: required, default: 0
+        }
+      }
+      """
+
+      assert check(old, new) == []
+    end
+
+    test "middle insert into group is flagged as reorder" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+          qty: u32
+        }
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: uuid_string
+        group fills {
+          price: u64
+          inserted: u32
+          qty: u32
+        }
+      }
+      """
+
+      issues = check(old, new)
+      assert :WIRE_GROUP_FIELD_REORDERED in rules(issues)
+    end
+  end
+
   describe "WIRE_BATCH_REMOVED" do
     test "detects batch removal" do
       old = """

@@ -127,7 +127,9 @@ defmodule GridCodec.Group do
           block_length: non_neg_integer(),
           entries_offset: non_neg_integer(),
           entry_decoder: (binary() -> {:ok, map()} | {:error, term()}),
-          batch_decoder: (binary(), [map()] -> [map()]) | nil
+          batch_decoder: (binary(), [map()] -> [map()]) | nil,
+          current_block_length: non_neg_integer() | nil,
+          null_block: binary() | nil
         }
 
   defstruct [
@@ -136,7 +138,16 @@ defmodule GridCodec.Group do
     :block_length,
     :entries_offset,
     :entry_decoder,
-    :batch_decoder
+    :batch_decoder,
+    # Version-aware decoding (fixed groups only). When an older writer produced
+    # shorter entries than the current entry layout, `block_length` (read from
+    # the wire header) is the *writer's* entry size and `current_block_length`
+    # is the reader's. Each entry is padded from `null_block` up to
+    # `current_block_length` before decoding. Both are `nil` for paths that do
+    # not participate in entry version padding (framed/scalar groups, batches,
+    # and the public `parse/3` API), which keeps the fast path allocation-free.
+    :current_block_length,
+    :null_block
   ]
 
   # ============================================================================
@@ -424,6 +435,27 @@ defmodule GridCodec.Group do
   end
 
   @doc """
+  Pads a wire entry of `wire_bl` bytes up to `current_bl` using `null_block`,
+  returning an entry binary ready for the current entry decoder.
+
+  Version-aware group decoding: when an older writer emitted shorter entries
+  (because the entry struct gained appended `:optional`/defaulted fields since),
+  the per-group header records the *writer's* entry size (`wire_bl`). Each entry
+  is padded up to the reader's current entry size (`current_bl`) with the entry's
+  null-sentinel block so appended fields resolve to `nil`/default.
+
+  Zero-cost fast path when `wire_bl >= current_bl` (the common same-version case):
+  the original binary is returned unchanged with no allocation.
+  """
+  @spec pad_entry(binary(), non_neg_integer(), non_neg_integer(), binary()) :: binary()
+  def pad_entry(entry, wire_bl, current_bl, _null_block) when wire_bl >= current_bl, do: entry
+
+  def pad_entry(entry, wire_bl, current_bl, null_block) do
+    padding = binary_part(null_block, wire_bl, current_bl - wire_bl)
+    <<entry::binary, padding::binary>>
+  end
+
+  @doc """
   Parses a group and returns `{group, rest_binary}` in one call.
 
   Raises on malformed data. Used by auto-generated decoders where the
@@ -468,7 +500,74 @@ defmodule GridCodec.Group do
     parse_with_rest!(binary, block_length, num_in_group, rest, entry_decoder, batch_decoder)
   end
 
+  @doc """
+  Like `parse_with_rest!/3` but version-aware for fixed group entries.
+
+  `current_block_length` is the reader's current entry size and `null_block` is
+  the entry's null-sentinel block (`current_block_length` bytes). When the wire
+  header reports a smaller entry size than `current_block_length` (older writer),
+  each entry is padded up to the current size before decoding so appended
+  `:optional`/defaulted entry fields resolve to `nil`/default.
+
+  Fast path: when the wire `block_length` already matches (or exceeds) the
+  current size, behavior is byte-for-byte identical to `parse_with_rest!/3` and
+  no padding is allocated.
+  """
+  @spec parse_with_rest!(
+          binary(),
+          (binary() -> {:ok, map()} | {:error, term()}),
+          (binary(), [map()] -> [map()]),
+          non_neg_integer(),
+          binary()
+        ) :: {t(), binary()}
+  def parse_with_rest!(binary, _entry_decoder, _batch_decoder, _current_bl, _null_block)
+      when byte_size(binary) < @header_size do
+    raise ArgumentError,
+          "Group binary too short: #{byte_size(binary)} bytes, need #{@header_size}"
+  end
+
+  def parse_with_rest!(
+        <<block_length::little-16, num_in_group::little-16, rest::binary>> = binary,
+        entry_decoder,
+        batch_decoder,
+        current_bl,
+        null_block
+      ) do
+    parse_with_rest!(
+      binary,
+      block_length,
+      num_in_group,
+      rest,
+      entry_decoder,
+      batch_decoder,
+      current_bl,
+      null_block
+    )
+  end
+
   defp parse_with_rest!(binary, block_length, num_in_group, rest, entry_decoder, batch_decoder) do
+    parse_with_rest!(
+      binary,
+      block_length,
+      num_in_group,
+      rest,
+      entry_decoder,
+      batch_decoder,
+      nil,
+      nil
+    )
+  end
+
+  defp parse_with_rest!(
+         binary,
+         block_length,
+         num_in_group,
+         rest,
+         entry_decoder,
+         batch_decoder,
+         current_bl,
+         null_block
+       ) do
     total_data = num_in_group * block_length
 
     if byte_size(rest) < total_data do
@@ -482,7 +581,9 @@ defmodule GridCodec.Group do
       block_length: block_length,
       entries_offset: @header_size,
       entry_decoder: entry_decoder,
-      batch_decoder: batch_decoder
+      batch_decoder: batch_decoder,
+      current_block_length: current_bl,
+      null_block: null_block
     }
 
     group_rest = binary_part(rest, total_data, byte_size(rest) - total_data)
@@ -526,7 +627,9 @@ defmodule GridCodec.Group do
           binary: binary,
           block_length: block_length,
           entries_offset: offset,
-          entry_decoder: decoder
+          entry_decoder: decoder,
+          current_block_length: current_bl,
+          null_block: null_block
         },
         index
       ) do
@@ -536,6 +639,14 @@ defmodule GridCodec.Group do
       {:error, {:entry_out_of_bounds, index, entry_offset, block_length, byte_size(binary)}}
     else
       entry_binary = binary_part(binary, entry_offset, block_length)
+
+      entry_binary =
+        if is_integer(current_bl) and current_bl > block_length do
+          pad_entry(entry_binary, block_length, current_bl, null_block)
+        else
+          entry_binary
+        end
+
       decoder.(entry_binary)
     end
   end
@@ -636,6 +747,24 @@ defmodule GridCodec.Group do
   @spec to_list(t()) :: [map()]
   def to_list(%__MODULE__{num_in_group: 0}), do: []
 
+  # Version-aware slow path: historical writer used a smaller entry size than the
+  # current entry layout. The batch fast path strides by the current entry size
+  # and would misalign on shorter entries, so decode each entry individually and
+  # pad it up to the current size before decoding.
+  def to_list(%__MODULE__{
+        binary: binary,
+        num_in_group: n,
+        block_length: bl,
+        entries_offset: offset,
+        entry_decoder: decoder,
+        current_block_length: current_bl,
+        null_block: null_block
+      })
+      when is_integer(current_bl) and current_bl > bl do
+    data = binary_part(binary, offset, n * bl)
+    decode_all_padded(data, bl, current_bl, null_block, decoder, [])
+  end
+
   def to_list(%__MODULE__{
         batch_decoder: batch_fn,
         binary: binary,
@@ -665,6 +794,16 @@ defmodule GridCodec.Group do
     <<entry::binary-size(^bl), rest::binary>> = data
     {:ok, decoded} = decoder.(entry)
     decode_all_sequential(rest, bl, decoder, [decoded | acc])
+  end
+
+  defp decode_all_padded(<<>>, _bl, _current_bl, _null_block, _decoder, acc),
+    do: :lists.reverse(acc)
+
+  defp decode_all_padded(data, bl, current_bl, null_block, decoder, acc) do
+    <<entry::binary-size(^bl), rest::binary>> = data
+    padded = pad_entry(entry, bl, current_bl, null_block)
+    {:ok, decoded} = decoder.(padded)
+    decode_all_padded(rest, bl, current_bl, null_block, decoder, [decoded | acc])
   end
 
   # ============================================================================

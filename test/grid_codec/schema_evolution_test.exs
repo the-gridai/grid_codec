@@ -423,6 +423,23 @@ defmodule GridCodec.SchemaEvolutionTest do
         end
       end
     end
+
+    test "out-of-order :since in inline group raises CompileError" do
+      assert_raise CompileError, ~r/in group :items must be declared after/, fn ->
+        defmodule BadGroupOrdering do
+          use GridCodec.Struct, template_id: 998, schema_id: 50, version: 3
+
+          defcodec do
+            field :id, :u64
+
+            group :items do
+              field :a, :u32, since: 3
+              field :b, :u32, since: 2
+            end
+          end
+        end
+      end
+    end
   end
 
   # ============================================================================
@@ -735,6 +752,181 @@ defmodule GridCodec.SchemaEvolutionTest do
       assert {:ok, out} = SE.AppendedGroupV2.decode(binary)
       assert out.id == 7
       assert [%{a: 1, b: 2}, %{a: 3, b: 4}] = GridCodec.Group.to_list(out.queue)
+    end
+  end
+
+  describe "version-aware fixed group entries (new)" do
+    test "typed group: optional+default append decodes historical entries to the default" do
+      v1 = %SE.OrderBookV1{
+        market_id: 42,
+        orders: [
+          %SE.OrderEntryV1{price: 100, qty: 5},
+          %SE.OrderEntryV1{price: 200, qty: 7}
+        ]
+      }
+
+      {:ok, binary} = SE.OrderBookV1.encode(v1)
+
+      assert {:ok, out} = SE.OrderBookV2.decode(binary)
+      assert out.market_id == 42
+
+      # `autotransfer` declares `default: false`, so historical padding decodes to
+      # the concrete default rather than nil.
+      # Eager to_list
+      assert [first, second] = GridCodec.Group.to_list(out.orders)
+      assert %{price: 100, qty: 5, autotransfer: false} = first
+      assert %{price: 200, qty: 7, autotransfer: false} = second
+
+      # Lazy get_entry / stream agree with to_list
+      assert {:ok, %{price: 100, qty: 5, autotransfer: false}} =
+               GridCodec.Group.get_entry(out.orders, 0)
+
+      assert {:ok, %{price: 200, qty: 7, autotransfer: false}} =
+               GridCodec.Group.get_entry(out.orders, 1)
+
+      assert [%{autotransfer: false}, %{autotransfer: false}] =
+               out.orders |> GridCodec.Group.stream() |> Enum.to_list()
+    end
+
+    test "typed group: required+default append materializes the default" do
+      v1 = %SE.WarehouseV1{
+        wh_id: 9,
+        lots: [
+          %SE.LotEntryV1{sku: 1, count: 10},
+          %SE.LotEntryV1{sku: 2, count: 20},
+          %SE.LotEntryV1{sku: 3, count: 30}
+        ]
+      }
+
+      {:ok, binary} = SE.WarehouseV1.encode(v1)
+
+      assert {:ok, out} = SE.WarehouseV2.decode(binary)
+
+      assert [%{sku: 1, count: 10, grade: 7}, %{sku: 2, count: 20, grade: 7}, %{grade: 7}] =
+               GridCodec.Group.to_list(out.lots)
+
+      assert {:ok, %{sku: 2, count: 20, grade: 7}} = GridCodec.Group.get_entry(out.lots, 1)
+
+      # The materialized default round-trips through re-encode under V2.
+      lots = GridCodec.Group.to_list(out.lots)
+      assert {:ok, reencoded} = SE.WarehouseV2.encode(%{out | lots: lots})
+      assert {:ok, out2} = SE.WarehouseV2.decode(reencoded)
+      assert Enum.map(GridCodec.Group.to_list(out2.lots), & &1.grade) == [7, 7, 7]
+    end
+
+    test "inline group: optional append decodes historical entries with nil" do
+      v1 = %SE.InlineGroupV1{
+        id: 1,
+        items: [%{a: 10, b: 1}, %{a: 20, b: 2}, %{a: 30, b: 3}]
+      }
+
+      {:ok, binary} = SE.InlineGroupV1.encode(v1)
+
+      assert {:ok, out} = SE.InlineGroupV2.decode(binary)
+
+      assert [%{a: 10, b: 1, c: nil}, %{a: 20, b: 2, c: nil}, %{a: 30, b: 3, c: nil}] =
+               GridCodec.Group.to_list(out.items)
+
+      assert {:ok, %{a: 30, b: 3, c: nil}} = GridCodec.Group.get_entry(out.items, 2)
+    end
+
+    test "inline group: required+default append materializes the default" do
+      v1 = %SE.InlineGroupReqV1{id: 1, items: [%{a: 11}, %{a: 22}]}
+      {:ok, binary} = SE.InlineGroupReqV1.encode(v1)
+
+      assert {:ok, out} = SE.InlineGroupReqV2.decode(binary)
+
+      assert [%{a: 11, flag: 3}, %{a: 22, flag: 3}] = GridCodec.Group.to_list(out.items)
+      assert {:ok, %{a: 22, flag: 3}} = GridCodec.Group.get_entry(out.items, 1)
+    end
+
+    test "mixed counts: striding by wire block_length keeps entry boundaries correct" do
+      entries = for i <- 1..16, do: %SE.OrderEntryV1{price: i * 10, qty: i}
+      v1 = %SE.OrderBookV1{market_id: 1, orders: entries}
+      {:ok, binary} = SE.OrderBookV1.encode(v1)
+
+      assert {:ok, out} = SE.OrderBookV2.decode(binary)
+      decoded = GridCodec.Group.to_list(out.orders)
+      assert length(decoded) == 16
+
+      Enum.each(Enum.with_index(decoded, 1), fn {entry, i} ->
+        assert entry.price == i * 10
+        assert entry.qty == i
+        assert entry.autotransfer == false
+      end)
+    end
+
+    test "generated group lookups project over padded historical entries" do
+      v1 = %SE.LookupBookV1{
+        market_id: 42,
+        orders: [
+          %SE.OrderEntryV1{price: 100, qty: 5},
+          %SE.OrderEntryV1{price: 200, qty: 7}
+        ]
+      }
+
+      {:ok, binary} = SE.LookupBookV1.encode(v1)
+      assert {:ok, out} = SE.LookupBookV2.decode(binary)
+
+      # Map lookup keyed on a pre-existing field over padded entries.
+      assert {:ok, by_price} = SE.LookupBookV2.orders_by_price(out)
+      assert %{100 => entry100, 200 => entry200} = by_price
+      assert entry100.qty == 5
+      assert entry200.qty == 7
+
+      # The appended `autotransfer` field resolves to its `false` default on the
+      # padded entries, so a where-filter on that default value matches both.
+      assert {:ok, filtered} = SE.LookupBookV2.no_autotransfer(out.orders)
+      assert Enum.map(filtered, & &1.price) == [100, 200]
+      assert Enum.all?(filtered, &(&1.autotransfer == false))
+    end
+
+    test "to_lists_parallel/2 pads historical entries like to_list/1" do
+      v1 = %SE.OrderBookV1{
+        market_id: 1,
+        orders: for(i <- 1..8, do: %SE.OrderEntryV1{price: i * 10, qty: i})
+      }
+
+      {:ok, binary} = SE.OrderBookV1.encode(v1)
+      assert {:ok, out} = SE.OrderBookV2.decode(binary)
+
+      assert [entries] = GridCodec.Group.to_lists_parallel([out.orders])
+      assert entries == GridCodec.Group.to_list(out.orders)
+      assert Enum.all?(entries, &(&1.autotransfer == false))
+      assert Enum.map(entries, & &1.price) == Enum.map(1..8, &(&1 * 10))
+    end
+
+    test "same-version path is byte-identical (no padding allocated)" do
+      v2 = %SE.OrderBookV2{
+        market_id: 7,
+        orders: [%SE.OrderEntryV2{price: 1, qty: 2, autotransfer: true}]
+      }
+
+      {:ok, binary} = SE.OrderBookV2.encode(v2)
+      {:ok, binary_again} = SE.OrderBookV2.encode(v2)
+      assert binary == binary_again
+
+      assert {:ok, out} = SE.OrderBookV2.decode(binary)
+      assert [%{price: 1, qty: 2, autotransfer: true}] = GridCodec.Group.to_list(out.orders)
+    end
+
+    test ".grid round-trip preserves group field since/default" do
+      schema = SE.OrderBookV2.__schema__()
+      grid = GridCodec.Schema.Formatter.format_struct_file(schema, %{}, [])
+
+      assert grid =~ "since: 2"
+
+      {:ok, parsed} = GridCodec.Schema.Parser.parse(grid)
+      struct_def = parsed.structs |> Map.values() |> List.first()
+      group = List.first(struct_def.groups)
+      autotransfer = Enum.find(group.fields, &(&1.name == :autotransfer))
+
+      # `since` and `default` round-trip on the group field. `presence: :optional`
+      # is the implicit default and is intentionally omitted by the formatter, so
+      # the parsed presence is nil (still treated as optional by the loader).
+      assert autotransfer.since == 2
+      assert autotransfer.default == false
+      refute autotransfer.presence == :required
     end
   end
 
