@@ -159,6 +159,16 @@ These changes are backward-compatible (older binaries decode correctly):
 - **Add enum values** — existing values are unchanged, new ones only appear in
   newer binaries.
 - **Add groups** — missing groups decode as empty.
+- **Append optional/defaulted fields to a fixed group entry** with `:since` — on
+  readers with version-aware fixed group entries, fixed group entries adapt to
+  the writer's schema. The
+  per-group header records the writer's entry size, and shorter historical
+  entries are padded up to the current entry size from the entry's null
+  sentinels before decoding. This applies to both typed groups
+  (`group :g, of: Module`) and inline groups (`group :g do … end`). Appended
+  fields must be `presence: :optional` or `presence: :required` with a
+  `:default`, and must be declared **after** all earlier-version entry fields
+  (enforced at compile time).
 
 ## Breaking Changes
 
@@ -381,7 +391,8 @@ so cross-version evolution tests should use the default headered encode/decode.
 | `WIRE_GROUP_REMOVED` | Group removed | Keep group or create new message type |
 | `WIRE_GROUP_FIELD_REMOVED` | Field removed from a group entry | Keep field or introduce a new message type |
 | `WIRE_GROUP_FIELD_TYPE_CHANGED` | Group field type changed | Add a new field or new group/message shape |
-| `WIRE_GROUP_FIELD_REORDERED` | Group field order/name changed incompatibly | Restore original group layout |
+| `WIRE_GROUP_FIELD_REORDERED` | Group field order/name changed incompatibly (includes middle inserts) | Append new fields at the end of the entry |
+| `WIRE_GROUP_FIELD_ADDED_REQUIRED` | `:required` group entry field appended without a `:default` | Declare a `:default`, or use `presence: :optional` |
 | `WIRE_BATCH_REMOVED` | Batch removed | Keep batch or create new message type |
 | `WIRE_BATCH_STRATEGY_CHANGED` | Batch encoding strategy changed | Treat as new wire type; keep strategy stable |
 | `WIRE_BATCH_TYPE_REMOVED` | Type removed from batch `any_of` | Keep old type or create a new batch/message type |

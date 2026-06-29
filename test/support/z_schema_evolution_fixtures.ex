@@ -378,3 +378,178 @@ defmodule GridCodec.TestSupport.SchemaEvo.AppendedGroupV2 do
     group :queue, of: GridCodec.TestSupport.SchemaEvo.AppendedGroupEntry, since: 2
   end
 end
+
+# ============================================================================
+# Version-aware fixed group ENTRY evolution fixtures.
+#
+# These prove that appending an optional/defaulted field to a struct used as a
+# fixed group entry (`group :g, of: Module`) or to an inline group
+# (`group :g do ... end`) is a safe, additive change. Older group bytes (shorter
+# entries) decode under the newer reader with the appended field defaulted.
+# ============================================================================
+
+# --- Typed group entry: optional append ---
+defmodule GridCodec.TestSupport.SchemaEvo.OrderEntryV1 do
+  use GridCodec.Struct, template_id: 1990, version: 1
+
+  defcodec do
+    field :price, :u64
+    field :qty, :u32
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.OrderEntryV2 do
+  use GridCodec.Struct, template_id: 1990, version: 2
+
+  defcodec do
+    field :price, :u64
+    field :qty, :u32
+    field :autotransfer, :bool, since: 2, presence: :optional, default: false
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.OrderBookV1 do
+  use GridCodec.Struct, template_id: 1991, version: 1
+
+  defcodec do
+    field :market_id, :u64
+    group :orders, of: GridCodec.TestSupport.SchemaEvo.OrderEntryV1
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.OrderBookV2 do
+  use GridCodec.Struct, template_id: 1991, version: 2
+
+  defcodec do
+    field :market_id, :u64
+    group :orders, of: GridCodec.TestSupport.SchemaEvo.OrderEntryV2
+  end
+end
+
+# --- Typed group entry: required + default append ---
+defmodule GridCodec.TestSupport.SchemaEvo.LotEntryV1 do
+  use GridCodec.Struct, template_id: 1992, version: 1
+
+  defcodec do
+    field :sku, :u64
+    field :count, :u32
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.LotEntryV2 do
+  use GridCodec.Struct, template_id: 1992, version: 2
+
+  defcodec do
+    field :sku, :u64
+    field :count, :u32
+    field :grade, :u8, since: 2, presence: :required, default: 7
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.WarehouseV1 do
+  use GridCodec.Struct, template_id: 1993, version: 1
+
+  defcodec do
+    field :wh_id, :u64
+    group :lots, of: GridCodec.TestSupport.SchemaEvo.LotEntryV1
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.WarehouseV2 do
+  use GridCodec.Struct, template_id: 1993, version: 2
+
+  defcodec do
+    field :wh_id, :u64
+    group :lots, of: GridCodec.TestSupport.SchemaEvo.LotEntryV2
+  end
+end
+
+# --- Typed group with lookups: optional+default append ---
+# Used to lock in that generated group lookups project correctly over padded
+# historical entries (an older writer's narrower group is decoded by the newer
+# reader, padded up, then keyed/filtered).
+defmodule GridCodec.TestSupport.SchemaEvo.LookupBookV1 do
+  use GridCodec.Struct, template_id: 1996, schema_id: 199, version: 1
+
+  defcodec do
+    field :market_id, :u64
+    group :orders, of: GridCodec.TestSupport.SchemaEvo.OrderEntryV1
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.LookupBookV2 do
+  use GridCodec.Struct, template_id: 1996, schema_id: 199, version: 2
+
+  defcodec do
+    field :market_id, :u64
+    group :orders, of: GridCodec.TestSupport.SchemaEvo.OrderEntryV2
+
+    lookups do
+      lookup :orders_by_price do
+        from(:orders)
+        into(:map)
+        key(:price)
+      end
+
+      lookup :no_autotransfer do
+        from(:orders)
+        into(:list)
+        where(autotransfer: false)
+      end
+    end
+  end
+end
+
+# --- Inline group: optional append ---
+defmodule GridCodec.TestSupport.SchemaEvo.InlineGroupV1 do
+  use GridCodec.Struct, template_id: 1994, version: 1
+
+  defcodec do
+    field :id, :u64
+
+    group :items do
+      field :a, :u32
+      field :b, :u16
+    end
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.InlineGroupV2 do
+  use GridCodec.Struct, template_id: 1994, version: 2
+
+  defcodec do
+    field :id, :u64
+
+    group :items do
+      field :a, :u32
+      field :b, :u16
+      field :c, :u32, since: 2, presence: :optional
+    end
+  end
+end
+
+# --- Inline group: required + default append ---
+defmodule GridCodec.TestSupport.SchemaEvo.InlineGroupReqV1 do
+  use GridCodec.Struct, template_id: 1995, version: 1
+
+  defcodec do
+    field :id, :u64
+
+    group :items do
+      field :a, :u32
+    end
+  end
+end
+
+defmodule GridCodec.TestSupport.SchemaEvo.InlineGroupReqV2 do
+  use GridCodec.Struct, template_id: 1995, version: 2
+
+  defcodec do
+    field :id, :u64
+
+    group :items do
+      field :a, :u32
+      field :flag, :u8, since: 2, presence: :required, default: 3
+    end
+  end
+end

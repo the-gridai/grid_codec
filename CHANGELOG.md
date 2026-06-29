@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Version-aware fixed group entries** — appending an `:optional` (or
+  `:required` + `:default`) field to a struct used as a fixed group entry is now
+  a safe, additive change, mirroring how the top-level fixed block already
+  evolves. The per-group header records the writer's entry size, so older,
+  shorter entries are padded up to the current entry size from the entry's null
+  sentinels before decoding. This applies to both typed groups
+  (`group :g, of: Module`) and inline groups (`group :g do … end`), and to all
+  access paths — eager `GridCodec.Group.to_list/1` and lazy
+  `GridCodec.Group.get_entry/2`/`stream/1` agree. Previously, adding a field to a
+  group entry changed the group's `block_length` and broke decoding of every
+  historical payload (match error / `:invalid_binary`), forcing consumers to
+  introduce `*_v2` events and bespoke compatibility shims.
+  - The same-version path is byte-for-byte and allocation-equivalent to before:
+    padding is only synthesized when a historical group header reports a smaller
+    entry size (`GridCodec.Group.pad_entry/4` returns the original binary
+    unchanged on the fast path).
+  - Every codec module now exposes `__null_fixed_block__/0` so parent group
+    decoders can pad typed-group entries without re-deriving sentinels. Typed
+    group decoders read the entry module's **current** `block_length/0` at decode
+    time, so a recompiled entry module that gained a field is picked up.
+  - **Compiler safety:** `:since` field ordering inside inline group entries is
+    now enforced at compile time (`CompileError`), matching the top-level fixed
+    block rule, so appended fields land on the right padding bytes.
+  - **Breaking checker:** new `WIRE_GROUP_FIELD_ADDED_REQUIRED` rule flags a
+    `:required` group entry field appended without a `:default`; optional and
+    defaulted appends are clean; middle inserts are flagged as
+    `WIRE_GROUP_FIELD_REORDERED`.
+  - `since:`/`default:` on group fields round-trip through `.grid` export/parse.
+
 ## [0.45.3] - 2026-06-26
 
 ### Fixed

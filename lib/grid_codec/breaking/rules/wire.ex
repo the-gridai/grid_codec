@@ -54,7 +54,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
   | `WIRE_GROUP_REMOVED` | Group removed |
   | `WIRE_GROUP_FIELD_REMOVED` | Field removed from group entry |
   | `WIRE_GROUP_FIELD_TYPE_CHANGED` | Group field type changed |
-  | `WIRE_GROUP_FIELD_REORDERED` | Group field layout changed incompatibly |
+  | `WIRE_GROUP_FIELD_REORDERED` | Group field layout changed incompatibly (includes middle inserts) |
+  | `WIRE_GROUP_FIELD_ADDED_REQUIRED` | `:required` group entry field appended without `default:` (historical entries pad to nil and violate the typespec); add `default:` or use `presence: :optional` |
   | `WIRE_BATCH_REMOVED` | Batch removed |
   | `WIRE_BATCH_STRATEGY_CHANGED` | Batch encoding strategy changed |
   | `WIRE_BATCH_TYPE_REMOVED` | Type removed from batch `any_of` |
@@ -557,9 +558,35 @@ defmodule GridCodec.Breaking.Rules.Wire do
   defp check_group_changes(issues, %{changed: changed}, new_struct, new_schema, path) do
     Enum.reduce(changed, issues, fn {_name, old_group, new_group}, acc ->
       field_diffs = Differ.diff_fields(old_group.fields, new_group.fields)
+      old_count = length(old_group.fields)
 
-      Enum.reduce(field_diffs, acc, fn {_idx, old_f, new_f}, acc2 ->
+      Enum.reduce(field_diffs, acc, fn {idx, old_f, new_f}, acc2 ->
         cond do
+          # Field appended at the end of the group entry. Group entries are now
+          # version-aware (shorter historical entries pad up to the current size
+          # from null sentinels), so optional/defaulted appends are SAFE. A
+          # required append WITHOUT a default is unsafe: historical entries would
+          # pad to nil and violate the typespec.
+          old_f == nil and new_f != nil and idx >= old_count ->
+            check_group_field_added(acc2, new_struct, new_group, new_f, new_schema, path)
+
+          # Field inserted in the MIDDLE (an existing position is now a new
+          # field). Middle inserts break the trailing-append padding assumption.
+          old_f == nil and new_f != nil ->
+            [
+              %Issue{
+                rule: :WIRE_GROUP_FIELD_REORDERED,
+                category: :wire,
+                message:
+                  ~s(Field "#{new_f.name}" was inserted into the middle of group ) <>
+                    ~s("#{new_group.name}". Group entry fields must be appended at the end ) <>
+                    "so historical entries pad correctly.",
+                path: path,
+                location: %{struct: new_struct.name, group: new_group.name, field: new_f.name}
+              }
+              | acc2
+            ]
+
           old_f != nil and new_f == nil ->
             [
               %Issue{
@@ -612,6 +639,41 @@ defmodule GridCodec.Breaking.Rules.Wire do
         end
       end)
     end)
+  end
+
+  # An appended group entry field is safe when it is optional or required+default
+  # (historical entries pad up from the entry null block). A required append
+  # without a default would surface the null sentinel as nil and violate the
+  # typespec, so it is flagged like `WIRE_FIELD_ADDED_REQUIRED`.
+  defp check_group_field_added(issues, new_struct, new_group, new_f, new_schema, path) do
+    cond do
+      variable_length_field?(new_f, new_schema) ->
+        # Group entries are fixed-size only; a variable-length entry field would
+        # be rejected by the compiler. Nothing to flag here.
+        issues
+
+      effective_presence(new_f) != :required ->
+        issues
+
+      new_f.default != nil ->
+        issues
+
+      true ->
+        [
+          %Issue{
+            rule: :WIRE_GROUP_FIELD_ADDED_REQUIRED,
+            category: :wire,
+            message:
+              ~s(Field "#{new_f.name}" was appended to group "#{new_group.name}" as a ) <>
+                "required entry field without a :default. Historical group entries written " <>
+                "before this change pad to the type's null sentinel, which surfaces as nil " <>
+                "and violates the typespec. Declare a :default, or use presence: :optional.",
+            path: path,
+            location: %{struct: new_struct.name, group: new_group.name, field: new_f.name}
+          }
+          | issues
+        ]
+    end
   end
 
   # ============================================================================
