@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `presence: optional`). Appending an optional field to an exported schema was
   falsely flagged as a blocking wire break. Bare fields now resolve to
   `:optional`, matching `presence_label/1` and the formatter.
+- **`WIRE_FIELD_PRESENCE_CHANGED` compares effective presence** — a bare
+  field gaining (or losing) an explicit `presence: optional` marker is no
+  longer reported as a presence change, so regenerating exports with the
+  always-explicit formatter does not flood the breaking check. Real
+  transitions (optional ↔ required ↔ constant) are still flagged.
 
 ## [0.46.0] - 2026-06-29
 

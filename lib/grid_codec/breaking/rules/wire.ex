@@ -440,11 +440,14 @@ defmodule GridCodec.Breaking.Rules.Wire do
     end
   end
 
+  # Compares *effective* presence so a bare field and an explicit
+  # `presence: optional` are the same thing — re-exporting a schema with a
+  # formatter that now always writes presence must not read as a wire change.
   defp check_presence_changed(issues, struct, old_f, new_f, path) do
-    old_p = old_f.presence
-    new_p = new_f.presence
+    old_p = effective_presence(old_f)
+    new_p = effective_presence(new_f)
 
-    if old_p != new_p and not (old_p == nil and new_p == nil) do
+    if old_p != new_p do
       [
         %Issue{
           rule: :WIRE_FIELD_PRESENCE_CHANGED,
