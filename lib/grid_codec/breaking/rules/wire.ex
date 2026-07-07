@@ -369,13 +369,18 @@ defmodule GridCodec.Breaking.Rules.Wire do
   end
 
   # Effective presence combines the explicit `presence:` option with the
-  # trailing `?` shorthand. Default (neither set) is `:required`.
+  # trailing `?` shorthand. Default (neither set) is `:optional`, matching
+  # the DSL default (`field/3` docs). The formatter now writes presence
+  # explicitly for every field (optional included), so bare fields only
+  # appear in hand-written or pre-existing `.grid` files — and those resolve
+  # to `:optional` here. (The previous `:required` fallback falsely flagged
+  # optional appends as WIRE_FIELD_ADDED_REQUIRED.)
   defp effective_presence(%{presence: presence})
        when presence in [:required, :optional, :constant],
        do: presence
 
   defp effective_presence(%{optional: true}), do: :optional
-  defp effective_presence(_field), do: :required
+  defp effective_presence(_field), do: :optional
 
   # A field is variable-length if its resolved wire size is `:variable`.
   # Unknown types (e.g. enums, unresolved custom types) are conservatively
@@ -434,11 +439,14 @@ defmodule GridCodec.Breaking.Rules.Wire do
     end
   end
 
+  # Compares *effective* presence so a bare field and an explicit
+  # `presence: optional` are the same thing — re-exporting a schema with a
+  # formatter that now always writes presence must not read as a wire change.
   defp check_presence_changed(issues, struct, old_f, new_f, path) do
-    old_p = old_f.presence
-    new_p = new_f.presence
+    old_p = effective_presence(old_f)
+    new_p = effective_presence(new_f)
 
-    if old_p != new_p and not (old_p == nil and new_p == nil) do
+    if old_p != new_p do
       [
         %Issue{
           rule: :WIRE_FIELD_PRESENCE_CHANGED,
@@ -456,7 +464,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
     end
   end
 
-  defp presence_label(nil), do: "optional"
+  # Only ever called with `effective_presence/1` output, so `nil` cannot
+  # occur here (bare fields have already been resolved to `:optional`).
   defp presence_label(presence) when is_atom(presence), do: Atom.to_string(presence)
 
   defp check_constant_value_changed(issues, struct, old_f, new_f, path) do

@@ -4,9 +4,9 @@
 @syntax 1
 
 struct MarketCreated (template_id: 3) {
-  market_id: uuid, doc: "Stable identifier for the newly created market."
-  active: bool, doc: "Whether the market is immediately tradable."
-  name: string16, doc: "Human-readable market name."
-  description: string16, doc: "Longer description shown in clients or admin tools."
-  category: string16, doc: "Market category used for grouping and discovery."
+  market_id: uuid, presence: optional, doc: "Stable identifier for the newly created market."
+  active: bool, presence: optional, doc: "Whether the market is immediately tradable."
+  name: string16, presence: optional, doc: "Human-readable market name."
+  description: string16, presence: optional, doc: "Longer description shown in clients or admin tools."
+  category: string16, presence: optional, doc: "Market category used for grouping and discovery."
 }

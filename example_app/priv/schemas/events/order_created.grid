@@ -7,11 +7,11 @@ import "order_side.grid"
 
 struct OrderCreated (template_id: 1) {
   order_id: uuid, presence: required, doc: "Stable identifier for the newly created order."
-  user_id: u64, doc: "Identifier of the user that submitted the order."
-  symbol: string16, doc: "Instrument symbol that the order targets."
-  side: OrderSide, doc: "Whether the order is a bid or an ask."
-  price: u64, doc: "Limit price in quote units."
-  quantity: u32, doc: "Requested order size in base units."
-  timestamp: timestamp_us, doc: "Exchange timestamp when the order was accepted."
-  flags: u8, doc: "Compact bit flags describing order handling options."
+  user_id: u64, presence: optional, doc: "Identifier of the user that submitted the order."
+  symbol: string16, presence: optional, doc: "Instrument symbol that the order targets."
+  side: OrderSide, presence: optional, doc: "Whether the order is a bid or an ask."
+  price: u64, presence: optional, doc: "Limit price in quote units."
+  quantity: u32, presence: optional, doc: "Requested order size in base units."
+  timestamp: timestamp_us, presence: optional, doc: "Exchange timestamp when the order was accepted."
+  flags: u8, presence: optional, doc: "Compact bit flags describing order handling options."
 }

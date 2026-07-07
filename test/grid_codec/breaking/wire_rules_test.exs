@@ -74,7 +74,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
   end
 
   describe "WIRE_FIELD_ADDED_REQUIRED" do
-    test "flags appended :required fixed-block field (default presence)" do
+    test "does not flag appended bare field (default presence is :optional, matching DSL and exporter)" do
       old = """
       schema T { id: 1 }
       struct Order (template_id: 1) {
@@ -92,9 +92,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
       }
       """
 
-      issues = check(old, new)
-      assert :WIRE_FIELD_ADDED_REQUIRED in rules(issues)
-      assert Enum.any?(issues, &(&1.message =~ "quantity"))
+      refute :WIRE_FIELD_ADDED_REQUIRED in rules(check(old, new))
     end
 
     test "flags appended explicit presence: required field" do
@@ -225,7 +223,7 @@ defmodule GridCodec.Breaking.WireRulesTest do
       schema T { id: 1 }
       struct Order (template_id: 1, version: 2) {
         id: uuid_string
-        counter: u32, since: 2
+        counter: u32, since: 2, presence: required
       }
       """
 

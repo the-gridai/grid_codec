@@ -384,6 +384,49 @@ defmodule GridCodec.Breaking.FieldOptsTest do
                &(&1.message == ~s(Field "exchange" presence changed from constant to optional.))
              )
     end
+
+    test "bare field gaining an explicit presence: optional is not a change" do
+      old = ~s"""
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        exchange: string8
+      }
+      """
+
+      new = ~s"""
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        exchange: string8, presence: optional
+      }
+      """
+
+      assert :WIRE_FIELD_PRESENCE_CHANGED not in rules(wire_check(old, new))
+      assert :WIRE_FIELD_PRESENCE_CHANGED not in rules(wire_check(new, old))
+    end
+
+    test "bare field becoming required is a change" do
+      old = ~s"""
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        exchange: string8
+      }
+      """
+
+      new = ~s"""
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        exchange: string8, presence: required
+      }
+      """
+
+      issues = wire_check(old, new)
+      assert :WIRE_FIELD_PRESENCE_CHANGED in rules(issues)
+
+      assert Enum.any?(
+               issues,
+               &(&1.message == ~s(Field "exchange" presence changed from optional to required.))
+             )
+    end
   end
 
   describe "WIRE_FIELD_CONSTANT_VALUE_CHANGED" do

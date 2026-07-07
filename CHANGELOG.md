@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Formatter always writes presence explicitly** — `mix grid_codec.export`
+  now emits `presence: optional` instead of omitting the marker, so every
+  field in a generated `.grid` file carries an explicit `presence:` and a
+  bare field can no longer be misread as required (or optional) depending on
+  the reader's default. Regenerating existing exports adds
+  `presence: optional` to previously bare fields; this is a textual change
+  only — effective presence, wire format, and breaking-check semantics are
+  unchanged. Fields with no presence information (e.g. parsed from older
+  files) are normalized to `optional`, matching the DSL default.
+
+### Fixed
+
+- **Breaking-check rules treat bare `.grid` fields as `presence: :optional`** —
+  `mix grid_codec.breaking` previously defaulted fields without an explicit
+  `presence:` marker to `:required` inside `WIRE_FIELD_ADDED_REQUIRED` /
+  `WIRE_GROUP_FIELD_ADDED_REQUIRED`, contradicting both the DSL default
+  (`field/3` presence defaults to `:optional`) and the exporter convention
+  (`mix grid_codec.export` writes `presence: required` explicitly and omits
+  `presence: optional`). Appending an optional field to an exported schema was
+  falsely flagged as a blocking wire break. Bare fields now resolve to
+  `:optional`, matching `presence_label/1` and the formatter.
+- **`WIRE_FIELD_PRESENCE_CHANGED` compares effective presence** — a bare
+  field gaining (or losing) an explicit `presence: optional` marker is no
+  longer reported as a presence change, so regenerating exports with the
+  always-explicit formatter does not flood the breaking check. Real
+  transitions (optional ↔ required ↔ constant) are still flagged.
+
 ## [0.46.0] - 2026-06-29
 
 ### Added
