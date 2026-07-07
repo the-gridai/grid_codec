@@ -373,9 +373,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
   # the DSL default (`field/3` docs). The formatter now writes presence
   # explicitly for every field (optional included), so bare fields only
   # appear in hand-written or pre-existing `.grid` files — and those resolve
-  # to `:optional` here. (`presence_label/1` already rendered `nil` as
-  # "optional"; the previous `:required` fallback contradicted it and
-  # falsely flagged optional appends as WIRE_FIELD_ADDED_REQUIRED.)
+  # to `:optional` here. (The previous `:required` fallback falsely flagged
+  # optional appends as WIRE_FIELD_ADDED_REQUIRED.)
   defp effective_presence(%{presence: presence})
        when presence in [:required, :optional, :constant],
        do: presence
@@ -465,7 +464,8 @@ defmodule GridCodec.Breaking.Rules.Wire do
     end
   end
 
-  defp presence_label(nil), do: "optional"
+  # Only ever called with `effective_presence/1` output, so `nil` cannot
+  # occur here (bare fields have already been resolved to `:optional`).
   defp presence_label(presence) when is_atom(presence), do: Atom.to_string(presence)
 
   defp check_constant_value_changed(issues, struct, old_f, new_f, path) do
