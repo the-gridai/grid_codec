@@ -4,7 +4,7 @@
 @syntax 1
 
 struct ReleaseReservation (template_id: 304) {
-  reservation_id: u64, doc: "Reservation that should be released."
-  reason_code: u8, doc: "Compact reason code for the release operation."
-  released_at: timestamp_us, doc: "Timestamp when the release was recorded."
+  reservation_id: u64, presence: optional, doc: "Reservation that should be released."
+  reason_code: u8, presence: optional, doc: "Compact reason code for the release operation."
+  released_at: timestamp_us, presence: optional, doc: "Timestamp when the release was recorded."
 }

@@ -4,8 +4,8 @@
 @syntax 1
 
 struct BinaryEnvelope (template_id: 9901) {
-  trace_id: uuid
-  span_id: u64
-  flags: u32
-  message_type: u16
+  trace_id: uuid, presence: optional
+  span_id: u64, presence: optional
+  flags: u32, presence: optional
+  message_type: u16, presence: optional
 }

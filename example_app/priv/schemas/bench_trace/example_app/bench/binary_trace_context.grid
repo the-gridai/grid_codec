@@ -4,12 +4,12 @@
 @syntax 1
 
 struct BinaryTraceContext (template_id: 9900) {
-  trace_id: uuid
-  span_id: u64
-  parent_span_id: u64
-  flags: u32
-  kind: u8
-  start_time_ns: timestamp_ns
-  end_time_ns: timestamp_ns
-  name: string16
+  trace_id: uuid, presence: optional
+  span_id: u64, presence: optional
+  parent_span_id: u64, presence: optional
+  flags: u32, presence: optional
+  kind: u8, presence: optional
+  start_time_ns: timestamp_ns, presence: optional
+  end_time_ns: timestamp_ns, presence: optional
+  name: string16, presence: optional
 }

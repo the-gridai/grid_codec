@@ -4,5 +4,5 @@
 @syntax 1
 
 struct GroupTailAllocation (template_id: 9921) {
-  qty: u32
+  qty: u32, presence: optional
 }

@@ -4,11 +4,11 @@
 @syntax 1
 
 struct GroupTailPadding (template_id: 9920, version: 2) {
-  id: u64, default: false
-  auto_transfer: bool, since: 2, default: false
+  id: u64, presence: optional, default: false
+  auto_transfer: bool, since: 2, presence: optional, default: false
 
   group allocations {
     framing: length_prefixed
-    qty: u32
+    qty: u32, presence: optional
   }
 }
