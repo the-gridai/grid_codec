@@ -369,13 +369,19 @@ defmodule GridCodec.Breaking.Rules.Wire do
   end
 
   # Effective presence combines the explicit `presence:` option with the
-  # trailing `?` shorthand. Default (neither set) is `:required`.
+  # trailing `?` shorthand. Default (neither set) is `:optional`, matching
+  # both the DSL default (`field/3` docs) and the exporter convention: the
+  # formatter always writes `presence: required` explicitly and omits
+  # `presence: optional`, so a bare field in an exported `.grid` file is an
+  # optional field. (`presence_label/1` already rendered `nil` as
+  # "optional"; the previous `:required` fallback contradicted it and
+  # falsely flagged exported optional appends as WIRE_FIELD_ADDED_REQUIRED.)
   defp effective_presence(%{presence: presence})
        when presence in [:required, :optional, :constant],
        do: presence
 
   defp effective_presence(%{optional: true}), do: :optional
-  defp effective_presence(_field), do: :required
+  defp effective_presence(_field), do: :optional
 
   # A field is variable-length if its resolved wire size is `:variable`.
   # Unknown types (e.g. enums, unresolved custom types) are conservatively

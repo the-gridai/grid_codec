@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Breaking-check rules treat bare `.grid` fields as `presence: :optional`** —
+  `mix grid_codec.breaking` previously defaulted fields without an explicit
+  `presence:` marker to `:required` inside `WIRE_FIELD_ADDED_REQUIRED` /
+  `WIRE_GROUP_FIELD_ADDED_REQUIRED`, contradicting both the DSL default
+  (`field/3` presence defaults to `:optional`) and the exporter convention
+  (`mix grid_codec.export` writes `presence: required` explicitly and omits
+  `presence: optional`). Appending an optional field to an exported schema was
+  falsely flagged as a blocking wire break. Bare fields now resolve to
+  `:optional`, matching `presence_label/1` and the formatter.
+
 ## [0.46.0] - 2026-06-29
 
 ### Added
