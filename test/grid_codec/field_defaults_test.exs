@@ -211,14 +211,13 @@ defmodule GridCodec.FieldDefaultsTest do
       assert output =~ "score: u16, presence: required"
     end
 
-    test "overridden field emits no presence (optional is the default)" do
+    test "overridden field emits explicit presence: optional" do
       schema = RequiredWithOverride.__schema__()
       output = Formatter.format_struct_file(schema, %{})
 
       assert output =~ "id: u64, presence: required"
       assert output =~ "name: u32, presence: required"
-      refute output =~ "description: string16, presence: required"
-      assert output =~ "description: string16\n"
+      assert output =~ "description: string16, presence: optional\n"
     end
 
     test ".grid roundtrip preserves presence from field_defaults" do

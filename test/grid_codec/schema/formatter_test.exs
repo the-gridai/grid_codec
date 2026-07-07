@@ -134,12 +134,12 @@ defmodule GridCodec.Schema.FormatterTest do
 
       output = Formatter.format("TestSchema", 100, 1, codecs)
 
-      assert output =~ ~s(status: DocumentedEnum, doc: "Current status.")
+      assert output =~ ~s(status: DocumentedEnum, presence: optional, doc: "Current status.")
       assert output =~ ~s(active = 0, doc: "Enabled state.")
       assert output =~ ~s(inactive = 1, doc: "Disabled state.")
       assert output =~ ~s(group fills {)
       assert output =~ ~s(doc: "Partial fills.")
-      assert output =~ ~s(qty: u32, doc: "Fill quantity.")
+      assert output =~ ~s(qty: u32, presence: optional, doc: "Fill quantity.")
     end
 
     test "formats batch declarations" do

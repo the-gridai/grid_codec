@@ -370,12 +370,12 @@ defmodule GridCodec.Breaking.Rules.Wire do
 
   # Effective presence combines the explicit `presence:` option with the
   # trailing `?` shorthand. Default (neither set) is `:optional`, matching
-  # both the DSL default (`field/3` docs) and the exporter convention: the
-  # formatter always writes `presence: required` explicitly and omits
-  # `presence: optional`, so a bare field in an exported `.grid` file is an
-  # optional field. (`presence_label/1` already rendered `nil` as
+  # the DSL default (`field/3` docs). The formatter now writes presence
+  # explicitly for every field (optional included), so bare fields only
+  # appear in hand-written or pre-existing `.grid` files — and those resolve
+  # to `:optional` here. (`presence_label/1` already rendered `nil` as
   # "optional"; the previous `:required` fallback contradicted it and
-  # falsely flagged exported optional appends as WIRE_FIELD_ADDED_REQUIRED.)
+  # falsely flagged optional appends as WIRE_FIELD_ADDED_REQUIRED.)
   defp effective_presence(%{presence: presence})
        when presence in [:required, :optional, :constant],
        do: presence

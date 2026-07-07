@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Formatter always writes presence explicitly** — `mix grid_codec.export`
+  now emits `presence: optional` instead of omitting the marker, so every
+  field in a generated `.grid` file carries an explicit `presence:` and a
+  bare field can no longer be misread as required (or optional) depending on
+  the reader's default. Regenerating existing exports adds
+  `presence: optional` to previously bare fields; this is a textual change
+  only — effective presence, wire format, and breaking-check semantics are
+  unchanged. Fields with no presence information (e.g. parsed from older
+  files) are normalized to `optional`, matching the DSL default.
+
 ### Fixed
 
 - **Breaking-check rules treat bare `.grid` fields as `presence: :optional`** —

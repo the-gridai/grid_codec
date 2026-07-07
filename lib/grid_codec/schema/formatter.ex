@@ -322,7 +322,7 @@ defmodule GridCodec.Schema.Formatter do
                   end
 
                 {fname, type_spec} ->
-                  "    #{fname}: #{format_type(type_spec, type_aliases)}"
+                  "    #{fname}: #{format_type(type_spec, type_aliases)}, #{format_field_opts([])}"
               end)
 
             ["", "  group #{gname} {"] ++ doc_line ++ framing_line ++ field_strs ++ ["  }"]
@@ -495,14 +495,23 @@ defmodule GridCodec.Schema.Formatter do
 
   @field_opt_order [:wire_format, :since, :presence, :default, :value, :doc]
 
+  # Presence is always written explicitly (optional included) so a `.grid`
+  # file never contains a bare field whose requiredness depends on a
+  # reader's default. Fields without a presence marker (e.g. parsed from
+  # older files) are normalized to `optional`, matching the DSL default.
   defp format_field_opts(opts) do
+    opts =
+      case Keyword.get(opts, :presence) do
+        nil -> Keyword.put(opts, :presence, :optional)
+        _ -> opts
+      end
+
     parts =
       Enum.flat_map(@field_opt_order, fn key ->
         val = Keyword.get(opts, key)
 
         cond do
           is_nil(val) -> []
-          key == :presence and val == :optional -> []
           key == :default -> ["default: #{format_opt_value(val)}"]
           key == :value -> ["value: #{format_opt_value(val)}"]
           key == :doc -> ["doc: #{format_opt_value(val)}"]
