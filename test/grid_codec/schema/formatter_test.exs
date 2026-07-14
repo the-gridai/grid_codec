@@ -72,6 +72,31 @@ defmodule GridCodec.Schema.FormatterTest do
       assert output =~ "price: u64"
     end
 
+    test "round-trips fixed-append forward compatibility" do
+      codecs = [
+        {TestMod,
+         %{
+           fields: [{:id, :uuid, []}],
+           groups: [],
+           batches: [],
+           group_fields: %{},
+           version: 2,
+           template_id: 1,
+           schema_id: 100,
+           forward_compatible: :fixed_append,
+           type: "Test.Order"
+         }}
+      ]
+
+      output = Formatter.format("TestSchema", 100, 2, codecs)
+
+      assert output =~
+               "struct Order (template_id: 1, version: 2, forward_compatible: fixed_append)"
+
+      assert {:ok, parsed} = Parser.parse(output)
+      assert parsed.structs[:Order].forward_compatible == :fixed_append
+    end
+
     test "detects and formats enum types" do
       codecs = [
         {TestMod,

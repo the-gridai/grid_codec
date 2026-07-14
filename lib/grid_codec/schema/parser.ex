@@ -58,13 +58,16 @@ defmodule GridCodec.Schema.Parser do
         }
       }
 
-      struct Trade (template_id: 1002, version: 2) {
+      struct Trade (template_id: 1002, version: 2, forward_compatible: fixed_append) {
         trade_id: uuid_string
         price: u64, since: 2
       }
 
   Attributes: `template_id` (required), `version` (optional, overrides
-  schema-level version).
+  schema-level version), and `forward_compatible` (optional; the only supported
+  value is `fixed_append`). The compatibility option allows an older generated
+  reader to skip an unknown fixed-block suffix from a newer message. It does
+  not permit field insertion, removal, reordering, or unknown groups/var-data.
 
   ### Enum
 
@@ -176,7 +179,8 @@ defmodule GridCodec.Schema.Parser do
       structAttr   = ident ":" value
       structMember = field | groupBlock | batchBlock
 
-  Common attributes: `template_id` (required), `version` (optional).
+  Common attributes: `template_id` (required), `version` (optional),
+  `forward_compatible` (optional; `fixed_append`).
 
   ### Enum
 
@@ -259,6 +263,7 @@ defmodule GridCodec.Schema.Parser do
     defstruct name: nil,
               template_id: nil,
               version: nil,
+              forward_compatible: false,
               fields: [],
               groups: [],
               batches: []
@@ -743,17 +748,24 @@ defmodule GridCodec.Schema.Parser do
       {:ok, attrs, rest2} ->
         case parse_struct_block(rest2) do
           {:ok, fields, groups, batches, remaining} ->
-            struct_def = %StructDef{
-              name: String.to_atom(name),
-              template_id: attrs[:template_id],
-              version: attrs[:version],
-              fields: fields,
-              groups: groups,
-              batches: batches
-            }
+            case Map.get(attrs, :forward_compatible, false) do
+              mode when mode in [false, :fixed_append] ->
+                struct_def = %StructDef{
+                  name: String.to_atom(name),
+                  template_id: attrs[:template_id],
+                  version: attrs[:version],
+                  forward_compatible: mode,
+                  fields: fields,
+                  groups: groups,
+                  batches: batches
+                }
 
-            schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
-            parse_top_level(remaining, schema)
+                schema = %{schema | structs: Map.put(schema.structs, struct_def.name, struct_def)}
+                parse_top_level(remaining, schema)
+
+              mode ->
+                {:error, {:invalid_forward_compatible, mode}}
+            end
 
           {:error, _} = err ->
             err

@@ -486,6 +486,12 @@ defmodule GridCodec.Schema.Formatter do
         attrs
       end
 
+    attrs =
+      case Map.get(schema, :forward_compatible, false) do
+        :fixed_append -> attrs ++ ["forward_compatible: fixed_append"]
+        _ -> attrs
+      end
+
     "struct #{name} (#{Enum.join(attrs, ", ")})"
   end
 

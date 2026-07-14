@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in forward reader for fixed-block appends** — codecs may set
+  `forward_compatible: :fixed_append` to decode a newer schema version when the
+  writer only appended fixed-width fields before an unchanged group/var-data
+  tail. The reader uses the wire header's `block_length` to skip the unknown
+  fixed suffix. Newer versions remain rejected by default, and the opt-in mode
+  still rejects changes that do not increase the fixed block. The capability
+  now round-trips through `.grid` as `forward_compatible: fixed_append`, is
+  exposed by `__schema__/0`, and is preserved by `grid_file:` codecs.
+- **Forward-reader rollout checks** — `mix grid_codec.breaking` reports
+  `WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER` when fixed fields are added before
+  the baseline reader advertised the capability, and
+  `WIRE_FORWARD_COMPATIBILITY_REMOVED` when a schema drops an existing opt-in.
+
 ## [0.47.0] - 2026-07-07
 
 ### Changed

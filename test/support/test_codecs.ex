@@ -31,7 +31,11 @@ end
 
 defmodule GridCodec.TestSupport.OrderEventVar do
   @moduledoc false
-  use GridCodec.Struct, template_id: 602, schema_id: 60, name: "OrderEventVar"
+  use GridCodec.Struct,
+    template_id: 602,
+    schema_id: 60,
+    name: "OrderEventVar",
+    forward_compatible: :fixed_append
 
   defcodec do
     field :order_id, :uuid

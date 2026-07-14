@@ -76,6 +76,35 @@ defmodule GridCodec.Schema.ParserTest do
       assert struct_def.version == 2
     end
 
+    test "parses fixed-append forward compatibility" do
+      content = """
+      schema { id: 1 version: 1 }
+
+      struct Order (
+        template_id: 1001,
+        version: 2,
+        forward_compatible: fixed_append
+      ) {
+        id: uuid_string
+      }
+      """
+
+      assert {:ok, schema} = Parser.parse(content)
+      assert schema.structs[:Order].forward_compatible == :fixed_append
+    end
+
+    test "rejects unknown forward compatibility modes" do
+      content = """
+      schema { id: 1 }
+
+      struct Order (template_id: 1001, forward_compatible: groups) {
+        id: uuid_string
+      }
+      """
+
+      assert {:error, {:invalid_forward_compatible, :groups}} = Parser.parse(content)
+    end
+
     test "parses struct with group" do
       content = """
       schema { id: 1 }

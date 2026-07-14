@@ -5,7 +5,7 @@ schema GridFileTest {
   version: 1
 }
 
-struct Order (template_id: 7001) {
+struct Order (template_id: 7001, forward_compatible: fixed_append) {
   id: uuid_string
   user_id: u64
   symbol: string16
