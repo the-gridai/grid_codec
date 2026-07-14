@@ -314,23 +314,83 @@ the safe way to evolve field types in GridCodec.
 
 ## Forward Compatibility
 
-A **newer** binary decoded by **older** code is rejected at the header level:
+GridCodec's fixed-block forward reader follows the same acting
+`blockLength`/acting `version` model used by FIX Simple Binary Encoding (SBE):
+the writer records the complete root fixed-block width in the message header,
+so an older reader can consume the fields it knows and skip an unknown suffix
+before continuing with the unchanged tail.
+
+Forward reads remain disabled by default. A newer binary decoded by older code
+normally returns:
 
 ```elixir
 {:error, {:version_too_new, 2, 1}}
 ```
 
-The generated `validate_header/1` check ensures `header.version <= codec.version`.
-This prevents silent data corruption from unknown fields.
+Opt in on the reader before a newer writer exists:
+
+```elixir
+use GridCodec.Struct,
+  template_id: 10,
+  schema_id: 100,
+  version: 1,
+  forward_compatible: :fixed_append
+```
+
+The exported `.grid` contract records the capability:
+
+```text
+struct OrderPlaced (
+  template_id: 10,
+  forward_compatible: fixed_append
+) {
+  order_id: uuid, presence: required
+}
+```
+
+With that opt-in, an older reader accepts a higher message version only when
+the wire header's `block_length` is larger than its own fixed block. It decodes
+its known fixed fields, skips exactly the unknown fixed suffix, and resumes at
+the group/var-data tail. The same rule is used by headered module decode and
+the header-stripped registry/EventStore path.
+
+The opt-in does **not** make these changes forward-compatible:
+
+- inserting, removing, reordering, or retyping existing fixed fields
+- a newer version whose fixed block did not grow
+- adding or changing groups, batches, or variable-length fields
+- truncated payloads whose bytes do not satisfy the advertised block length
+- payload-only decoding without the originating header
+
+`:fixed_append` is deliberately narrow: `block_length` can locate an unknown
+root fixed suffix, but it cannot describe unknown tail structures. This is
+also why it is an explicit per-struct contract rather than a global default.
+
+`mix grid_codec.breaking` enforces the staged rollout:
+
+- `WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER` blocks combining the reader
+  opt-in and the first fixed append when the baseline `.grid` file did not
+  already advertise the capability.
+- `WIRE_FORWARD_COMPATIBILITY_REMOVED` blocks silently removing a previously
+  advertised reader capability.
 
 ## Deployment Strategy
 
-1. Deploy the new codec version to all **consumers** first. For compatible
-   changes, they can decode both old and new binaries.
-2. Then deploy the new version to **producers**. New binaries are now written with
-   the updated schema.
-3. For compatible changes, old binaries in event stores or snapshot stores
-   continue to decode correctly indefinitely.
+Fixed-field evolution in a rolling system requires two releases:
+
+1. **Reader release:** add only `forward_compatible: :fixed_append`; do not bump
+   the message version or append fields. Regenerate and publish `.grid` files,
+   then deploy this release to every consumer.
+2. **Writer release:** after the reader release is fully deployed, bump
+   `version`, append optional/defaulted fixed fields with `since`, and deploy
+   producers and consumers normally.
+3. Confirm old binaries still decode with the new reader and that the
+   capability remains in later `.grid` exports.
+
+Do not combine steps 1 and 2 in one rolling deployment. Pods from the baseline
+release still use the default strict reader and will reject the new version.
+If a coordinated stop-the-world deployment is genuinely guaranteed, the
+forward reader is unnecessary; keep the default rejection behavior.
 
 For aggregate snapshots specifically: if you add a compatible fixed-block field
 or optional trailing variable-length field with `:since`, existing snapshots
@@ -378,8 +438,11 @@ so cross-version evolution tests should use the default headered encode/decode.
 | `WIRE_SYNTAX_VERSION_CHANGED` | `.grid` `@syntax` changed | Upgrade parsers together or keep syntax stable |
 | `WIRE_STRUCT_REMOVED` | Struct definition removed | Keep struct or introduce migration/new message type |
 | `WIRE_TEMPLATE_ID_CHANGED` | `template_id` changed for existing struct | Keep `template_id` stable for same wire message |
+| `WIRE_FORWARD_COMPATIBILITY_REMOVED` | A struct removed `forward_compatible: fixed_append` | Keep the reader capability or coordinate all readers before removal |
 | `WIRE_FIELD_REMOVED` | Field removed from struct | Keep field or create new message type |
 | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without a `:default` — historical events decode to `{:error, {:required_field_absent, field}}` | Declare a `:default`, or use `presence: :optional`, or introduce a new message type |
+| `WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER` | A fixed field was appended before the baseline reader advertised `forward_compatible: fixed_append` | Ship and fully deploy a capability-only reader release first |
+| `WIRE_FIXED_APPEND_BEFORE_TAIL` | A fixed field was appended while the struct already had a group, batch, or var-data tail | Prove header-aware decode on a baseline binary and preserve tail ordering |
 | `WIRE_VAR_FIELD_ADDED` | Variable-length field added — historical events do not have bytes for the new length prefix/payload; informational by default on GridCodec 0.41.3+ | Ensure all readers use GridCodec 0.41.3+ for optional/defaulted appends, introduce a new message type, or set `severity_overrides` to escalate |
 | `WIRE_FIELD_REORDERED` | Fixed field order changed | Restore original order |
 | `WIRE_FIELD_WIRE_FORMAT_CHANGED` | `wire_format` changed | Treat as type migration; add a new field instead |

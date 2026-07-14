@@ -70,7 +70,7 @@ Related runtime path:
   supports `validate: false | :source | :target | :both`, source `validate_binary/1`,
   and target `new_binary/1` integration for validated transcoding without a source struct
 
-The `__schema__/0` map includes: `fields`, `groups`, `batches`, `group_fields`, `version`, `template_id`, `schema_id`, `grid_schema_export`, `endian`, `block_length`, `fixed_fields`, `var_fields`, `field_versions`, `type`. Export uses `grid_schema_export` (true only when `schema_id:` or `schema:` was set) to decide which codecs appear in `mix grid_codec.export` output.
+The `__schema__/0` map includes: `fields`, `groups`, `batches`, `group_fields`, `version`, `template_id`, `schema_id`, `forward_compatible`, `grid_schema_export`, `endian`, `block_length`, `fixed_fields`, `var_fields`, `field_versions`, `type`. Export uses `grid_schema_export` (true only when `schema_id:` or `schema:` was set) to decide which codecs appear in `mix grid_codec.export` output.
 
 ## Groups
 
@@ -144,7 +144,11 @@ enum Side : u8 {
   sell = 2
 }
 
-struct Order (template_id: 1001, version: 2) {
+struct Order (
+  template_id: 1001,
+  version: 2,
+  forward_compatible: fixed_append
+) {
   id: uuid_string
   price: decimal(scale: 8), wire_format: i64
   quantity: u32, default: 0
@@ -255,9 +259,32 @@ systems that need updating based on what kind of change you're making.
 - [ ] C-STR — include in `defstruct` field list
 - [ ] C-NEW — include/exclude from `new/1` based on options
 - [ ] C-SCH — add metadata to `__schema__/0`
-- [ ] F-EMT — decide: emit or skip in `.grid` export
+- [ ] P-GRM — when the feature affects generated reader behavior, preserve it in `StructDef`
+- [ ] F-EMT — decide: emit or skip in `.grid` export; reader contracts must round-trip
+- [ ] L-GRD — pass exported reader options back into `use GridCodec.Struct`
+- [ ] B-WIR — model mixed-version deployment hazards, not only new-reader/old-data compatibility
 - [ ] DOC — AGENTS.md, CHANGELOG, moduledoc
-- [ ] TEST — struct definition, encode/decode behavior, `new/1`
+- [ ] TEST — struct definition, encode/decode behavior, parser/formatter/loader round-trip, breaking rules
+
+### Fixed-append forward reader contract
+
+`forward_compatible: :fixed_append` is a narrow, per-struct reader capability
+based on the SBE acting `blockLength` model. An older opted-in reader may accept
+a higher version only when the writer's fixed block grew; it consumes known
+fixed fields, skips the unknown suffix using the header, then resumes at the
+unchanged tail. It does not cover unknown groups, batches, var-data, field
+insertion, removal, reorder, or retyping.
+
+Because this changes mixed-version deployment behavior, it is represented in
+`.grid` and must survive:
+
+    Elixir option → __schema__/0 → formatter → parser StructDef → grid_file loader
+
+Roll out in two releases. First deploy only the option to every reader. In a
+later release, bump `version` and append fixed fields. The breaking checker
+reports `WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER` when the baseline reader
+did not already advertise the capability, and
+`WIRE_FORWARD_COMPATIBILITY_REMOVED` if a later schema drops it.
 
 **Adding validations / invariants**:
 - [ ] MACRO — add DSL entry points in `grid_codec.ex` (`validations`, `validate`, `invariants`, `invariant`)

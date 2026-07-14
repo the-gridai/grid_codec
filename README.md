@@ -357,6 +357,15 @@ breaking changes like removing a field or changing its type, prefer adding a new
 field and migrating callers, or introducing a new message type when the wire
 shape must change incompatibly.
 
+Rolling systems can opt individual readers into SBE-style fixed-block forward
+compatibility with `forward_compatible: :fixed_append`. The capability is
+exported as `forward_compatible: fixed_append` in `.grid` files. Ship it as a
+reader-only release before any writer bumps the version and appends fixed-width
+fields; `mix grid_codec.breaking` blocks combining those steps against a
+baseline that did not already advertise the capability. The option does not
+cover field insertion/reordering or unknown groups, batches, or var-data. See
+[Schema Evolution](docs/schema-evolution.md#forward-compatibility).
+
 ### Export schemas
 
 The export generates a directory per `schema_id`, each with a `schema.grid` master

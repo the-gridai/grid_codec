@@ -263,6 +263,115 @@ defmodule GridCodec.Breaking.WireRulesTest do
     end
   end
 
+  describe "forward-compatible fixed append rollout" do
+    test "blocks a fixed append when the baseline reader did not opt in" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 1) {
+        id: u64
+        note: string16
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 2, forward_compatible: fixed_append) {
+        id: u64
+        score: u32, since: 2, presence: optional
+        note: string16
+      }
+      """
+
+      issues = check(old, new)
+
+      assert issue =
+               Enum.find(issues, &(&1.rule == :WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER))
+
+      assert issue.severity == :error
+      assert Policy.blocking?(issue, [:error])
+      assert issue.message =~ "First deploy only the reader opt-in"
+    end
+
+    test "allows the later fixed append after the baseline reader opted in" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 1, forward_compatible: fixed_append) {
+        id: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 2, forward_compatible: fixed_append) {
+        id: u64
+        score: u32, since: 2, presence: optional
+      }
+      """
+
+      refute :WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER in rules(check(old, new))
+    end
+
+    test "allows a capability-only first release" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 1) {
+        id: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 1, forward_compatible: fixed_append) {
+        id: u64
+      }
+      """
+
+      assert check(old, new) == []
+    end
+
+    test "blocks removing the forward reader contract" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, forward_compatible: fixed_append) {
+        id: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+      }
+      """
+
+      assert issue =
+               old
+               |> check(new)
+               |> Enum.find(&(&1.rule == :WIRE_FORWARD_COMPATIBILITY_REMOVED))
+
+      assert issue.severity == :error
+    end
+
+    test "does not require fixed-append capability for var-data-only additions" do
+      old = """
+      schema T { id: 1 }
+      struct Order (template_id: 1) {
+        id: u64
+      }
+      """
+
+      new = """
+      schema T { id: 1 }
+      struct Order (template_id: 1, version: 2) {
+        id: u64
+        note: string16, since: 2, presence: optional
+      }
+      """
+
+      refute :WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER in rules(check(old, new))
+    end
+  end
+
   describe "WIRE_FIXED_APPEND_BEFORE_TAIL" do
     test "flags fixed-block append when a group tail already exists" do
       old = """

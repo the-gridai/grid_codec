@@ -39,6 +39,11 @@ defmodule GridCodec.Schema.GridFileTest do
       assert TradeFromFile.__version__() == 1
     end
 
+    test "preserves struct-level forward compatibility from the file" do
+      assert OrderFromFile.__schema__().forward_compatible == :fixed_append
+      assert TradeFromFile.__schema__().forward_compatible == false
+    end
+
     test "encode/decode roundtrip works" do
       order = %OrderFromFile{
         id: "550e8400-e29b-41d4-a716-446655440000",

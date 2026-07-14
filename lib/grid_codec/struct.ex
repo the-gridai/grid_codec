@@ -74,6 +74,14 @@ defmodule GridCodec.Struct do
     at compile time. Requires a `schemas:` entry in the app's `:grid_codec` config.
     Mutually exclusive with `:schema_id`. Raises at compile time if the name is not found.
   - `:version` - Schema version (default: 1)
+  - `:forward_compatible` - Set to `:fixed_append` only when this reader may
+    consume newer versions that append fixed-width fields before an unchanged
+    group/var-data tail. The decoder skips the unknown fixed suffix using the
+    writer's header `block_length`. This is opt-in because additions or changes
+    to groups and var-data cannot be safely inferred by an older schema. Deploy
+    the option to all readers before a later release bumps `version` and appends
+    fields. The capability is exported to and loaded from `.grid` files as
+    `forward_compatible: fixed_append`.
   - `:name` - Stable type name for serialization (default: full module path, e.g.,
     `"MyApp.Events.OrderSubmitted"`). Set explicitly for short names.
     Used by `__type__/0` and `GridCodec.Registry.lookup_by_type/1` for EventStore integration.
@@ -442,6 +450,7 @@ defmodule GridCodec.Struct do
       |> Keyword.put_new(:template_id, struct_def.template_id)
       |> Keyword.put_new(:schema_id, schema.id || 0)
       |> Keyword.put_new(:version, version)
+      |> Keyword.put_new(:forward_compatible, struct_def.forward_compatible)
       |> Keyword.delete(:grid_file)
       |> Keyword.delete(:grid_schema)
       |> Keyword.delete(:message)

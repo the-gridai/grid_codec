@@ -57,6 +57,29 @@ defmodule GridCodec.SchemaEvolutionTest do
     end
   end
 
+  defmodule ForwardFixedWithStringV1 do
+    use GridCodec.Struct,
+      template_id: 909,
+      schema_id: 50,
+      version: 1,
+      forward_compatible: :fixed_append
+
+    defcodec do
+      field :id, :u64
+      field :name, :string
+    end
+  end
+
+  defmodule ForwardFixedWithStringV2 do
+    use GridCodec.Struct, template_id: 909, schema_id: 50, version: 2
+
+    defcodec do
+      field :id, :u64
+      field :score, :u32, since: 2
+      field :name, :string
+    end
+  end
+
   # V1 and V2 with variable-length fields AND nil v1 values
   defmodule WithStringV1AllNil do
     use GridCodec.Struct, template_id: 903, schema_id: 50, version: 1
@@ -479,6 +502,82 @@ defmodule GridCodec.SchemaEvolutionTest do
       {:ok, binary} = EventV2.encode(v2)
 
       assert {:error, {:version_too_new, 2, 1}} = EventV1.decode(binary)
+    end
+
+    test "header-stripped registry path also rejects newer versions by default" do
+      v2 = %EventV2{id: 42, price: 1000, quantity: 50}
+      {:ok, binary} = EventV2.encode(v2)
+      {:ok, header, payload} = GridCodec.Header.decode(binary)
+
+      assert {:error, {:version_too_new, 2, 1}} =
+               EventV1.decode(payload, header: false, __gridcodec_header__: header)
+    end
+  end
+
+  describe "opt-in forward-compatible fixed appends" do
+    test "rejects unsupported compatibility modes at compile time" do
+      module =
+        Module.concat(__MODULE__, "InvalidForwardMode#{System.unique_integer([:positive])}")
+
+      assert_raise ArgumentError, ~r/expected false or :fixed_append/, fn ->
+        Code.compile_string("""
+        defmodule #{inspect(module)} do
+          use GridCodec.Struct,
+            template_id: 65_000,
+            schema_id: 65_000,
+            forward_compatible: :groups
+
+          defcodec do
+            field :id, :u64
+          end
+        end
+        """)
+      end
+    end
+
+    test "older reader skips unknown fixed suffix and preserves var-data" do
+      v2 = %ForwardFixedWithStringV2{id: 42, score: 99, name: "preserve this tail"}
+      {:ok, binary} = ForwardFixedWithStringV2.encode(v2)
+
+      assert {:ok, decoded} = ForwardFixedWithStringV1.decode(binary)
+      assert decoded.id == 42
+      assert decoded.name == "preserve this tail"
+    end
+
+    test "registry-style header-stripped decode applies the same compatibility rule" do
+      v2 = %ForwardFixedWithStringV2{id: 7, score: 123, name: "registry tail"}
+      {:ok, binary} = ForwardFixedWithStringV2.encode(v2)
+      {:ok, header, payload} = GridCodec.Header.decode(binary)
+
+      assert {:ok, decoded} =
+               ForwardFixedWithStringV1.decode(payload,
+                 header: false,
+                 __gridcodec_header__: header
+               )
+
+      assert decoded.id == 7
+      assert decoded.name == "registry tail"
+    end
+
+    test "truncated newer fixed block is rejected" do
+      v2 = %ForwardFixedWithStringV2{id: 7, score: 123, name: "tail"}
+      {:ok, binary} = ForwardFixedWithStringV2.encode(v2)
+      truncated = binary_part(binary, 0, 8 + ForwardFixedWithStringV2.block_length() - 1)
+
+      assert {:error, :invalid_binary} = ForwardFixedWithStringV1.decode(truncated)
+    end
+
+    test "newer version without a larger fixed block remains rejected" do
+      v1 = %ForwardFixedWithStringV1{id: 42, name: "same width"}
+      {:ok, binary} = ForwardFixedWithStringV1.encode(v1)
+      <<block_length::little-16, rest::binary>> = binary
+
+      newer_same_width =
+        <<block_length::little-16, binary_part(rest, 0, 4)::binary, 2::little-16,
+          binary_part(rest, 6, byte_size(rest) - 6)::binary>>
+
+      assert {:error, {:version_too_new, 2, 1}} =
+               ForwardFixedWithStringV1.decode(newer_same_width)
     end
   end
 

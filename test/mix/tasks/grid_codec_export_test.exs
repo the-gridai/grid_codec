@@ -134,6 +134,18 @@ defmodule Mix.Tasks.GridCodec.ExportTest do
       assert has_struct
     end
 
+    test "exports struct-level forward reader contracts", %{output_dir: dir} do
+      capture_task(fn ->
+        Export.run(["--output-dir", dir])
+      end)
+
+      path = Path.join([dir, "schema_60", "order_event_var.grid"])
+      content = File.read!(path)
+
+      assert content =~
+               "struct OrderEventVar (template_id: 602, forward_compatible: fixed_append)"
+    end
+
     test "master imports match individual files", %{output_dir: dir} do
       capture_task(fn ->
         Export.run(["--output-dir", dir])

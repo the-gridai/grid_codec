@@ -105,6 +105,29 @@ cd example_app && mix run benchmarks/quick_bench.exs
 
 ### 7. Commit and Tag
 
+Sibling workspaces may not inherit the user's repository-local Git identity.
+Never change local or global Git config to work around that. If
+`git config --get user.name` / `user.email` are empty:
+
+1. Resolve the authenticated account with
+   `gh api user --jq '{login,id,name}'`.
+2. Build the GitHub noreply address as
+   `<id>+<login>@users.noreply.github.com`.
+3. Verify it against recent commits when the repository already has commits
+   from that account.
+4. Pass the identity only to the commit command:
+
+```bash
+GIT_AUTHOR_NAME="<name>" \
+GIT_AUTHOR_EMAIL="<id>+<login>@users.noreply.github.com" \
+GIT_COMMITTER_NAME="<name>" \
+GIT_COMMITTER_EMAIL="<id>+<login>@users.noreply.github.com" \
+git commit ...
+```
+
+Do not persist these values with `git config`; adjacent repositories can have
+different ownership and automation identities.
+
 ```bash
 git add -A
 git commit -m "Release vX.Y.Z

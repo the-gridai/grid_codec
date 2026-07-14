@@ -30,6 +30,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   | `WIRE_SYNTAX_VERSION_CHANGED` | `.grid` `@syntax` changed |
   | `WIRE_STRUCT_REMOVED` | Struct definition removed |
   | `WIRE_TEMPLATE_ID_CHANGED` | Existing struct changed `template_id` |
+  | `WIRE_FORWARD_COMPATIBILITY_REMOVED` | Struct removed its opt-in forward reader contract |
 
   ### Fields
 
@@ -37,6 +38,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
   |------|---------|
   | `WIRE_FIELD_REMOVED` | Field removed from struct |
   | `WIRE_FIELD_ADDED_REQUIRED` | `:required` fixed-block field appended without `default:` (historical events decode to `{:error, {:required_field_absent, field}}`); add `default:` to make the append safe |
+  | `WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER` | Baseline reader did not opt into `forward_compatible: fixed_append`; deploy the reader capability before a newer writer |
   | `WIRE_FIXED_APPEND_BEFORE_TAIL` | Fixed-block field appended while groups, batches, or variable-length fields already follow the fixed block (historical payloads need `Header.block_length` padding; exercise consolidated `GridCodec.decode/1` in tests) |
   | `WIRE_VAR_FIELD_ADDED` | Variable-length field added (informational by default; GridCodec 0.41.3+ readers synthesize missing optional/defaulted var-data) |
   | `WIRE_FIELD_REORDERED` | Fixed field order changed incompatibly |
@@ -151,6 +153,7 @@ defmodule GridCodec.Breaking.Rules.Wire do
     Enum.reduce(changed, issues, fn {_name, old_struct, new_struct}, acc ->
       acc
       |> check_template_id(old_struct, new_struct, path)
+      |> check_forward_compatibility(old_struct, new_struct, new_schema, path)
       |> check_fields(old_struct, new_struct, new_schema, path)
       |> check_fixed_append_before_tail(old_struct, new_struct, new_schema, path)
       |> check_groups(old_struct, new_struct, new_schema, path)
@@ -174,6 +177,77 @@ defmodule GridCodec.Breaking.Rules.Wire do
       issues
     end
   end
+
+  defp check_forward_compatibility(
+         issues,
+         %StructDef{} = old,
+         %StructDef{} = new,
+         new_schema,
+         path
+       ) do
+    issues
+    |> check_forward_compatibility_removed(old, new, path)
+    |> check_fixed_append_forward_reader(old, new, new_schema, path)
+  end
+
+  defp check_forward_compatibility_removed(
+         issues,
+         %StructDef{forward_compatible: :fixed_append},
+         %StructDef{forward_compatible: new_mode} = new,
+         path
+       )
+       when new_mode != :fixed_append do
+    [
+      %Issue{
+        rule: :WIRE_FORWARD_COMPATIBILITY_REMOVED,
+        category: :wire,
+        message:
+          ~s(Struct "#{new.name}" removed `forward_compatible: fixed_append`. ) <>
+            "Previously supported rolling readers will reject newer fixed-block appends.",
+        path: path,
+        location: %{struct: new.name}
+      }
+      | issues
+    ]
+  end
+
+  defp check_forward_compatibility_removed(issues, _old, _new, _path), do: issues
+
+  defp check_fixed_append_forward_reader(
+         issues,
+         %StructDef{forward_compatible: old_mode} = old,
+         %StructDef{} = new,
+         new_schema,
+         path
+       )
+       when old_mode != :fixed_append do
+    old_field_names = MapSet.new(old.fields, & &1.name)
+
+    new.fields
+    |> Enum.filter(fn field ->
+      not MapSet.member?(old_field_names, field.name) and
+        not variable_length_field?(field, new_schema)
+    end)
+    |> Enum.reduce(issues, fn field, acc ->
+      [
+        %Issue{
+          rule: :WIRE_FIXED_APPEND_REQUIRES_FORWARD_READER,
+          category: :wire,
+          message:
+            ~s(Fixed-block field "#{field.name}" was added to "#{new.name}", but the baseline ) <>
+              "reader did not declare `forward_compatible: fixed_append`. During a rolling " <>
+              "deployment, old readers will reject the newer version before they can skip " <>
+              "the unknown fixed suffix. First deploy only the reader opt-in, then append " <>
+              "the field in a later release.",
+          path: path,
+          location: %{struct: new.name, field: field.name}
+        }
+        | acc
+      ]
+    end)
+  end
+
+  defp check_fixed_append_forward_reader(issues, _old, _new, _new_schema, _path), do: issues
 
   # ============================================================================
   # Field-level rules

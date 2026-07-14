@@ -46,6 +46,16 @@ defmodule GridCodec.Struct.Compiler do
     align_fields = Keyword.get(opts, :align, false)
     generate_typespec = Keyword.get(opts, :generate_typespec, true)
 
+    forward_compatible = Keyword.get(opts, :forward_compatible, false)
+
+    unless forward_compatible in [false, :fixed_append] do
+      raise ArgumentError,
+            "invalid :forward_compatible option #{inspect(forward_compatible)}; " <>
+              "expected false or :fixed_append"
+    end
+
+    forward_compatible_fixed_append? = forward_compatible == :fixed_append
+
     # Application.get_env is used here (not compile_env) because these values
     # drive code generation conditionals in this macro body. compile_env is a
     # macro that must expand in the *calling* module's scope, but we need the
@@ -196,6 +206,7 @@ defmodule GridCodec.Struct.Compiler do
       version: version,
       template_id: template_id,
       schema_id: schema_id,
+      forward_compatible: forward_compatible,
       grid_schema_export: grid_schema_export?,
       endian: endian,
       block_length: block_length,
@@ -575,16 +586,70 @@ defmodule GridCodec.Struct.Compiler do
         )
       )
 
-      defp decode_versioned_payload(payload, header_block_length)
-           when header_block_length >= @__current_block_length__ do
-        decode_payload(payload)
-      end
+      unquote(
+        if forward_compatible_fixed_append? do
+          quote do
+            defp decode_versioned_payload(payload, %{
+                   block_length: header_block_length,
+                   version: header_version
+                 })
+                 when header_version > unquote(version) and
+                        header_block_length > @__current_block_length__ do
+              unknown_fixed_size = header_block_length - @__current_block_length__
 
-      defp decode_versioned_payload(payload, header_block_length) do
-        <<fixed_data::binary-size(^header_block_length), after_fixed::binary>> = payload
-        padding_size = @__current_block_length__ - header_block_length
-        padding = binary_part(@__null_fixed_block__, header_block_length, padding_size)
-        decode_payload(<<fixed_data::binary, padding::binary, after_fixed::binary>>)
+              case payload do
+                <<known_fixed::binary-size(@__current_block_length__),
+                  _unknown_fixed::binary-size(^unknown_fixed_size), after_fixed::binary>> ->
+                  decode_payload(known_fixed <> after_fixed)
+
+                _ ->
+                  {:error, :invalid_binary}
+              end
+            end
+
+            defp decode_versioned_payload(_payload, %{version: header_version})
+                 when header_version > unquote(version) do
+              {:error, {:version_too_new, header_version, unquote(version)}}
+            end
+
+            defp decode_versioned_payload(payload, %{block_length: header_block_length})
+                 when header_block_length >= @__current_block_length__ do
+              decode_payload(payload)
+            end
+
+            defp decode_versioned_payload(payload, %{block_length: header_block_length}) do
+              decode_shorter_fixed_block(payload, header_block_length)
+            end
+          end
+        else
+          quote do
+            defp decode_versioned_payload(_payload, %{version: header_version})
+                 when header_version > unquote(version) do
+              {:error, {:version_too_new, header_version, unquote(version)}}
+            end
+
+            defp decode_versioned_payload(payload, %{block_length: header_block_length})
+                 when header_block_length >= @__current_block_length__ do
+              decode_payload(payload)
+            end
+
+            defp decode_versioned_payload(payload, %{block_length: header_block_length}) do
+              decode_shorter_fixed_block(payload, header_block_length)
+            end
+          end
+        end
+      )
+
+      defp decode_shorter_fixed_block(payload, header_block_length) do
+        case payload do
+          <<fixed_data::binary-size(^header_block_length), after_fixed::binary>> ->
+            padding_size = @__current_block_length__ - header_block_length
+            padding = binary_part(@__null_fixed_block__, header_block_length, padding_size)
+            decode_payload(<<fixed_data::binary, padding::binary, after_fixed::binary>>)
+
+          _ ->
+            {:error, :invalid_binary}
+        end
       end
 
       # Internal: decode a header-stripped payload, honoring the originating
@@ -601,8 +666,9 @@ defmodule GridCodec.Struct.Compiler do
 
         payload_result =
           case header do
-            %{block_length: block_length} when is_integer(block_length) ->
-              decode_versioned_payload(binary, block_length)
+            %{block_length: block_length, version: version} = header
+            when is_integer(block_length) and is_integer(version) ->
+              decode_versioned_payload(binary, header)
 
             _ ->
               decode_payload(binary)
@@ -622,21 +688,49 @@ defmodule GridCodec.Struct.Compiler do
         unquote(decoder_body)
       end
 
-      defp validate_header(header) do
-        cond do
-          header.template_id != unquote(template_id) ->
-            {:error, {:template_id_mismatch, header.template_id, unquote(template_id)}}
+      unquote(
+        if forward_compatible_fixed_append? do
+          quote do
+            defp validate_header(header) do
+              cond do
+                header.template_id != unquote(template_id) ->
+                  {:error, {:template_id_mismatch, header.template_id, unquote(template_id)}}
 
-          header.schema_id != unquote(schema_id) ->
-            {:error, {:schema_id_mismatch, header.schema_id, unquote(schema_id)}}
+                header.schema_id != unquote(schema_id) ->
+                  {:error, {:schema_id_mismatch, header.schema_id, unquote(schema_id)}}
 
-          header.version > unquote(version) ->
-            {:error, {:version_too_new, header.version, unquote(version)}}
+                header.version > unquote(version) and
+                    header.block_length > @__current_block_length__ ->
+                  :ok
 
-          true ->
-            :ok
+                header.version > unquote(version) ->
+                  {:error, {:version_too_new, header.version, unquote(version)}}
+
+                true ->
+                  :ok
+              end
+            end
+          end
+        else
+          quote do
+            defp validate_header(header) do
+              cond do
+                header.template_id != unquote(template_id) ->
+                  {:error, {:template_id_mismatch, header.template_id, unquote(template_id)}}
+
+                header.schema_id != unquote(schema_id) ->
+                  {:error, {:schema_id_mismatch, header.schema_id, unquote(schema_id)}}
+
+                header.version > unquote(version) ->
+                  {:error, {:version_too_new, header.version, unquote(version)}}
+
+                true ->
+                  :ok
+              end
+            end
+          end
         end
-      end
+      )
 
       # Zero-copy field access macro
       unquote(getter_macro)
@@ -4786,7 +4880,7 @@ defmodule GridCodec.Struct.Compiler do
               {:ok, header, payload} ->
                 with :ok <- validate_header(header) do
                   payload
-                  |> decode_versioned_payload(header.block_length)
+                  |> decode_versioned_payload(header)
                   |> __gridcodec_after_decode_result__(header)
                 end
 
@@ -4816,7 +4910,7 @@ defmodule GridCodec.Struct.Compiler do
                 {:ok, header, payload} ->
                   with :ok <- validate_header(header) do
                     payload
-                    |> decode_versioned_payload(header.block_length)
+                    |> decode_versioned_payload(header)
                     |> __gridcodec_after_decode_result__(header)
                   end
 
@@ -4852,7 +4946,7 @@ defmodule GridCodec.Struct.Compiler do
             {:ok, header, payload} ->
               with :ok <- validate_header(header) do
                 payload
-                |> decode_versioned_payload(header.block_length)
+                |> decode_versioned_payload(header)
                 |> __gridcodec_after_decode_result__(header)
               end
 
@@ -4868,7 +4962,7 @@ defmodule GridCodec.Struct.Compiler do
                 {:ok, header, payload} ->
                   with :ok <- validate_header(header) do
                     payload
-                    |> decode_versioned_payload(header.block_length)
+                    |> decode_versioned_payload(header)
                     |> __gridcodec_after_decode_result__(header)
                   end
 
