@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-07-14
+
 ### Added
 
 - **Opt-in forward reader for fixed-block appends** — codecs may set
