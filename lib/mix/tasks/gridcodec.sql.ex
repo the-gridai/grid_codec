@@ -37,6 +37,10 @@ defmodule Mix.Tasks.Gridcodec.Sql do
   `docs/sql-generation.md` for the supported wire shapes, migration lifecycle,
   query patterns, and benchmarks.
 
+  Migration code should use `GridCodec.SQL.drop_statements/1` followed by
+  `GridCodec.SQL.generate_all_statements/1` so PostgreSQL return-shape changes
+  and every generated function form are applied safely.
+
   ## Example
 
   After running the generated SQL against your database:

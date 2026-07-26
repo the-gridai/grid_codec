@@ -126,6 +126,21 @@ jobs:
     name: Example App Quality
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: gridcodec_example
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gridcodec_example"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -163,6 +178,9 @@ jobs:
 
       - name: Run example app tests
         run: cd example_app && mix test
+
+      - name: Run sequential SQL decoder evolution
+        run: cd example_app && DATABASE_HOST=localhost mix run priv/sql_decoder_evolution_test.exs
 
   example-app-dialyzer:
     name: Example App Dialyzer

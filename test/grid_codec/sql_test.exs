@@ -127,6 +127,41 @@ defmodule GridCodec.SQLTest do
       refute sql =~ "gridcodec.read_multistring_name(data bytea)"
       refute sql =~ "gridcodec.read_multistring_description(data bytea)"
     end
+
+    test "guards versioned fields and locates variable data from the wire header" do
+      module = Module.concat(__MODULE__, "SQLEvolution#{System.unique_integer([:positive])}")
+
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(module) do
+            use GridCodec.Struct, template_id: 629, schema_id: 62, version: 3
+
+            defcodec do
+              field :event_id, :u64
+              field :score, :u32, since: 2
+              field :risk_tier, :u16, since: 3
+              field :label, :string16
+            end
+          end
+        end
+      )
+
+      try do
+        sql = SQL.generate(module)
+
+        assert sql =~
+                 "CASE WHEN gridcodec.read_u16(data, 6) < 2 THEN NULL ELSE NULLIF(gridcodec.read_u32"
+
+        assert sql =~
+                 "CASE WHEN gridcodec.read_u16(data, 6) < 3 THEN NULL ELSE NULLIF(gridcodec.read_u16"
+
+        assert sql =~
+                 "gridcodec.read_string16(data, (8 + gridcodec.read_u16(data, 0))::int)"
+      after
+        :code.purge(module)
+        :code.delete(module)
+      end
+    end
   end
 
   describe "generate/1 with codec metadata" do
@@ -534,6 +569,50 @@ defmodule GridCodec.SQLTest do
       assert @generate_all_sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec;"
       assert @generate_all_sql =~ "gridcodec.read_header"
       assert @generate_all_sql =~ "gridcodec.decode_"
+    end
+  end
+
+  describe "generate_drop_all/1" do
+    test "drops shape-dependent catalog functions before a migration refresh" do
+      sql = SQL.generate_drop_all([GridCodec.TestSupport.OrderEvent])
+
+      assert sql =~ "CREATE SCHEMA IF NOT EXISTS gridcodec"
+      assert sql =~ "DROP FUNCTION IF EXISTS gridcodec.decode(text, bytea)"
+      assert sql =~ "DROP FUNCTION IF EXISTS gridcodec.decode_orderevent(bytea)"
+      assert sql =~ "DROP FUNCTION IF EXISTS gridcodec.decode_orderevent_json(bytea)"
+      assert sql =~ "DROP FUNCTION IF EXISTS gridcodec.read_orderevent_price(bytea)"
+      assert sql =~ "DROP FUNCTION IF EXISTS gridcodec.read_orderevent_quantity(bytea)"
+    end
+
+    test "returns individually executable drop and install statements" do
+      drops = SQL.drop_statements([GridCodec.TestSupport.OrderEvent])
+      installs = SQL.generate_all_statements([GridCodec.TestSupport.OrderEvent])
+
+      assert "DROP FUNCTION IF EXISTS gridcodec.decode_orderevent(bytea);" in drops
+
+      assert Enum.any?(installs, fn statement ->
+               statement =~
+                 "CREATE OR REPLACE FUNCTION gridcodec.read_orderevent_quantity(data bytea)"
+             end)
+
+      assert Enum.any?(installs, &String.contains?(&1, "PARALLEL SAFE"))
+      assert Enum.all?(installs, &String.ends_with?(&1, ";"))
+    end
+
+    test "does not split semicolons inside comments, literals, or function bodies" do
+      sql = """
+      -- comment with a semicolon;
+      CREATE OR REPLACE FUNCTION gridcodec.example(data text)
+      RETURNS text AS $body$
+        SELECT 'value;still-in-body' || data;
+      $body$ LANGUAGE sql IMMUTABLE STRICT;
+      INSERT INTO example_values (name) VALUES ('literal;value');
+      """
+
+      assert [function, insert] = SQL.split_statements(sql)
+      assert function =~ "comment with a semicolon;"
+      assert function =~ "'value;still-in-body'"
+      assert insert == "INSERT INTO example_values (name) VALUES ('literal;value');"
     end
   end
 

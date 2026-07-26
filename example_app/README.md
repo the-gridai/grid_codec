@@ -173,12 +173,15 @@ Run the consumer-level generation test and optional PostgreSQL integration:
 ```bash
 mix test test/example_app/sql_generation_test.exs
 mix run priv/sql_integration_test.exs
+mix run priv/sql_decoder_evolution_test.exs
 DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 ```
 
 The integration script creates a temporary event table, installs the generated
 functions, verifies scalar, raw-stream, selected-field, JSONB, and fixed-group
 decoding, and removes the table.
+The evolution script performs V1 → V2 → V3 → V3 catalog installations and
+queries every historical fixed and variable payload after each refresh.
 See the root [SQL generation guide](../docs/sql-generation.md) for supported
 wire shapes and migration guidance.
 

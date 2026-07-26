@@ -249,13 +249,27 @@ Treat the generated catalog as application code:
 4. Exercise representative encoded binaries against PostgreSQL before release.
 
 `CREATE OR REPLACE FUNCTION` cannot change every PostgreSQL return shape in
-place. When adding or removing decoded columns, drop the affected typed and JSON
-functions before installing the new definitions:
+place. Use the statement APIs from a migration so drops and every generated
+function are executed individually:
 
-```sql
-DROP FUNCTION IF EXISTS gridcodec.decode_my_event(bytea);
-DROP FUNCTION IF EXISTS gridcodec.decode_my_event_json(bytea);
+```elixir
+modules = [MyApp.Events.OrderCreated, MyApp.Events.RiskScored]
+
+statements =
+  GridCodec.SQL.drop_statements(modules) ++
+    GridCodec.SQL.generate_all_statements(modules)
+
+Enum.each(statements, &Ecto.Migration.execute/1)
 ```
+
+Do not parse `generate_all/1` with a consumer-owned regex. That can silently
+miss new function forms such as scalar readers with `PARALLEL SAFE`.
+
+Fields marked `since: N` are guarded by the encoded header version in typed,
+JSONB, and scalar decoders. Historical payloads return `NULL` for fields added
+after their version instead of reading past the old fixed block. Variable data
+starts at the block length stored in each payload header, so an older string
+tail remains readable after later fixed-field appends.
 
 Keep old application binaries in mind during rolling deploys. Installing a
 decoder for a new event type is additive; replacing a decoder used by both old
@@ -268,6 +282,9 @@ The example application includes:
 - `test/example_app/sql_generation_test.exs` for consumer-side SQL generation.
 - `priv/sql_integration_test.exs` for encode, store, install, and PostgreSQL
   decode coverage, including a fixed typed group.
+- `priv/sql_decoder_evolution_test.exs` for V1 → V2 → V3 catalog refreshes,
+  historical fixed/variable payloads, scalar readers, JSONB, and an idempotent
+  V3 reinstall.
 - `benchmarks/sql_decode_bench.exs` for PostgreSQL decoding and indexed
   whole-stream query baselines, including raw plus BEAM, selected scalar
   columns, typed rows, JSONB, and a configurable large scalar workload.
@@ -280,6 +297,7 @@ DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 GRIDCODEC_SQL_SCALAR_ROWS=2000000 DATABASE_HOST=db MIX_ENV=prod \
   mix run benchmarks/sql_decode_bench.exs
 mix run priv/sql_integration_test.exs
+mix run priv/sql_decoder_evolution_test.exs
 ```
 
 The SQL benchmark reports `EXPLAIN ANALYZE` execution time, throughput,
@@ -298,5 +316,5 @@ event fixed-field aggregate completed in about 0.90 seconds (2.23 million
 events/second) while reading part of the table from shared storage. Treat these
 as relative baselines, not hardware-independent promises.
 
-The integration and benchmark scripts require PostgreSQL and `psql`; configure
-`ExampleApp.Repo` before running them.
+The integration and benchmark scripts require PostgreSQL; the broad integration
+script also invokes `psql`. Configure `ExampleApp.Repo` before running them.

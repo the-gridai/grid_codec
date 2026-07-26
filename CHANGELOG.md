@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indexed stream functions that return raw `bytea` or selected native columns,
   avoiding full JSONB materialization when applications only need replay or a
   few query fields.
+- **Migration-safe SQL catalogs** — expose individual drop/install statements,
+  guard `since:` fields by the wire-header version, and locate variable tails
+  from each payload's encoded block length. A PostgreSQL integration test now
+  proves V1 → V2 → V3 → V3 refreshes against all historical events.
 - **Optional PL/Rust TLE package** — generate an experimental pg_tle package
   containing bounds-checked native fixed-width readers for PostgreSQL 13–17;
   pure SQL remains the portable default and PostgreSQL 18 path.

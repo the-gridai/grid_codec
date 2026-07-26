@@ -189,6 +189,7 @@ cd example_app && mix test test/example_app/sql_generation_test.exs
 cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 # With PostgreSQL configured:
 cd example_app && mix run priv/sql_integration_test.exs
+cd example_app && mix run priv/sql_decoder_evolution_test.exs
 ```
 
 ## Phase 7: Performance Baseline
@@ -214,6 +215,8 @@ Check:
 - [ ] SQL report includes execution time, buffers/temp spill, decoded size,
   retained backend memory, and external PostgreSQL CPU/RSS where available
 - [ ] Optional PL/Rust changes retain and test the pure-SQL/PostgreSQL 18 path
+- [ ] V1 → V2 → V3 → V3 catalog refreshes preserve historical fixed and
+  variable payload queries
 
 ## Phase 8: Cross-Repo Compatibility
 

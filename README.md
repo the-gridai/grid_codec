@@ -522,6 +522,11 @@ Use `decode: {:fields, EventModule, [:field, ...]}` for native PostgreSQL
 columns, or the default `decode: :jsonb` only when a complete JSON document is
 actually required.
 
+Migration refreshes should execute
+`GridCodec.SQL.drop_statements/1 ++ GridCodec.SQL.generate_all_statements/1`.
+Versioned fields are guarded by the payload header, so V1 binaries remain
+queryable after V2/V3 fields are added with `since:`.
+
 The generated typed decoder exposes fixed repeating groups as `jsonb` columns,
 and the universal decoder returns them as ordered JSON arrays. SQL generation
 supports standard fixed groups whose wire header contains `blockLength` and

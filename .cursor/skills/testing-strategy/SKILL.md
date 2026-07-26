@@ -320,6 +320,11 @@ representation (`:raw`, selected fixed fields, and JSONB), plus PostgreSQL
 parity coverage for raw binaries and projected native values. Optional PL/Rust
 generation must be tested separately and may not replace the portable SQL path.
 
+Schema or SQL lifecycle changes must run
+`example_app/priv/sql_decoder_evolution_test.exs`. It performs sequential
+V1 → V2 → V3 → V3 catalog refreshes and re-queries all historical fixed and
+variable payloads after each migration-shaped update.
+
 ## When to Add Tests
 
 | Change | Required tests |

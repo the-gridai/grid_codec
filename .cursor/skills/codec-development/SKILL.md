@@ -114,6 +114,8 @@ For every new type, group style, field option, or layout change:
   scalar columns, typed rows, and JSONB are different workloads.
 - [ ] Keep PL/Rust/TLE acceleration optional and preserve pure SQL for
   PostgreSQL 18 and providers without PL/Rust.
+- [ ] For schema evolution, use the generated drop/install statement APIs and
+  run the V1 → V2 → V3 PostgreSQL evolution test; do not regex-parse catalog SQL.
 - [ ] When practical, execute generated SQL against PostgreSQL using
   `example_app/priv/sql_integration_test.exs`.
 
