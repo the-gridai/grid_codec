@@ -186,7 +186,7 @@ Whenever a type, group, field option, or wire layout changes, check:
 ```bash
 mix test test/grid_codec/sql_test.exs test/mix/tasks/gridcodec_sql_test.exs
 cd example_app && mix test test/example_app/sql_generation_test.exs
-cd example_app && MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
+cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 # With PostgreSQL configured:
 cd example_app && mix run priv/sql_integration_test.exs
 ```
@@ -200,7 +200,7 @@ Run the benchmark suite and record baselines:
 cd example_app && mix run benchmarks/quick_bench.exs
 cd example_app && mix run benchmarks/group_bench.exs
 cd example_app && mix run benchmarks/lookup_bench.exs
-cd example_app && MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
+cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 ```
 
 Check:
@@ -208,7 +208,10 @@ Check:
 - [ ] Decode throughput matches expected range
 - [ ] No regression from previous known baselines
 - [ ] Lookup benchmarks show generated accessors outperform manual pipelines
-- [ ] SQL generation has fixed-codec, grouped-codec, and catalog baselines
+- [ ] SQL decoding has single-event, fixed-stream, grouped-stream, and
+  full-result retrieval baselines
+- [ ] SQL report includes execution time, buffers/temp spill, decoded size,
+  retained backend memory, and external PostgreSQL CPU/RSS where available
 
 ## Phase 8: Cross-Repo Compatibility
 

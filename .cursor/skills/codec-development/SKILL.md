@@ -106,8 +106,10 @@ For every new type, group style, field option, or layout change:
   groups; derive offsets from wire headers where compatibility requires it.
 - [ ] Add or update a consumer fixture in `example_app/` and verify
   `GridCodec.SQL.generate/1` plus `generate_all/1`.
-- [ ] Update `docs/sql-generation.md` and run
-  `MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs`.
+- [ ] Update `docs/sql-generation.md` and run the PostgreSQL decoder benchmark:
+  `DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs`.
+- [ ] Review cached execution time, buffers/temp spill, decoded payload size,
+  retained backend memory, and external PostgreSQL CPU/RSS for large streams.
 - [ ] When practical, execute generated SQL against PostgreSQL using
   `example_app/priv/sql_integration_test.exs`.
 

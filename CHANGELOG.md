@@ -10,9 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **PostgreSQL support lifecycle** — added a dedicated SQL generation guide,
-  consumer-level example coverage, fixed-group integration usage, generation
-  benchmarks, and agent quality gates that require every new wire feature to
-  support SQL explicitly or fail with a documented limitation.
+  consumer-level example coverage, fixed-group integration usage, indexed
+  whole-stream decoder generation, database execution/memory benchmarks, and
+  agent quality gates that require every new wire feature to support SQL
+  explicitly or fail with a documented limitation.
 
 ## [0.49.0] - 2026-07-26
 

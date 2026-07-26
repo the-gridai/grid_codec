@@ -25,10 +25,17 @@ Repo.query!("""
 CREATE TABLE gridcodec_test_events (
   id serial PRIMARY KEY,
   stream_id text NOT NULL,
+  stream_version bigint NOT NULL,
   event_type text NOT NULL,
   data bytea NOT NULL,
-  created_at timestamptz DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+  UNIQUE (stream_id, stream_version)
 )
+""")
+
+Repo.query!("""
+CREATE INDEX gridcodec_test_events_stream_idx
+  ON gridcodec_test_events (stream_id, stream_version)
 """)
 
 # ============================================================================
@@ -38,7 +45,7 @@ CREATE TABLE gridcodec_test_events (
 IO.puts("2. Inserting encoded events...")
 
 events = [
-  {"market-1",
+  {"market-1", 1,
    %OrderCreated{
      order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
      user_id: 42,
@@ -49,7 +56,7 @@ events = [
      timestamp: 1_709_000_000_000_000,
      flags: 1
    }},
-  {"market-1",
+  {"market-1", 2,
    %OrderCreated{
      order_id: <<16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1>>,
      user_id: 99,
@@ -60,7 +67,7 @@ events = [
      timestamp: 1_709_000_001_000_000,
      flags: 0
    }},
-  {"market-1",
+  {"market-1", 3,
    %OrderCreated{
      order_id: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99>>,
      user_id: nil,
@@ -71,7 +78,7 @@ events = [
      timestamp: nil,
      flags: nil
    }},
-  {"market-2",
+  {"market-2", 1,
    %TradeExecuted{
      trade_id: <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
      order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
@@ -80,7 +87,7 @@ events = [
      quantity: 50,
      timestamp: 1_709_000_002_000_000
    }},
-  {"account-7",
+  {"account-7", 1,
    %CurrencyAccount{
      account_id: 7,
      reservations: [
@@ -102,13 +109,16 @@ events = [
    }}
 ]
 
-for {stream_id, event} <- events do
+for {stream_id, stream_version, event} <- events do
   {:ok, binary} = event.__struct__.encode(event)
   type_name = event.__struct__.__type__()
 
   Repo.query!(
-    "INSERT INTO gridcodec_test_events (stream_id, event_type, data) VALUES ($1, $2, $3)",
-    [stream_id, type_name, binary]
+    """
+    INSERT INTO gridcodec_test_events (stream_id, stream_version, event_type, data)
+    VALUES ($1, $2, $3, $4)
+    """,
+    [stream_id, stream_version, type_name, binary]
   )
 end
 
@@ -120,7 +130,14 @@ IO.puts("   Inserted #{length(events)} events\n")
 
 IO.puts("3. Generating and installing SQL functions...")
 
-sql = GridCodec.SQL.generate_all([OrderCreated, TradeExecuted, CurrencyAccount])
+sql =
+  GridCodec.SQL.generate_all([OrderCreated, TradeExecuted, CurrencyAccount]) <>
+    GridCodec.SQL.generate_stream_decoder(
+      function: "public.gridcodec_test_decode_stream",
+      table: "public.gridcodec_test_events",
+      stream_id_type: :text
+    )
+
 tmp_path = Path.join(System.tmp_dir!(), "gridcodec_functions.sql")
 File.write!(tmp_path, sql)
 
@@ -271,10 +288,37 @@ end
 IO.puts("")
 
 # ============================================================================
-# 10. Cleanup
+# 10. Retrieve and decode one complete stream
 # ============================================================================
 
-IO.puts("10. Cleaning up...")
+IO.puts("10. Decoded market-1 stream:")
+
+%{rows: stream_rows} =
+  Repo.query!(
+    """
+    SELECT stream_version, event_type, decoded
+    FROM public.gridcodec_test_decode_stream($1)
+    """,
+    ["market-1"]
+  )
+
+IO.inspect(stream_rows, label: "   events")
+
+unless Enum.map(stream_rows, &hd/1) == [1, 2, 3] and
+         Enum.all?(stream_rows, fn [_version, type, decoded] ->
+           type == "OrderCreated" and is_map(decoded)
+         end) do
+  raise "set-based stream SQL decoding returned unexpected events"
+end
+
+IO.puts("")
+
+# ============================================================================
+# 11. Cleanup
+# ============================================================================
+
+IO.puts("11. Cleaning up...")
+Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_decode_stream(text);")
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")
 

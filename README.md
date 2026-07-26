@@ -499,6 +499,18 @@ SELECT (gridcodec.decode_ordercreated(data)).* FROM events;
 SELECT gridcodec.decode('OrderCreated', data)->>'price' FROM events;
 ```
 
+For a consumer-owned event table, generate an indexed, version-ordered stream
+function and retrieve the decoded stream in one database call:
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "risk.decode_user_stream",
+  table: "risk.recorded_events",
+  stream_id_type: :uuid,
+  stream_id_column: :stream_uuid
+)
+```
+
 The generated typed decoder exposes fixed repeating groups as `jsonb` columns,
 and the universal decoder returns them as ordered JSON arrays. SQL generation
 supports standard fixed groups whose wire header contains `blockLength` and

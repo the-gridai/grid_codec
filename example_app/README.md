@@ -21,7 +21,7 @@ example_app/
 │   ├── quick_bench.exs       # Quick dev benchmark
 │   ├── parameterized_bench.exs  # Size-parameterized benchmarks
 │   ├── encode_decode.exs     # Encode/decode performance
-│   ├── sql_generation_bench.exs # PostgreSQL SQL-generation performance
+│   ├── sql_decode_bench.exs # PostgreSQL decode and stream-query performance
 │   ├── data_structures.exs   # Test data definitions
 │   └── config.exs            # Benchmark configuration
 └── mix.exs
@@ -57,14 +57,14 @@ mix bench.parameterized
 # Validation pipeline benchmark
 mix bench.validation
 
-# PostgreSQL SQL-generation benchmark
-MIX_ENV=prod mix bench.sql
+# PostgreSQL decode and indexed stream-query benchmark
+DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 
 # Or run directly
 mix run benchmarks/encode_decode.exs
 MIX_ENV=prod mix run benchmarks/lookup_bench.exs
 MIX_ENV=prod mix run benchmarks/validation_bench.exs
-MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
+DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 ```
 
 ### Example Codecs
@@ -150,11 +150,22 @@ sql =
   ])
 ```
 
+Consumer-owned event tables can expose a one-call, version-ordered stream API:
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "public.decode_event_stream",
+  table: "public.events",
+  stream_id_type: :text
+)
+```
+
 Run the consumer-level generation test and optional PostgreSQL integration:
 
 ```bash
 mix test test/example_app/sql_generation_test.exs
 mix run priv/sql_integration_test.exs
+DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 ```
 
 The integration script creates a temporary event table, installs the generated

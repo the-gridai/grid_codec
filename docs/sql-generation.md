@@ -80,6 +80,41 @@ WHERE e.schema_id = 2
   AND e.created_at >= now() - interval '1 day';
 ```
 
+## Decode a complete indexed stream
+
+GridCodec does not assume an event table name or envelope schema. Consumers can
+generate a set-returning function for their own table:
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "risk.decode_user_stream",
+  table: "risk.recorded_events",
+  stream_id_type: :uuid,
+  stream_id_column: :stream_uuid
+)
+```
+
+The generated function returns `stream_version`, `event_type`, and decoded
+JSONB in version order:
+
+```sql
+SELECT *
+FROM risk.decode_user_stream('98a01a76-614d-48b7-9364-d0c79a7684c1');
+```
+
+The event table should have an index beginning with the native stream-id and
+version columns:
+
+```sql
+CREATE INDEX recorded_events_stream_timeline_idx
+ON risk.recorded_events (stream_uuid, stream_version);
+```
+
+The generated predicate does not cast the stream-id column, so PostgreSQL can
+use that index. Supported argument types are `:text`, `:uuid`, `:bigint`, and
+`:integer`. Envelope column names are configurable; see
+`GridCodec.SQL.generate_stream_decoder/1`.
+
 ## Fixed repeating groups
 
 Standard fixed groups use a four-byte wire header:
@@ -175,16 +210,23 @@ The example application includes:
 - `test/example_app/sql_generation_test.exs` for consumer-side SQL generation.
 - `priv/sql_integration_test.exs` for encode, store, install, and PostgreSQL
   decode coverage, including a fixed typed group.
-- `benchmarks/sql_generation_bench.exs` for fixed-codec, grouped-codec, and
-  catalog generation baselines.
+- `benchmarks/sql_decode_bench.exs` for PostgreSQL decoding and indexed
+  whole-stream query baselines.
 
 Run them from `example_app/`:
 
 ```bash
 mix test test/example_app/sql_generation_test.exs
-MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
+DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 mix run priv/sql_integration_test.exs
 ```
 
-The integration script requires PostgreSQL and `psql`; configure
-`ExampleApp.Repo` before running it.
+The SQL benchmark reports cached `EXPLAIN ANALYZE` execution time, decoded JSON
+size, shared/read/temp buffers, plan-node peak memory when PostgreSQL exposes
+it, and retained backend-memory delta. Cached execution time is a CPU-dominant
+proxy rather than a direct process-CPU counter. Retained memory is not peak
+resident set size; production capacity tests should also observe PostgreSQL
+process/container CPU and RSS externally.
+
+The integration and benchmark scripts require PostgreSQL and `psql`; configure
+`ExampleApp.Repo` before running them.

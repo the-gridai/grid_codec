@@ -282,6 +282,68 @@ defmodule GridCodec.SQLTest do
     end
   end
 
+  describe "generate_stream_decoder/1" do
+    test "generates an index-friendly set-returning stream decoder" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "risk.decode_user_stream",
+          table: "risk.recorded_events",
+          stream_id_type: :uuid,
+          stream_id_column: :stream_uuid
+        )
+
+      assert sql =~
+               "CREATE OR REPLACE FUNCTION \"risk\".\"decode_user_stream\"(target_stream_id uuid)"
+
+      assert sql =~ "RETURNS TABLE (stream_version bigint, event_type text, decoded jsonb)"
+      assert sql =~ ~s(FROM "risk"."recorded_events" AS events)
+      assert sql =~ ~s(events."stream_uuid" = target_stream_id)
+      assert sql =~ ~s(ORDER BY events."stream_version")
+
+      assert sql =~
+               ~s|gridcodec.decode(events."event_type"::text, events."data") AS decoded|
+
+      refute sql =~ ~s(events."stream_uuid"::text)
+      assert sql =~ "LANGUAGE sql STABLE ROWS 1000"
+    end
+
+    test "supports common envelope column names and stream id types" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "public.decode_account_events",
+          table: "public.account_events",
+          stream_id_type: :bigint,
+          stream_id_column: :account_id,
+          stream_version_column: :position,
+          event_type_column: :type,
+          data_column: :payload
+        )
+
+      assert sql =~ "target_stream_id bigint"
+      assert sql =~ ~s(events."account_id" = target_stream_id)
+      assert sql =~ ~s(events."position"::bigint AS stream_version)
+      assert sql =~ ~s(events."type"::text AS event_type)
+      assert sql =~ ~s|gridcodec.decode(events."type"::text, events."payload")|
+    end
+
+    test "rejects unsafe identifiers and unsupported stream id types" do
+      assert_raise ArgumentError, ~r/invalid SQL identifier/, fn ->
+        SQL.generate_stream_decoder(
+          function: "risk.decode_stream; DROP TABLE users",
+          table: "risk.events"
+        )
+      end
+
+      assert_raise ArgumentError, ~r/unsupported stream_id_type/, fn ->
+        SQL.generate_stream_decoder(
+          function: "risk.decode_stream",
+          table: "risk.events",
+          stream_id_type: "uuid); DROP TABLE users; --"
+        )
+      end
+    end
+  end
+
   @generate_all_sql SQL.generate_all()
 
   describe "generate_all/0" do

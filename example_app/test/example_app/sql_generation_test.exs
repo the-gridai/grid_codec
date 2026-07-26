@@ -23,4 +23,18 @@ defmodule ExampleApp.SQLGenerationTest do
 
     assert catalog_sql =~ "WHEN type_name = 'OrderCreated'"
   end
+
+  test "consumer event tables can expose an indexed whole-stream decoder" do
+    sql =
+      SQL.generate_stream_decoder(
+        function: "public.decode_gridcodec_test_stream",
+        table: "public.gridcodec_test_events",
+        stream_id_type: :text
+      )
+
+    assert sql =~ "target_stream_id text"
+    assert sql =~ ~s(events."stream_id" = target_stream_id)
+    assert sql =~ ~s(ORDER BY events."stream_version")
+    assert sql =~ ~s|gridcodec.decode(events."event_type"::text, events."data")|
+  end
 end

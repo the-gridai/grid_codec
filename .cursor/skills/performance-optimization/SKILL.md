@@ -68,6 +68,23 @@ For groups, generate dedicated recursive functions instead of using `Enum.map` +
 - `example_app/benchmarks/parallel_threshold.exs` — find the parallel crossover point
 - `example_app/benchmarks/constructor_bench.exs` — new/1, coercion, validation, content_hash, decode_only
 - `example_app/benchmarks/constructor_profile.exs` — tprof analysis of new/1 internals
+- `example_app/benchmarks/sql_decode_bench.exs` — PostgreSQL single-event,
+  fixed/grouped stream decode, buffers, decoded size, and retained memory
+
+### PostgreSQL decoder benchmarks
+
+Do not benchmark SQL string generation as a database-performance proxy. Run the
+generated functions against PostgreSQL with representative stream sizes and
+force decoded JSON to be consumed.
+
+- Use cached `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` execution time as a
+  CPU-dominant proxy, and state that it is not direct process CPU.
+- Report shared/read/temp blocks and plan-node peak memory where available.
+- Report decoded JSON bytes and retained `pg_backend_memory_contexts` delta.
+- Observe PostgreSQL process/container CPU and peak RSS externally for capacity
+  tests; retained memory is not peak resident memory.
+- Compare single-event, 100-event, 1,000-event, grouped, and full-result
+  retrieval paths through an indexed `(stream_id, stream_version)` timeline.
 
 ## `get(..., copy: true)` (memory vs CPU)
 

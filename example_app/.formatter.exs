@@ -3,7 +3,7 @@
   inputs: [
     "{mix,.formatter}.exs",
     "{config,lib,test}/**/*.{ex,exs}",
-    "benchmarks/sql_generation_bench.exs",
+    "benchmarks/sql_decode_bench.exs",
     "priv/sql_integration_test.exs"
   ]
 ]

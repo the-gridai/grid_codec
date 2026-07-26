@@ -13,6 +13,15 @@ defmodule GridCodec.SQL do
       # Generate SQL for all registered codecs
       sql = GridCodec.SQL.generate_all()
 
+      # Generate a consumer-owned indexed stream decoder
+      stream_sql =
+        GridCodec.SQL.generate_stream_decoder(
+          function: "risk.decode_user_stream",
+          table: "risk.recorded_events",
+          stream_id_type: :uuid,
+          stream_id_column: :stream_uuid
+        )
+
       # Write to file
       GridCodec.SQL.generate_all_to_file("priv/gridcodec_functions.sql")
 
@@ -34,6 +43,12 @@ defmodule GridCodec.SQL do
   """
 
   @header_size 8
+  @stream_id_types %{
+    bigint: "bigint",
+    integer: "integer",
+    text: "text",
+    uuid: "uuid"
+  }
 
   @doc """
   Generates the shared SQL helper functions and schema setup.
@@ -296,11 +311,102 @@ defmodule GridCodec.SQL do
     {:ok, path}
   end
 
+  @doc """
+  Generates a set-returning PostgreSQL function for one indexed event stream.
+
+  The consumer supplies its table and function names because GridCodec does not
+  own an event-envelope schema. The generated function filters on the native
+  stream-id type before decoding, preserving use of a `(stream_id,
+  stream_version)` index.
+
+  Required options:
+
+  - `:function` — qualified function name, for example `"risk.decode_user_stream"`
+  - `:table` — qualified event table name, for example `"risk.recorded_events"`
+
+  Optional options:
+
+  - `:stream_id_type` — `:text`, `:uuid`, `:bigint`, or `:integer` (default: `:text`)
+  - `:stream_id_column` — stream identifier column (default: `:stream_id`)
+  - `:stream_version_column` — ordering column (default: `:stream_version`)
+  - `:event_type_column` — GridCodec type-name column (default: `:event_type`)
+  - `:data_column` — GridCodec `bytea` column (default: `:data`)
+
+  The event table should have an index beginning with the stream-id and version
+  columns. All identifiers are validated and quoted.
+  """
+  def generate_stream_decoder(opts) when is_list(opts) do
+    function_name = opts |> Keyword.fetch!(:function) |> qualified_identifier!()
+    table_name = opts |> Keyword.fetch!(:table) |> qualified_identifier!()
+    stream_id_type = opts |> Keyword.get(:stream_id_type, :text) |> stream_id_type!()
+    stream_id_column = opts |> Keyword.get(:stream_id_column, :stream_id) |> identifier!()
+
+    stream_version_column =
+      opts |> Keyword.get(:stream_version_column, :stream_version) |> identifier!()
+
+    event_type_column = opts |> Keyword.get(:event_type_column, :event_type) |> identifier!()
+    data_column = opts |> Keyword.get(:data_column, :data) |> identifier!()
+
+    """
+    -- Set-based decoder for an indexed consumer-owned event stream
+    CREATE OR REPLACE FUNCTION #{function_name}(target_stream_id #{stream_id_type})
+    RETURNS TABLE (stream_version bigint, event_type text, decoded jsonb)
+    AS $$
+    SELECT
+      events.#{stream_version_column}::bigint AS stream_version,
+      events.#{event_type_column}::text AS event_type,
+      gridcodec.decode(events.#{event_type_column}::text, events.#{data_column}) AS decoded
+    FROM #{table_name} AS events
+    WHERE events.#{stream_id_column} = target_stream_id
+    ORDER BY events.#{stream_version_column};
+    $$ LANGUAGE sql STABLE ROWS 1000;
+    """
+  end
+
   defp gridcodec_codec?(mod) do
     Code.ensure_loaded?(mod) and
       function_exported?(mod, :__gridcodec_struct__?, 0) and
       function_exported?(mod, :__field_specs__, 0) and
       function_exported?(mod, :__type__, 0)
+  end
+
+  defp qualified_identifier!(value) do
+    value
+    |> identifier_string!()
+    |> String.split(".")
+    |> case do
+      [_name] = parts -> Enum.map_join(parts, ".", &quote_identifier!/1)
+      [_schema, _name] = parts -> Enum.map_join(parts, ".", &quote_identifier!/1)
+      _parts -> raise ArgumentError, "invalid SQL identifier: #{inspect(value)}"
+    end
+  end
+
+  defp identifier!(value) do
+    value
+    |> identifier_string!()
+    |> quote_identifier!()
+  end
+
+  defp identifier_string!(value) when is_atom(value), do: Atom.to_string(value)
+  defp identifier_string!(value) when is_binary(value), do: value
+
+  defp identifier_string!(value) do
+    raise ArgumentError, "invalid SQL identifier: #{inspect(value)}"
+  end
+
+  defp quote_identifier!(value) do
+    if Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_$]*$/, value) do
+      ~s("#{value}")
+    else
+      raise ArgumentError, "invalid SQL identifier: #{inspect(value)}"
+    end
+  end
+
+  defp stream_id_type!(type) do
+    case Map.fetch(@stream_id_types, type) do
+      {:ok, sql_type} -> sql_type
+      :error -> raise ArgumentError, "unsupported stream_id_type: #{inspect(type)}"
+    end
   end
 
   defp sql_generation_supported?(module) do
