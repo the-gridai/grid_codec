@@ -2,6 +2,8 @@
 #
 # Run from example_app/:
 #   DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
+#   GRIDCODEC_SQL_SKIP_LATENCY=1 DATABASE_HOST=db MIX_ENV=prod \
+#     mix run benchmarks/sql_decode_bench.exs
 #
 # Cached PostgreSQL execution time is a CPU-dominant proxy, not a direct
 # process-CPU counter. Retained backend memory and plan-node peak memory are
@@ -21,6 +23,7 @@ defmodule SQLDecodeBench do
   @stream_function "gridcodec_sql_bench_decode_stream"
   @raw_stream_function "gridcodec_sql_bench_read_stream"
   @projected_stream_function "gridcodec_sql_bench_project_stream"
+  @typed_stream_function "gridcodec_sql_bench_typed_stream"
   @scalar_rows System.get_env("GRIDCODEC_SQL_SCALAR_ROWS", "100000") |> String.to_integer()
 
   def run do
@@ -30,7 +33,10 @@ defmodule SQLDecodeBench do
     try do
       print_database_report()
       print_fast_path_report()
-      run_latency_benchmarks()
+
+      unless System.get_env("GRIDCODEC_SQL_SKIP_LATENCY") == "1" do
+        run_latency_benchmarks()
+      end
     after
       cleanup!()
     end
@@ -40,6 +46,7 @@ defmodule SQLDecodeBench do
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@typed_stream_function}(text)")
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
 
     Repo.query!("""
@@ -91,6 +98,12 @@ defmodule SQLDecodeBench do
           table: "public.#{@table}",
           stream_id_type: :text,
           decode: {:fields, OrderCreated, [:side, :price, :quantity]}
+        ) <>
+        SQL.generate_stream_decoder(
+          function: "public.#{@typed_stream_function}",
+          table: "public.#{@table}",
+          stream_id_type: :text,
+          decode: {:typed, OrderCreated}
         )
 
     path = Path.join(System.tmp_dir!(), "gridcodec_sql_benchmark.sql")
@@ -253,6 +266,61 @@ defmodule SQLDecodeBench do
           """
           SELECT count(*)::bigint, sum(quantity), sum(price)
           FROM public.#{@projected_stream_function}($1)
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "native UUID column / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint,
+                 sum(pg_column_size(gridcodec.read_ordercreated_order_id(data)))::bigint
+          FROM #{@table}
+          WHERE stream_id = $1
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "native string column / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint,
+                 sum(pg_column_size(gridcodec.read_string16(
+                   data,
+                   8 + gridcodec.read_u16(data, 0)
+                 )))::bigint
+          FROM #{@table}
+          WHERE stream_id = $1
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "native timestamp column / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint,
+                 sum(pg_column_size(gridcodec.read_ordercreated_timestamp(data)))::bigint
+          FROM #{@table}
+          WHERE stream_id = $1
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "set-based native typed rows / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint,
+                 sum(pg_column_size(ROW(
+                   order_id,
+                   user_id,
+                   symbol,
+                   side,
+                   price,
+                   quantity,
+                   timestamp,
+                   flags
+                 )))::bigint
+          FROM public.#{@typed_stream_function}($1)
           """,
           ["fixed-1000"]
         },
@@ -443,6 +511,9 @@ defmodule SQLDecodeBench do
         "retrieve selected columns / 1000 events" => fn ->
           Repo.query!("SELECT * FROM public.#{@projected_stream_function}($1)", ["fixed-1000"])
         end,
+        "retrieve native typed rows / 1000 events" => fn ->
+          Repo.query!("SELECT * FROM public.#{@typed_stream_function}($1)", ["fixed-1000"])
+        end,
         "decode fixed stream / 1 event" => fn -> aggregate_stream!("fixed-1") end,
         "decode fixed stream / 100 events" => fn -> aggregate_stream!("fixed-100") end,
         "decode fixed stream / 1000 events" => fn -> aggregate_stream!("fixed-1000") end,
@@ -468,6 +539,7 @@ defmodule SQLDecodeBench do
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@typed_stream_function}(text)")
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
   end
 end

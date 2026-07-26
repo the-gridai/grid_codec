@@ -215,6 +215,12 @@ sql =
       table: "public.gridcodec_test_events",
       stream_id_type: :text,
       decode: {:fields, OrderCreated, [:side, :price, :quantity]}
+    ) <>
+    GridCodec.SQL.generate_stream_decoder(
+      function: "public.gridcodec_test_typed_order_stream",
+      table: "public.gridcodec_test_events",
+      stream_id_type: :text,
+      decode: {:typed, OrderCreated}
     )
 
 tmp_path = Path.join(System.tmp_dir!(), "gridcodec_functions.sql")
@@ -240,6 +246,20 @@ end
 
 File.rm!(tmp_path)
 IO.puts("   SQL functions installed via psql\n")
+
+%{rows: [[zero, maximum, minimum, negative_one]]} =
+  Repo.query!("""
+  SELECT
+    gridcodec.read_i64_bigint('\\x0000000000000000'::bytea, 0),
+    gridcodec.read_i64_bigint('\\xffffffffffffffff7f'::bytea, 1),
+    gridcodec.read_i64_bigint('\\x000000000000000080'::bytea, 1),
+    gridcodec.read_i64_bigint('\\xffffffffffffffffff'::bytea, 1)
+  """)
+
+unless {zero, maximum, minimum, negative_one} ==
+         {0, 9_223_372_036_854_775_807, -9_223_372_036_854_775_808, -1} do
+  raise "native signed i64 SQL decoding returned unexpected values"
+end
 
 # ============================================================================
 # 4. Query raw events
@@ -451,6 +471,55 @@ unless projected_rows == [
   raise "fixed-field stream projection returned unexpected rows"
 end
 
+%{rows: typed_rows} =
+  Repo.query!(
+    """
+    SELECT
+      stream_version,
+      event_type,
+      order_id,
+      user_id::bigint,
+      symbol,
+      side,
+      price::bigint,
+      quantity,
+      timestamp,
+      flags
+    FROM public.gridcodec_test_typed_order_stream($1)
+    """,
+    ["market-1"]
+  )
+
+unless [
+         [
+           1,
+           "OrderCreated",
+           _,
+           42,
+           "BTC/USD",
+           "buy",
+           67_500,
+           100,
+           %DateTime{},
+           1
+         ],
+         [
+           2,
+           "OrderCreated",
+           _,
+           99,
+           "ETH/USD",
+           "sell",
+           3_400,
+           50,
+           %DateTime{},
+           0
+         ],
+         [3, "OrderCreated", _, nil, nil, nil, nil, nil, nil, nil]
+       ] = typed_rows do
+  raise "native typed stream projection returned unexpected rows"
+end
+
 IO.puts("")
 
 # ============================================================================
@@ -461,6 +530,7 @@ IO.puts("12. Cleaning up...")
 Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_decode_stream(text);")
 Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_read_stream(text);")
 Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_project_order_stream(text);")
+Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_typed_order_stream(text);")
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")
 

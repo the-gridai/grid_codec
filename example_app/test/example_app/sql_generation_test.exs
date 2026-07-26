@@ -61,5 +61,20 @@ defmodule ExampleApp.SQLGenerationTest do
     assert projected_sql =~ "gridcodec.read_ordercreated_price"
     assert projected_sql =~ "gridcodec.read_ordercreated_quantity"
     refute projected_sql =~ "gridcodec.decode("
+
+    typed_sql =
+      SQL.generate_stream_decoder(
+        function: "public.read_typed_order_stream",
+        table: "public.gridcodec_test_events",
+        decode: {:typed, OrderCreated}
+      )
+
+    assert typed_sql =~ ~s("order_id" uuid)
+    assert typed_sql =~ ~s("symbol" text)
+    assert typed_sql =~ ~s|gridcodec.read_uuid_nullable(events."data", 8)|
+    assert typed_sql =~ ~s|gridcodec.read_string16(events."data",|
+    refute typed_sql =~ "gridcodec.read_ordercreated_"
+    refute typed_sql =~ "gridcodec.decode("
+    refute typed_sql =~ "jsonb"
   end
 end

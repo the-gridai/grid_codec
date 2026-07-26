@@ -19,7 +19,8 @@ defmodule GridCodec.SQL do
           function: "risk.decode_user_stream",
           table: "risk.recorded_events",
           stream_id_type: :uuid,
-          stream_id_column: :stream_uuid
+          stream_id_column: :stream_uuid,
+          decode: {:typed, MyApp.Events.OrderSubmitted}
         )
 
       # Write to file
@@ -142,6 +143,19 @@ defmodule GridCodec.SQL do
       END;
     $$ LANGUAGE sql IMMUTABLE STRICT;
 
+    -- Native signed i64 reader for fields that fit PostgreSQL bigint exactly
+    CREATE OR REPLACE FUNCTION gridcodec.read_i64_bigint(data bytea, pos int)
+    RETURNS bigint AS $$
+      SELECT get_byte(data, pos)::bigint
+           | (get_byte(data, pos + 1)::bigint << 8)
+           | (get_byte(data, pos + 2)::bigint << 16)
+           | (get_byte(data, pos + 3)::bigint << 24)
+           | (get_byte(data, pos + 4)::bigint << 32)
+           | (get_byte(data, pos + 5)::bigint << 40)
+           | (get_byte(data, pos + 6)::bigint << 48)
+           | (get_byte(data, pos + 7)::bigint << 56);
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
+
     -- UUID reader: 16 bytes → uuid
     CREATE OR REPLACE FUNCTION gridcodec.read_uuid(data bytea, pos int)
     RETURNS uuid AS $$
@@ -193,11 +207,13 @@ defmodule GridCodec.SQL do
     CREATE OR REPLACE FUNCTION gridcodec.read_timestamp_us(data bytea, pos int)
     RETURNS timestamptz AS $$
       SELECT CASE
-        WHEN gridcodec.read_i64(data, pos) = 0
+        WHEN gridcodec.read_i64_bigint(data, pos) = 0
         THEN NULL
-        ELSE to_timestamp(gridcodec.read_i64(data, pos) / 1000000.0)
+        ELSE to_timestamp(
+          gridcodec.read_i64_bigint(data, pos)::double precision / 1000000.0
+        )
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- PrefixedId reader: 1 byte tag + 16 byte UUID → tag:uuid text
     -- Null: tag=0 and uuid=all-zeros
@@ -496,6 +512,8 @@ defmodule GridCodec.SQL do
   - `:data_column` — GridCodec `bytea` column (default: `:data`)
   - `:decode` — representation mode (default: `:jsonb`):
     - `:raw` returns the original `bytea` for BEAM decoding
+    - `{:typed, CodecModule}` returns every supported top-level field as a
+      native column in one set-based query
     - `{:fields, CodecModule, fields}` returns selected fixed fields as native
       columns and filters the stream to that codec's type
     - `:jsonb` returns a fully decoded JSONB payload
@@ -546,6 +564,16 @@ defmodule GridCodec.SQL do
     """
   end
 
+  @doc """
+  Generates the idempotent drop required before changing a stream decoder's
+  return shape.
+  """
+  def drop_stream_decoder_statement(opts) when is_list(opts) do
+    function_name = opts |> Keyword.fetch!(:function) |> qualified_identifier!()
+    stream_id_type = opts |> Keyword.get(:stream_id_type, :text) |> stream_id_type!()
+    "DROP FUNCTION IF EXISTS #{function_name}(#{stream_id_type});"
+  end
+
   defp stream_decode_spec!(:jsonb, event_type_column, data_column) do
     {
       "stream_version bigint, event_type text, decoded jsonb",
@@ -563,6 +591,32 @@ defmodule GridCodec.SQL do
       ["events.#{data_column} AS data"],
       nil,
       "raw reader"
+    }
+  end
+
+  defp stream_decode_spec!({:typed, module}, event_type_column, data_column)
+       when is_atom(module) do
+    unless gridcodec_codec?(module) do
+      raise ArgumentError, "not a GridCodec module: #{inspect(module)}"
+    end
+
+    fields = native_typed_fields!(module, "events.#{data_column}")
+
+    return_fields =
+      Enum.map_join(fields, ", ", fn {name, type, _expression} ->
+        ~s("#{name}" #{sql_column_type(type)})
+      end)
+
+    selects =
+      Enum.map(fields, fn {name, _type, expression} ->
+        ~s|#{expression} AS "#{name}"|
+      end)
+
+    {
+      "stream_version bigint, event_type text, #{return_fields}",
+      selects,
+      "events.#{event_type_column} = #{sql_literal(module.__type__())}",
+      "native typed projection"
     }
   end
 
@@ -600,6 +654,73 @@ defmodule GridCodec.SQL do
 
   defp stream_decode_spec!(decode, _event_type_column, _data_column) do
     raise ArgumentError, "unsupported stream decode mode: #{inspect(decode)}"
+  end
+
+  defp native_typed_fields!(module, data) do
+    schema = module.__schema__()
+    groups = build_group_specs!(module, schema)
+
+    if groups != [] do
+      raise ArgumentError,
+            "native typed projection does not support repeating groups for #{inspect(module)}"
+    end
+
+    field_specs = module.__field_specs__()
+    variable_expressions = native_variable_expressions!(schema.fields, field_specs, data)
+
+    fields =
+      Enum.flat_map(schema.fields, fn {name, type, opts} ->
+        case Map.get(field_specs, name) do
+          {type_mod, offset, _endian} ->
+            case sql_fast_value_expr(type, type_mod, offset, opts, data) do
+              nil ->
+                raise ArgumentError,
+                      "native typed projection does not support field #{inspect(name)} type #{inspect(type)}"
+
+              expression ->
+                [{name, type, expression}]
+            end
+
+          {:variable, _index} ->
+            [{name, type, Map.fetch!(variable_expressions, name)}]
+
+          nil ->
+            []
+        end
+      end)
+
+    if fields == [] do
+      raise ArgumentError, "native typed projection requires at least one supported field"
+    end
+
+    fields
+  end
+
+  defp native_variable_expressions!(fields, field_specs, data) do
+    variable_fields =
+      Enum.filter(fields, fn {name, _type, _opts} ->
+        match?({:variable, _index}, Map.get(field_specs, name))
+      end)
+
+    start_offset = "#{@header_size} + gridcodec.read_u16(#{data}, 0)"
+
+    {expressions, _next_offset} =
+      Enum.map_reduce(variable_fields, start_offset, fn {name, type, opts}, offset ->
+        expression =
+          case type do
+            value when value in [:string, :string16] ->
+              "gridcodec.read_string16(#{data}, (#{offset})::int)"
+
+            _other ->
+              raise ArgumentError,
+                    "native typed projection does not support variable field #{inspect(name)} type #{inspect(type)}"
+          end
+
+        next_offset = "#{offset} + 2 + gridcodec.read_u16(#{data}, (#{offset})::int)"
+        {{name, guard_since(expression, opts, data)}, next_offset}
+      end)
+
+    Map.new(expressions)
   end
 
   defp gridcodec_codec?(mod) do
@@ -1365,77 +1486,85 @@ defmodule GridCodec.SQL do
   end
 
   defp sql_fast_value_expr(type, type_mod, offset) do
-    sql_fast_value_expr(type, type_mod, offset, [])
+    sql_fast_value_expr(type, type_mod, offset, [], "data")
   end
 
   defp sql_fast_value_expr(type, type_mod, offset, opts) do
+    sql_fast_value_expr(type, type_mod, offset, opts, "data")
+  end
+
+  defp sql_fast_value_expr(type, type_mod, offset, opts, data) do
     expression =
       cond do
         char_array_type?(type_mod) ->
           length = type_mod.__char_array_meta__().length
-          "gridcodec.read_char_array(data, #{sql_offset(offset)}, #{length})"
+          "gridcodec.read_char_array(#{data}, #{sql_offset(offset)}, #{length})"
 
         enum_type?(type) ->
-          enum_inline_case_expr(type, "data", offset)
+          enum_inline_case_expr(type, data, offset)
 
         type == :u8 ->
-          "NULLIF(get_byte(data, #{sql_offset(offset)}), 255)::smallint"
+          "NULLIF(get_byte(#{data}, #{sql_offset(offset)}), 255)::smallint"
 
         type == :i8 ->
-          "NULLIF(gridcodec.read_i8(data, #{sql_offset(offset)}), -128)"
+          "NULLIF(gridcodec.read_i8(#{data}, #{sql_offset(offset)}), -128)"
 
         type == :u16 ->
-          "NULLIF(gridcodec.read_u16(data, #{sql_offset(offset)}), 65535)"
+          "NULLIF(gridcodec.read_u16(#{data}, #{sql_offset(offset)}), 65535)"
 
         type == :i16 ->
-          "NULLIF(gridcodec.read_i16(data, #{sql_offset(offset)}), -32768)"
+          "NULLIF(gridcodec.read_i16(#{data}, #{sql_offset(offset)}), -32768)"
 
         type == :u32 ->
-          "NULLIF(gridcodec.read_u32(data, #{sql_offset(offset)}), 4294967295)"
+          "NULLIF(gridcodec.read_u32(#{data}, #{sql_offset(offset)}), 4294967295)"
 
         type == :i32 ->
-          "NULLIF(gridcodec.read_i32(data, #{sql_offset(offset)}), -2147483648)"
+          "NULLIF(gridcodec.read_i32(#{data}, #{sql_offset(offset)}), -2147483648)"
 
         type == :u64 ->
-          "NULLIF(gridcodec.read_u64(data, #{sql_offset(offset)}), 18446744073709551615::numeric)"
+          "NULLIF(gridcodec.read_u64(#{data}, #{sql_offset(offset)}), 18446744073709551615::numeric)"
 
         type == :i64 ->
-          "NULLIF(gridcodec.read_i64(data, #{sql_offset(offset)}), -9223372036854775808::numeric)"
+          "NULLIF(gridcodec.read_i64_bigint(#{data}, #{sql_offset(offset)}), -9223372036854775808)"
 
         type in [:uuid, :uuid_string] ->
-          "gridcodec.read_uuid_nullable(data, #{sql_offset(offset)})"
+          "gridcodec.read_uuid_nullable(#{data}, #{sql_offset(offset)})"
 
         prefixed_id_type?(type) ->
           prefix = prefixed_id_prefix(type)
 
-          "CASE WHEN get_byte(data, #{sql_offset(offset)}) = 0" <>
-            " AND substring(data FROM #{sql_offset_plus(offset, 2)} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
+          "CASE WHEN get_byte(#{data}, #{sql_offset(offset)}) = 0" <>
+            " AND substring(#{data} FROM #{sql_offset_plus(offset, 2)} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
             " THEN NULL" <>
-            " ELSE #{sql_literal(prefix)} || encode(substring(data FROM #{sql_offset_plus(offset, 2)} FOR 16), 'hex')::uuid::text" <>
+            " ELSE #{sql_literal(prefix)} || encode(substring(#{data} FROM #{sql_offset_plus(offset, 2)} FOR 16), 'hex')::uuid::text" <>
             " END"
 
         type == :bool ->
-          "gridcodec.read_bool(data, #{sql_offset(offset)})"
+          "gridcodec.read_bool(#{data}, #{sql_offset(offset)})"
 
         decimal_domain_type?(type) ->
-          decimal_sql_value_expr(type, type_mod, "data", offset)
+          decimal_sql_value_expr(type, type_mod, data, offset)
 
         type in [:timestamp_us, :datetime_us] ->
-          "gridcodec.read_timestamp_us(data, #{sql_offset(offset)})"
+          "gridcodec.read_timestamp_us(#{data}, #{sql_offset(offset)})"
 
         true ->
           nil
       end
 
-    guard_since(expression, opts)
+    guard_since(expression, opts, data)
   end
 
-  defp guard_since(nil, _opts), do: nil
-
   defp guard_since(expression, opts) do
+    guard_since(expression, opts, "data")
+  end
+
+  defp guard_since(nil, _opts, _data), do: nil
+
+  defp guard_since(expression, opts, data) do
     case Keyword.get(opts, :since) do
       since when is_integer(since) and since > 1 ->
-        "CASE WHEN gridcodec.read_u16(data, 6) < #{since} THEN NULL ELSE #{expression} END"
+        "CASE WHEN gridcodec.read_u16(#{data}, 6) < #{since} THEN NULL ELSE #{expression} END"
 
       _since ->
         expression
@@ -1447,7 +1576,8 @@ defmodule GridCodec.SQL do
       type in [:u8, :i8] -> "smallint"
       type in [:u16, :i16] -> "integer"
       type in [:u32, :i32] -> "bigint"
-      type in [:u64, :i64] -> "numeric"
+      type == :u64 -> "numeric"
+      type == :i64 -> "bigint"
       type in [:f32, :f64] -> "double precision"
       type == :uuid -> "uuid"
       type == :uuid_string -> "uuid"

@@ -316,8 +316,10 @@ cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_be
 ```
 
 Fast-path changes require generation tests for scalar readers and every stream
-representation (`:raw`, selected fixed fields, and JSONB), plus PostgreSQL
-parity coverage for raw binaries and projected native values. Optional PL/Rust
+representation (`:raw`, selected fixed fields, set-based native typed fields,
+and JSONB), plus PostgreSQL parity coverage for raw binaries and projected
+native values. Native typed functions must be recreated across a multi-version
+evolution test because their return shape can change. Optional PL/Rust
 generation must be tested separately and may not replace the portable SQL path.
 
 Schema or SQL lifecycle changes must run

@@ -126,10 +126,28 @@ FROM risk.read_user_stream('98a01a76-614d-48b7-9364-d0c79a7684c1');
 The `:decode` option controls representation:
 
 - `:raw` returns `data bytea` without database decoding.
+- `{:typed, EventModule}` filters to that event type and returns every
+  supported top-level field as a native PostgreSQL column in one set-based
+  scan. It avoids both JSONB materialization and a per-event function scan.
 - `{:fields, EventModule, [:field, ...]}` filters to that event type and returns
   selected fixed fields as native PostgreSQL columns.
 - `:jsonb` (the backward-compatible default) returns the complete decoded
   payload. Reserve it for JSON consumers and ad hoc inspection.
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "risk.read_typed_signup_stream",
+  table: "risk.recorded_events",
+  stream_id_type: :uuid,
+  stream_id_column: :stream_uuid,
+  decode: {:typed, MyApp.Events.SignupAttempted}
+)
+```
+
+Native typed mode supports top-level fixed fields and `string16` variable
+fields. It rejects repeating groups instead of silently converting them to
+JSONB; query groups relationally or use the explicit JSONB decoder when the
+whole nested representation is required.
 
 The event table should have an index beginning with the native stream-id and
 version columns:
@@ -177,8 +195,9 @@ Standard fixed groups use a four-byte wire header:
 blockLength (u16 LE) | numInGroup (u16 LE) | entries
 ```
 
-Typed decoders expose each fixed group as a `jsonb` column. JSON decoders expose
-the same data as an ordered JSON array. Empty groups decode to `[]`.
+Legacy per-event typed decoders expose each fixed group as a `jsonb` column.
+JSON decoders expose the same data as an ordered JSON array. Empty groups
+decode to `[]`. Set-based native typed stream mode rejects groups.
 
 ```elixir
 defmodule MyApp.Reservation do
@@ -262,6 +281,20 @@ statements =
 Enum.each(statements, &Ecto.Migration.execute/1)
 ```
 
+Consumer-owned stream functions must also be dropped before changing their
+return columns:
+
+```elixir
+opts = [
+  function: "risk.read_typed_signup_stream",
+  table: "risk.recorded_events",
+  decode: {:typed, MyApp.Events.SignupAttempted}
+]
+
+Ecto.Migration.execute(GridCodec.SQL.drop_stream_decoder_statement(opts))
+Ecto.Migration.execute(GridCodec.SQL.generate_stream_decoder(opts))
+```
+
 Do not parse `generate_all/1` with a consumer-owned regex. That can silently
 miss new function forms such as scalar readers with `PARALLEL SAFE`.
 
@@ -282,9 +315,9 @@ The example application includes:
 - `test/example_app/sql_generation_test.exs` for consumer-side SQL generation.
 - `priv/sql_integration_test.exs` for encode, store, install, and PostgreSQL
   decode coverage, including a fixed typed group.
-- `priv/sql_decoder_evolution_test.exs` for V1 → V2 → V3 catalog refreshes,
-  historical fixed/variable payloads, scalar readers, JSONB, and an idempotent
-  V3 reinstall.
+- `priv/sql_decoder_evolution_test.exs` for V1 → V2 → V3 catalog and native
+  typed-stream refreshes, historical fixed/variable payloads, scalar readers,
+  JSONB, and an idempotent V3 reinstall.
 - `benchmarks/sql_decode_bench.exs` for PostgreSQL decoding and indexed
   whole-stream query baselines, including raw plus BEAM, selected scalar
   columns, typed rows, JSONB, and a configurable large scalar workload.
@@ -309,12 +342,15 @@ counter. Retained memory is not peak resident set size; production capacity
 tests should also observe PostgreSQL process/container CPU and RSS externally.
 
 On the development PostgreSQL 17 container, the representative 1,000-event
-comparison measured approximately 0.12 ms for raw database execution, 0.55 ms
-for raw fetch plus BEAM decode, 4 ms for three selected native columns, 259 ms
-for complete typed rows, and 335–352 ms for complete JSONB. The two-million
-event fixed-field aggregate completed in about 0.90 seconds (2.23 million
-events/second) while reading part of the table from shared storage. Treat these
-as relative baselines, not hardware-independent promises.
+comparison measured approximately 0.15 ms for raw database execution, 0.60 ms
+for raw fetch plus BEAM decode, 4.3–5.6 ms for three selected native columns,
+10.6–11 ms for all eight native typed columns, 139 ms for the legacy
+per-event typed function scan, and 257–335 ms for complete JSONB. The native
+signed-`i64` timestamp path reduced one timestamp column from roughly 183 ms to
+5.5–6.3 ms per 1,000 rows. The two-million-event fixed-field aggregate
+completed in about 0.90 seconds (2.23 million events/second) while reading part
+of the table from shared storage. Treat these as relative baselines, not
+hardware-independent promises.
 
 The integration and benchmark scripts require PostgreSQL; the broad integration
 script also invokes `psql`. Configure `ExampleApp.Repo` before running them.

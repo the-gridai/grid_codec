@@ -20,12 +20,21 @@ defmodule GridCodec.SQLTest do
       assert sql =~ "gridcodec.read_u32"
       assert sql =~ "gridcodec.read_u64"
       assert sql =~ "gridcodec.read_i64"
+      assert sql =~ "gridcodec.read_i64_bigint"
       assert sql =~ "gridcodec.read_uuid"
       assert sql =~ "gridcodec.read_uuid_nullable"
       assert sql =~ "gridcodec.read_decimal"
       assert sql =~ "gridcodec.read_timestamp_us"
       assert sql =~ "gridcodec.read_bool"
       assert sql =~ "gridcodec.read_string16"
+    end
+
+    test "decodes signed i64 values with native bigint arithmetic" do
+      assert @helpers_sql =~
+               "CREATE OR REPLACE FUNCTION gridcodec.read_i64_bigint(data bytea, pos int)"
+
+      assert @helpers_sql =~ "(get_byte(data, pos + 7)::bigint << 56)"
+      assert @helpers_sql =~ "gridcodec.read_i64_bigint(data, pos)::double precision"
     end
 
     test "all helper functions are IMMUTABLE STRICT" do
@@ -507,6 +516,45 @@ defmodule GridCodec.SQLTest do
       refute sql =~ "gridcodec.decode("
     end
 
+    test "can decode every top-level field into native columns in one set-based query" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "public.read_typed_order_stream",
+          table: "public.events",
+          decode: {:typed, GridCodec.TestSupport.OrderEvent}
+        )
+
+      assert sql =~
+               ~s|RETURNS TABLE (stream_version bigint, event_type text, "order_id" uuid, "side" text, "status" text, "price" numeric, "quantity" bigint, "timestamp" timestamptz)|
+
+      assert sql =~ ~s|gridcodec.read_uuid_nullable(events."data", 8) AS "order_id"|
+      assert sql =~ ~s|gridcodec.read_u32(events."data",|
+      assert sql =~ "events.\"event_type\" = 'OrderEvent'"
+      refute sql =~ "gridcodec.read_orderevent_"
+      refute sql =~ "gridcodec.decode("
+      refute sql =~ "jsonb"
+
+      variable_sql =
+        SQL.generate_stream_decoder(
+          function: "public.read_typed_variable_stream",
+          table: "public.events",
+          decode: {:typed, GridCodec.TestSupport.OrderEventVar}
+        )
+
+      assert variable_sql =~ ~s|gridcodec.read_string16(events."data",|
+      assert variable_sql =~ ~s|gridcodec.read_u16(events."data", 0)|
+    end
+
+    test "rejects native typed projection for codecs with repeating groups" do
+      assert_raise ArgumentError, ~r/repeating groups/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_grouped_stream",
+          table: "public.events",
+          decode: {:typed, SQLGroupsEvent}
+        )
+      end
+    end
+
     test "rejects direct projections of variable and unknown fields" do
       assert_raise ArgumentError, ~r/fixed fields/, fn ->
         SQL.generate_stream_decoder(
@@ -542,6 +590,14 @@ defmodule GridCodec.SQLTest do
       assert sql =~ ~s(events."position"::bigint AS stream_version)
       assert sql =~ ~s(events."type"::text AS event_type)
       assert sql =~ ~s|gridcodec.decode(events."type"::text, events."payload")|
+    end
+
+    test "generates an idempotent drop for a consumer-owned stream decoder" do
+      assert SQL.drop_stream_decoder_statement(
+               function: "risk.read_typed_stream",
+               stream_id_type: :uuid
+             ) ==
+               ~s|DROP FUNCTION IF EXISTS "risk"."read_typed_stream"(uuid);|
     end
 
     test "rejects unsafe identifiers and unsupported stream id types" do

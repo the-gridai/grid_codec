@@ -518,12 +518,15 @@ GridCodec.SQL.generate_stream_decoder(
 )
 ```
 
-Use `decode: {:fields, EventModule, [:field, ...]}` for native PostgreSQL
-columns, or the default `decode: :jsonb` only when a complete JSON document is
-actually required.
+Use `decode: {:typed, EventModule}` for every supported top-level field as
+native PostgreSQL columns, or `decode: {:fields, EventModule, [:field, ...]}`
+when a query only needs selected fixed fields. Use the default `decode: :jsonb`
+only when a complete JSON document is actually required.
 
 Migration refreshes should execute
 `GridCodec.SQL.drop_statements/1 ++ GridCodec.SQL.generate_all_statements/1`.
+Recreate consumer-owned stream functions with
+`drop_stream_decoder_statement/1` before their return shape changes.
 Versioned fields are guarded by the payload header, so V1 binaries remain
 queryable after V2/V3 fields are added with `since:`.
 

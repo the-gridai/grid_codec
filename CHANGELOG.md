@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indexed stream functions that return raw `bytea` or selected native columns,
   avoiding full JSONB materialization when applications only need replay or a
   few query fields.
+- **Set-based native typed streams** — `decode: {:typed, CodecModule}` returns
+  all supported top-level fields as native PostgreSQL columns without JSONB or
+  one function scan per event. A native signed-`i64` timestamp reader reduces
+  the eight-field 1,000-event benchmark to about 11 ms from 257 ms for JSONB.
 - **Migration-safe SQL catalogs** — expose individual drop/install statements,
   guard `since:` fields by the wire-header version, and locate variable tails
   from each payload's encoded block length. A PostgreSQL integration test now

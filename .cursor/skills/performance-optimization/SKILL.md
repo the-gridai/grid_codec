@@ -85,9 +85,11 @@ force decoded JSON to be consumed.
   tests; retained memory is not peak resident memory.
 - Compare single-event, 100-event, 1,000-event, grouped, and full-result
   retrieval paths through an indexed `(stream_id, stream_version)` timeline.
-- Compare raw fetch plus BEAM decode, selected native scalar columns, complete
-  typed rows, and complete JSONB. Do not present full JSONB as the default
-  application/replay path.
+- Compare raw fetch plus BEAM decode, selected native scalar columns, set-based
+  native typed rows, legacy per-event typed rows, and complete JSONB. Profile
+  individual native fields when a full projection is unexpectedly slow; one
+  generic numeric conversion can dominate the entire row. Do not present full
+  JSONB as the default application/replay path.
 - Run `GRIDCODEC_SQL_SCALAR_ROWS=2000000` when comparing against published
   native-extension scalar-extraction claims.
 - Treat PL/Rust TLE results as optional PostgreSQL 13–17 data, never as the
