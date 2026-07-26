@@ -3,7 +3,6 @@ defmodule GridCodec.SQLTest do
 
   alias GridCodec.SQL
   alias GridCodec.TestSupport.SQLGroupsEvent
-  alias GridCodec.TestSupport.SQLNumericGroupsEvent
 
   # Generate once, reuse across all tests that need it
   @order_event_sql SQL.generate(GridCodec.TestSupport.OrderEvent)
@@ -268,19 +267,72 @@ defmodule GridCodec.SQLTest do
     end
 
     test "preserves scaled decimal and wide-enum semantics in inline and typed groups" do
-      sql = SQL.generate(SQLNumericGroupsEvent)
+      suffix = System.unique_integer([:positive])
+      wide_enum = Module.concat(__MODULE__, "WideStatus#{suffix}")
+      entry = Module.concat(__MODULE__, "NumericEntry#{suffix}")
+      event = Module.concat(__MODULE__, "NumericGroups#{suffix}")
 
-      assert sql =~ "CREATE TABLE IF NOT EXISTS gridcodec_enums.sql_wide_status"
-      assert sql =~ "id integer PRIMARY KEY"
-      assert sql =~ "gridcodec.read_u16(data,"
-      refute sql =~ "e.id = get_byte(data,"
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(wide_enum) do
+            use GridCodec.Types.Enum, encoding: :u16
 
-      assert sql =~ "gridcodec.read_i64(data,"
-      assert sql =~ "gridcodec.read_u64(data,"
-      assert sql =~ "power(10::numeric, -2)"
-      assert sql =~ "= -9223372036854775808 THEN NULL"
-      assert sql =~ "= 18446744073709551615 THEN NULL"
-      refute sql =~ "gridcodec.read_decimal(data,"
+            defenum do
+              value(:pending, 1)
+              value(:review, 300)
+            end
+          end
+
+          defmodule unquote(entry) do
+            use GridCodec.Struct, template_id: 624, schema_id: 62
+
+            defcodec do
+              field :status, unquote(wide_enum)
+              field :amount, {:decimal, scale: 2}, wire_format: :i64
+              field :positive_amount, {:positive_decimal, scale: 2}, wire_format: :u64
+            end
+          end
+
+          defmodule unquote(event) do
+            use GridCodec.Struct, template_id: 625, schema_id: 62
+
+            defcodec do
+              field :event_id, :u64
+
+              group :inline_values do
+                field :status, unquote(wide_enum)
+                field :amount, {:decimal, scale: 2}, wire_format: :i64
+                field :positive_amount, {:positive_decimal, scale: 2}, wire_format: :u64
+              end
+
+              group :typed_values, of: unquote(entry)
+            end
+          end
+        end
+      )
+
+      try do
+        sql = SQL.generate(event)
+
+        enum_table = wide_enum |> Module.split() |> List.last() |> Macro.underscore()
+
+        assert sql =~ "CREATE TABLE IF NOT EXISTS gridcodec_enums.#{enum_table}"
+        assert sql =~ "id integer PRIMARY KEY"
+        assert sql =~ "gridcodec.read_u16(data,"
+        refute sql =~ "e.id = get_byte(data,"
+
+        assert sql =~ "gridcodec.read_i64(data,"
+        assert sql =~ "gridcodec.read_u64(data,"
+        assert sql =~ "power(10::numeric, -2)"
+        assert sql =~ "= -9223372036854775808 THEN NULL"
+        assert sql =~ "= 18446744073709551615 THEN NULL"
+        refute sql =~ "gridcodec.read_decimal(data,"
+      after
+        for module <- [event, entry, wide_enum] do
+          :code.purge(module)
+          :code.delete(module)
+        end
+      end
     end
   end
 
