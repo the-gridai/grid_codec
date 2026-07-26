@@ -19,6 +19,9 @@ defmodule SQLDecodeBench do
 
   @table "gridcodec_sql_bench_events"
   @stream_function "gridcodec_sql_bench_decode_stream"
+  @raw_stream_function "gridcodec_sql_bench_read_stream"
+  @projected_stream_function "gridcodec_sql_bench_project_stream"
+  @scalar_rows System.get_env("GRIDCODEC_SQL_SCALAR_ROWS", "100000") |> String.to_integer()
 
   def run do
     Logger.configure(level: :warning)
@@ -26,6 +29,7 @@ defmodule SQLDecodeBench do
 
     try do
       print_database_report()
+      print_fast_path_report()
       run_latency_benchmarks()
     after
       cleanup!()
@@ -34,6 +38,8 @@ defmodule SQLDecodeBench do
 
   defp setup! do
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
 
     Repo.query!("""
@@ -52,8 +58,15 @@ defmodule SQLDecodeBench do
     grouped_binary = encode_grouped_event!()
 
     for size <- [1, 10, 100, 1_000] do
-      insert_stream!("fixed-#{size}", size, OrderCreated.__type__(), fixed_binary)
+      insert_fixed_stream!("fixed-#{size}", size, OrderCreated.__type__(), fixed_binary)
     end
+
+    insert_fixed_stream!(
+      "scalar-#{@scalar_rows}",
+      @scalar_rows,
+      OrderCreated.__type__(),
+      fixed_binary
+    )
 
     insert_stream!("grouped-100", 100, CurrencyAccount.__type__(), grouped_binary)
     Repo.query!("ANALYZE #{@table}")
@@ -66,6 +79,18 @@ defmodule SQLDecodeBench do
           function: "public.#{@stream_function}",
           table: "public.#{@table}",
           stream_id_type: :text
+        ) <>
+        SQL.generate_stream_decoder(
+          function: "public.#{@raw_stream_function}",
+          table: "public.#{@table}",
+          stream_id_type: :text,
+          decode: :raw
+        ) <>
+        SQL.generate_stream_decoder(
+          function: "public.#{@projected_stream_function}",
+          table: "public.#{@table}",
+          stream_id_type: :text,
+          decode: {:fields, OrderCreated, [:side, :price, :quantity]}
         )
 
     path = Path.join(System.tmp_dir!(), "gridcodec_sql_benchmark.sql")
@@ -153,6 +178,25 @@ defmodule SQLDecodeBench do
     )
   end
 
+  defp insert_fixed_stream!(stream_id, count, event_type, binary) do
+    Repo.query!(
+      """
+      INSERT INTO #{@table} (stream_id, stream_version, event_type, data)
+      SELECT
+        $1,
+        version,
+        $2,
+        set_byte(
+          set_byte($3, 24, (version % 254)::integer),
+          25,
+          ((version / 254) % 254)::integer
+        )
+      FROM generate_series(1, $4) AS version
+      """,
+      [stream_id, event_type, binary, count]
+    )
+  end
+
   defp print_database_report do
     IO.puts("""
     GridCodec PostgreSQL decoder benchmark
@@ -176,6 +220,121 @@ defmodule SQLDecodeBench do
         plan nodes: #{Enum.join(report.plan_nodes, ", ")}
       """)
     end
+  end
+
+  defp print_fast_path_report do
+    scalar_stream = "scalar-#{@scalar_rows}"
+
+    reports =
+      [
+        {
+          "scalar fixed-field aggregate / #{@scalar_rows} events",
+          @scalar_rows,
+          """
+          SELECT count(*)::bigint,
+                 sum(gridcodec.read_ordercreated_quantity(data))
+          FROM #{@table}
+          WHERE stream_id = $1
+          """,
+          [scalar_stream]
+        },
+        {
+          "raw indexed stream / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint, sum(octet_length(data))::bigint
+          FROM public.#{@raw_stream_function}($1)
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "selected native columns / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint, sum(quantity), sum(price)
+          FROM public.#{@projected_stream_function}($1)
+          """,
+          ["fixed-1000"]
+        },
+        {
+          "typed full row / 1000 events",
+          1_000,
+          """
+          SELECT count(*)::bigint, sum(pg_column_size(decoded))::bigint
+          FROM (
+            SELECT decoded
+            FROM #{@table} AS events
+            CROSS JOIN LATERAL gridcodec.decode_ordercreated(events.data) AS decoded
+            WHERE events.stream_id = $1
+          ) AS rows
+          """,
+          ["fixed-1000"]
+        }
+      ] ++ plrust_reports(scalar_stream)
+
+    IO.puts("Fast-path comparison (values fully consumed):\n")
+
+    for {label, event_count, query, params} <- reports do
+      report = measure_query(query, params)
+      events_per_second = event_count / (report.execution_ms / 1_000)
+
+      IO.puts("""
+      #{label}
+        execution: #{Float.round(report.execution_ms, 3)} ms
+        throughput: #{round(events_per_second)} events/s
+        buffers: hit=#{report.shared_hit_blocks}, read=#{report.shared_read_blocks}, temp_read=#{report.temp_read_blocks}, temp_written=#{report.temp_written_blocks}
+        plan nodes: #{Enum.join(report.plan_nodes, ", ")}
+      """)
+    end
+  end
+
+  defp plrust_reports(stream_id) do
+    %{rows: [[available?]]} =
+      Repo.query!(
+        "SELECT to_regprocedure('gridcodec_plrust.read_u32(bytea,integer)') IS NOT NULL"
+      )
+
+    if available? do
+      {_type_mod, quantity_offset, _endian} =
+        OrderCreated.__field_specs__() |> Map.fetch!(:quantity)
+
+      [
+        {
+          "optional PL/Rust scalar aggregate / #{@scalar_rows} events",
+          @scalar_rows,
+          """
+          SELECT count(*)::bigint,
+                 sum(NULLIF(gridcodec_plrust.read_u32(data, #{quantity_offset}), 4294967295))
+          FROM #{@table}
+          WHERE stream_id = $1
+          """,
+          [stream_id]
+        }
+      ]
+    else
+      IO.puts("Optional PL/Rust reader not installed; native comparison skipped.\n")
+      []
+    end
+  end
+
+  defp measure_query(query, params) do
+    Repo.checkout(fn ->
+      Repo.query!(query, params)
+
+      %{rows: [[[explain]]]} =
+        Repo.query!("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) #{query}", params)
+
+      plan = explain["Plan"]
+
+      %{
+        execution_ms: explain["Execution Time"],
+        plan_nodes: plan_node_types(plan),
+        shared_hit_blocks: sum_plan_value(plan, "Shared Hit Blocks"),
+        shared_read_blocks: sum_plan_value(plan, "Shared Read Blocks"),
+        temp_read_blocks: sum_plan_value(plan, "Temp Read Blocks"),
+        temp_written_blocks: sum_plan_value(plan, "Temp Written Blocks")
+      }
+    end)
   end
 
   defp measure_database(stream_id) do
@@ -262,8 +421,28 @@ defmodule SQLDecodeBench do
   end
 
   defp run_latency_benchmarks do
+    binaries = List.duplicate(encode_fixed_event!(), 1_000)
+
     Benchee.run(
       %{
+        "BEAM decode / 1000 resident binaries" => fn ->
+          Enum.map(binaries, fn data ->
+            {:ok, decoded} = OrderCreated.decode(data)
+            decoded
+          end)
+        end,
+        "raw DB fetch + BEAM decode / 1000 events" => fn ->
+          %{rows: rows} =
+            Repo.query!("SELECT data FROM public.#{@raw_stream_function}($1)", ["fixed-1000"])
+
+          Enum.map(rows, fn [data] ->
+            {:ok, decoded} = OrderCreated.decode(data)
+            decoded
+          end)
+        end,
+        "retrieve selected columns / 1000 events" => fn ->
+          Repo.query!("SELECT * FROM public.#{@projected_stream_function}($1)", ["fixed-1000"])
+        end,
         "decode fixed stream / 1 event" => fn -> aggregate_stream!("fixed-1") end,
         "decode fixed stream / 100 events" => fn -> aggregate_stream!("fixed-100") end,
         "decode fixed stream / 1000 events" => fn -> aggregate_stream!("fixed-1000") end,
@@ -274,7 +453,8 @@ defmodule SQLDecodeBench do
       },
       time: 2,
       warmup: 1,
-      memory_time: 0
+      memory_time: 1,
+      reduction_time: 1
     )
   end
 
@@ -286,6 +466,8 @@ defmodule SQLDecodeBench do
 
   defp cleanup! do
     Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
+    Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
   end
 end

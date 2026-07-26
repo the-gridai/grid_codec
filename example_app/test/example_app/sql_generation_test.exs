@@ -37,4 +37,29 @@ defmodule ExampleApp.SQLGenerationTest do
     assert sql =~ ~s(ORDER BY events."stream_version")
     assert sql =~ ~s|gridcodec.decode(events."event_type"::text, events."data")|
   end
+
+  test "consumer event tables can retrieve raw or selectively decoded streams" do
+    raw_sql =
+      SQL.generate_stream_decoder(
+        function: "public.read_gridcodec_test_stream",
+        table: "public.gridcodec_test_events",
+        stream_id_type: :text,
+        decode: :raw
+      )
+
+    assert raw_sql =~ "RETURNS TABLE (stream_version bigint, event_type text, data bytea)"
+    refute raw_sql =~ "gridcodec.decode("
+
+    projected_sql =
+      SQL.generate_stream_decoder(
+        function: "public.read_order_stream",
+        table: "public.gridcodec_test_events",
+        decode: {:fields, OrderCreated, [:side, :price, :quantity]}
+      )
+
+    assert projected_sql =~ "gridcodec.read_ordercreated_side"
+    assert projected_sql =~ "gridcodec.read_ordercreated_price"
+    assert projected_sql =~ "gridcodec.read_ordercreated_quantity"
+    refute projected_sql =~ "gridcodec.decode("
+  end
 end

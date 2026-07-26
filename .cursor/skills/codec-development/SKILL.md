@@ -110,6 +110,10 @@ For every new type, group style, field option, or layout change:
   `DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs`.
 - [ ] Review cached execution time, buffers/temp spill, decoded payload size,
   retained backend memory, and external PostgreSQL CPU/RSS for large streams.
+- [ ] Benchmark the representation actually needed: raw plus BEAM, selected
+  scalar columns, typed rows, and JSONB are different workloads.
+- [ ] Keep PL/Rust/TLE acceleration optional and preserve pure SQL for
+  PostgreSQL 18 and providers without PL/Rust.
 - [ ] When practical, execute generated SQL against PostgreSQL using
   `example_app/priv/sql_integration_test.exs`.
 

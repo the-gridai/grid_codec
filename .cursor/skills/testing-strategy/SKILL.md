@@ -315,6 +315,11 @@ cd example_app && mix test test/example_app/sql_generation_test.exs
 cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 ```
 
+Fast-path changes require generation tests for scalar readers and every stream
+representation (`:raw`, selected fixed fields, and JSONB), plus PostgreSQL
+parity coverage for raw binaries and projected native values. Optional PL/Rust
+generation must be tested separately and may not replace the portable SQL path.
+
 ## When to Add Tests
 
 | Change | Required tests |

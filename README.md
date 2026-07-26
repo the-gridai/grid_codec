@@ -497,19 +497,30 @@ mix gridcodec.sql --check
 -- After running the generated SQL:
 SELECT (gridcodec.decode_ordercreated(data)).* FROM events;
 SELECT gridcodec.decode('OrderCreated', data)->>'price' FROM events;
+
+-- Fast fixed-field filters and aggregates do not build JSONB:
+SELECT sum(gridcodec.read_ordercreated_quantity(data))
+FROM events
+WHERE event_type = 'OrderCreated';
 ```
 
 For a consumer-owned event table, generate an indexed, version-ordered stream
-function and retrieve the decoded stream in one database call:
+reader. Raw retrieval is the recommended application/replay path; decode with
+GridCodec on the BEAM:
 
 ```elixir
 GridCodec.SQL.generate_stream_decoder(
-  function: "risk.decode_user_stream",
+  function: "risk.read_user_stream",
   table: "risk.recorded_events",
   stream_id_type: :uuid,
-  stream_id_column: :stream_uuid
+  stream_id_column: :stream_uuid,
+  decode: :raw
 )
 ```
+
+Use `decode: {:fields, EventModule, [:field, ...]}` for native PostgreSQL
+columns, or the default `decode: :jsonb` only when a complete JSON document is
+actually required.
 
 The generated typed decoder exposes fixed repeating groups as `jsonb` columns,
 and the universal decoder returns them as ordered JSON arrays. SQL generation
@@ -520,6 +531,11 @@ are not decoded. Single-codec generation rejects those layouts; bulk generation
 skips the codec and emits a SQL comment instead of installing a partial or
 invalid decoder. Wide enums use their declared integer encoding, and
 parameterized decimal groups preserve scale and wire-format null semantics.
+
+`GridCodec.SQL.PLRust` can package optional native fixed-width readers as a
+`pg_tle` extension for PostgreSQL 13–17 installations with PL/Rust. Pure SQL
+remains the portable default because Amazon RDS discontinued PL/Rust for
+PostgreSQL 18.
 
 See [PostgreSQL SQL generation](docs/sql-generation.md) for the generated
 database API, supported wire shapes, migration lifecycle, indexed query
@@ -572,6 +588,7 @@ Key modules:
 - `GridCodec.BinaryInspector` – Binary diagnostics (header/layout/value inspection)
 - `GridCodec.Json` – JSON interchange adapters (`to_map/from_map/to_json/from_json`)
 - `GridCodec.SQL` – PostgreSQL decode function generation
+- `GridCodec.SQL.PLRust` – optional PostgreSQL 13–17 pg_tle accelerator package
 - `GridCodec.Schema.Parser` – `.grid` schema file parser (with `import` resolution)
 - `GridCodec.Schema.Formatter` – `.grid` file generation (master, struct, and enum files)
 - `GridCodec.Breaking.Checker` – Breaking change detection engine

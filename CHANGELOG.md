@@ -7,13 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PostgreSQL fast paths** — generate direct fixed-field scalar readers and
+  indexed stream functions that return raw `bytea` or selected native columns,
+  avoiding full JSONB materialization when applications only need replay or a
+  few query fields.
+- **Optional PL/Rust TLE package** — generate an experimental pg_tle package
+  containing bounds-checked native fixed-width readers for PostgreSQL 13–17;
+  pure SQL remains the portable default and PostgreSQL 18 path.
+
 ### Documentation
 
 - **PostgreSQL support lifecycle** — added a dedicated SQL generation guide,
   consumer-level example coverage, fixed-group integration usage, indexed
-  whole-stream decoder generation, database execution/memory benchmarks, and
-  agent quality gates that require every new wire feature to support SQL
-  explicitly or fail with a documented limitation.
+  whole-stream decoder generation, raw/BEAM/native-column/JSONB benchmark
+  comparisons, a two-million-event scalar baseline, and agent quality gates
+  that require every new wire feature to support SQL explicitly or fail with a
+  documented limitation.
 
 ### Fixed
 

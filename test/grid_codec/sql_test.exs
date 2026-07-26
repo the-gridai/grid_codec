@@ -73,9 +73,11 @@ defmodule GridCodec.SQLTest do
       assert @order_event_sql =~ "gridcodec.read_uuid_nullable(data,"
     end
 
-    test "uses enum lookup for enum fields" do
-      assert @order_event_sql =~ "FROM gridcodec_enums.side e WHERE e.id = get_byte"
-      assert @order_event_sql =~ "FROM gridcodec_enums.status e WHERE e.id = get_byte"
+    test "uses inline enum cases for enum fields" do
+      assert @order_event_sql =~ "CASE get_byte(data, 24) WHEN 0 THEN 'buy'"
+      assert @order_event_sql =~ "CASE get_byte(data, 25) WHEN 0 THEN 'open'"
+      refute @order_event_sql =~ "FROM gridcodec_enums.side e"
+      refute @order_event_sql =~ "FROM gridcodec_enums.status e"
     end
 
     test "uses read_timestamp_us for timestamp fields" do
@@ -83,15 +85,47 @@ defmodule GridCodec.SQLTest do
     end
 
     test "null checks for u64 fields" do
-      assert @order_event_sql =~ "18446744073709551615 THEN NULL"
+      assert @order_event_sql =~
+               "NULLIF(gridcodec.read_u64(data, 26), 18446744073709551615::numeric)"
     end
 
     test "null checks for u32 fields" do
-      assert @order_event_sql =~ "4294967295 THEN NULL"
+      assert @order_event_sql =~ "NULLIF(gridcodec.read_u32(data, 34), 4294967295)"
     end
 
     test "decode function is IMMUTABLE STRICT" do
       assert @order_event_sql =~ "LANGUAGE sql IMMUTABLE STRICT"
+    end
+  end
+
+  describe "generate/1 scalar field readers" do
+    test "generates direct immutable readers for fixed fields" do
+      assert @order_event_sql =~
+               "CREATE OR REPLACE FUNCTION gridcodec.read_orderevent_price(data bytea)"
+
+      assert @order_event_sql =~ "RETURNS numeric"
+      assert @order_event_sql =~ "NULLIF(gridcodec.read_u64(data,"
+      assert @order_event_sql =~ "LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE"
+    end
+
+    test "inlines enum values instead of querying a lookup table per row" do
+      assert @order_event_sql =~
+               "CREATE OR REPLACE FUNCTION gridcodec.read_orderevent_side(data bytea)"
+
+      assert @order_event_sql =~ "CASE get_byte(data,"
+      assert @order_event_sql =~ "WHEN 0 THEN 'buy'"
+      assert @order_event_sql =~ "WHEN 1 THEN 'sell'"
+
+      refute @order_event_sql =~
+               "read_orderevent_side(data bytea)\nRETURNS text AS $$\n  SELECT (SELECT"
+    end
+
+    test "does not claim direct readers for variable-length fields" do
+      sql = SQL.generate(GridCodec.SQLTest.MultiStringCodec)
+
+      assert sql =~ "gridcodec.read_multistring_id(data bytea)"
+      refute sql =~ "gridcodec.read_multistring_name(data bytea)"
+      refute sql =~ "gridcodec.read_multistring_description(data bytea)"
     end
   end
 
@@ -404,6 +438,56 @@ defmodule GridCodec.SQLTest do
 
       refute sql =~ ~s(events."stream_uuid"::text)
       assert sql =~ "LANGUAGE sql STABLE ROWS 1000"
+    end
+
+    test "can return raw indexed stream data without JSONB materialization" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "risk.read_user_stream",
+          table: "risk.recorded_events",
+          stream_id_type: :uuid,
+          stream_id_column: :stream_uuid,
+          decode: :raw
+        )
+
+      assert sql =~ "RETURNS TABLE (stream_version bigint, event_type text, data bytea)"
+      assert sql =~ ~s(events."data" AS data)
+      refute sql =~ "gridcodec.decode("
+    end
+
+    test "can project selected fixed fields without building JSONB" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "public.read_order_stream",
+          table: "public.events",
+          decode: {:fields, GridCodec.TestSupport.OrderEvent, [:side, :price, :quantity]}
+        )
+
+      assert sql =~
+               ~s|RETURNS TABLE (stream_version bigint, event_type text, "side" text, "price" numeric, "quantity" bigint)|
+
+      assert sql =~ "gridcodec.read_orderevent_side(events.\"data\") AS \"side\""
+      assert sql =~ "gridcodec.read_orderevent_price(events.\"data\") AS \"price\""
+      assert sql =~ "events.\"event_type\" = 'OrderEvent'"
+      refute sql =~ "gridcodec.decode("
+    end
+
+    test "rejects direct projections of variable and unknown fields" do
+      assert_raise ArgumentError, ~r/fixed fields/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_strings",
+          table: "public.events",
+          decode: {:fields, GridCodec.SQLTest.MultiStringCodec, [:name]}
+        )
+      end
+
+      assert_raise ArgumentError, ~r/unknown field/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_orders",
+          table: "public.events",
+          decode: {:fields, GridCodec.TestSupport.OrderEvent, [:missing]}
+        )
+      end
     end
 
     test "supports common envelope column names and stream id types" do

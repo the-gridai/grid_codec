@@ -208,10 +208,12 @@ Check:
 - [ ] Decode throughput matches expected range
 - [ ] No regression from previous known baselines
 - [ ] Lookup benchmarks show generated accessors outperform manual pipelines
-- [ ] SQL decoding has single-event, fixed-stream, grouped-stream, and
-  full-result retrieval baselines
+- [ ] SQL decoding compares raw plus BEAM, selected scalar columns, typed rows,
+  grouped rows, and complete JSONB
+- [ ] Large scalar claims use the configurable two-million-event workload
 - [ ] SQL report includes execution time, buffers/temp spill, decoded size,
   retained backend memory, and external PostgreSQL CPU/RSS where available
+- [ ] Optional PL/Rust changes retain and test the pure-SQL/PostgreSQL 18 path
 
 ## Phase 8: Cross-Repo Compatibility
 

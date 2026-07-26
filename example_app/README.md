@@ -57,8 +57,11 @@ mix bench.parameterized
 # Validation pipeline benchmark
 mix bench.validation
 
-# PostgreSQL decode and indexed stream-query benchmark
+# PostgreSQL raw/BEAM/scalar/typed/JSONB comparison
 DATABASE_HOST=db MIX_ENV=prod mix bench.sql
+
+# Match published two-million-row scalar extraction workloads
+GRIDCODEC_SQL_SCALAR_ROWS=2000000 DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 
 # Or run directly
 mix run benchmarks/encode_decode.exs
@@ -154,11 +157,16 @@ Consumer-owned event tables can expose a one-call, version-ordered stream API:
 
 ```elixir
 GridCodec.SQL.generate_stream_decoder(
-  function: "public.decode_event_stream",
+  function: "public.read_event_stream",
   table: "public.events",
-  stream_id_type: :text
+  stream_id_type: :text,
+  decode: :raw
 )
 ```
+
+Use `decode: {:fields, EventModule, [:field, ...]}` for selected native
+PostgreSQL columns. The backward-compatible `:jsonb` mode is intended for
+consumers that actually require complete JSON documents.
 
 Run the consumer-level generation test and optional PostgreSQL integration:
 
@@ -169,7 +177,8 @@ DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 ```
 
 The integration script creates a temporary event table, installs the generated
-functions, verifies scalar and fixed-group decoding, and removes the table.
+functions, verifies scalar, raw-stream, selected-field, JSONB, and fixed-group
+decoding, and removes the table.
 See the root [SQL generation guide](../docs/sql-generation.md) for supported
 wire shapes and migration guidance.
 

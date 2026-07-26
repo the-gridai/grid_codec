@@ -203,6 +203,18 @@ sql =
       function: "public.gridcodec_test_decode_stream",
       table: "public.gridcodec_test_events",
       stream_id_type: :text
+    ) <>
+    GridCodec.SQL.generate_stream_decoder(
+      function: "public.gridcodec_test_read_stream",
+      table: "public.gridcodec_test_events",
+      stream_id_type: :text,
+      decode: :raw
+    ) <>
+    GridCodec.SQL.generate_stream_decoder(
+      function: "public.gridcodec_test_project_order_stream",
+      table: "public.gridcodec_test_events",
+      stream_id_type: :text,
+      decode: {:fields, OrderCreated, [:side, :price, :quantity]}
     )
 
 tmp_path = Path.join(System.tmp_dir!(), "gridcodec_functions.sql")
@@ -406,6 +418,39 @@ unless Enum.map(stream_rows, &hd/1) == [1, 2, 3] and
   raise "set-based stream SQL decoding returned unexpected events"
 end
 
+%{rows: raw_stream_rows} =
+  Repo.query!(
+    """
+    SELECT stream_version, event_type, data
+    FROM public.gridcodec_test_read_stream($1)
+    """,
+    ["market-1"]
+  )
+
+unless Enum.map(raw_stream_rows, fn [_version, _type, data] ->
+         {:ok, event} = OrderCreated.decode(data)
+         event.side
+       end) == [:buy, :sell, nil] do
+  raise "raw stream reader returned unexpected binaries"
+end
+
+%{rows: projected_rows} =
+  Repo.query!(
+    """
+    SELECT stream_version, side, price, quantity
+    FROM public.gridcodec_test_project_order_stream($1)
+    """,
+    ["market-1"]
+  )
+
+unless projected_rows == [
+         [1, "buy", Decimal.new("67500"), 100],
+         [2, "sell", Decimal.new("3400"), 50],
+         [3, nil, nil, nil]
+       ] do
+  raise "fixed-field stream projection returned unexpected rows"
+end
+
 IO.puts("")
 
 # ============================================================================
@@ -414,6 +459,8 @@ IO.puts("")
 
 IO.puts("12. Cleaning up...")
 Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_decode_stream(text);")
+Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_read_stream(text);")
+Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_project_order_stream(text);")
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")
 

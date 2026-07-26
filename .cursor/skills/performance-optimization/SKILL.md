@@ -85,6 +85,13 @@ force decoded JSON to be consumed.
   tests; retained memory is not peak resident memory.
 - Compare single-event, 100-event, 1,000-event, grouped, and full-result
   retrieval paths through an indexed `(stream_id, stream_version)` timeline.
+- Compare raw fetch plus BEAM decode, selected native scalar columns, complete
+  typed rows, and complete JSONB. Do not present full JSONB as the default
+  application/replay path.
+- Run `GRIDCODEC_SQL_SCALAR_ROWS=2000000` when comparing against published
+  native-extension scalar-extraction claims.
+- Treat PL/Rust TLE results as optional PostgreSQL 13–17 data, never as the
+  portable baseline; Amazon RDS removed PL/Rust in PostgreSQL 18.
 
 ## `get(..., copy: true)` (memory vs CPU)
 

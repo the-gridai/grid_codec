@@ -40,6 +40,8 @@ The catalog creates:
 - `gridcodec.read_header(bytea)` for the 8-byte GridCodec header.
 - Primitive readers such as `gridcodec.read_u64/2`,
   `gridcodec.read_uuid_nullable/2`, and `gridcodec.read_string16/2`.
+- Per-codec fixed-field readers such as
+  `gridcodec.read_ordercreated_quantity(bytea)`.
 - `gridcodec.decode_<type>(bytea)` typed table functions.
 - `gridcodec.decode_<type>_json(bytea)` per-codec JSONB functions.
 - `gridcodec.decode(type_name, bytea)` as the universal JSONB dispatcher.
@@ -80,6 +82,23 @@ WHERE e.schema_id = 2
   AND e.created_at >= now() - interval '1 day';
 ```
 
+When only a few fixed fields are needed, use their generated readers directly.
+They return native PostgreSQL scalars without constructing a row or JSONB:
+
+```sql
+SELECT
+  gridcodec.read_ordercreated_side(data) AS side,
+  sum(gridcodec.read_ordercreated_quantity(data)) AS quantity
+FROM events
+WHERE event_type = 'OrderCreated'
+GROUP BY side;
+```
+
+These readers are `IMMUTABLE STRICT PARALLEL SAFE`, so they can also back
+expression indexes when a payload field is important enough to index. Variable
+fields and groups do not have compile-time-fixed offsets and therefore do not
+receive scalar reader functions.
+
 ## Decode a complete indexed stream
 
 GridCodec does not assume an event table name or envelope schema. Consumers can
@@ -87,20 +106,30 @@ generate a set-returning function for their own table:
 
 ```elixir
 GridCodec.SQL.generate_stream_decoder(
-  function: "risk.decode_user_stream",
+  function: "risk.read_user_stream",
   table: "risk.recorded_events",
   stream_id_type: :uuid,
-  stream_id_column: :stream_uuid
+  stream_id_column: :stream_uuid,
+  decode: :raw
 )
 ```
 
-The generated function returns `stream_version`, `event_type`, and decoded
-JSONB in version order:
+The generated function returns `stream_version`, `event_type`, and the original
+`bytea` in version order. This is the preferred replay and application path:
+fetch the indexed stream once and decode it with GridCodec on the BEAM.
 
 ```sql
 SELECT *
-FROM risk.decode_user_stream('98a01a76-614d-48b7-9364-d0c79a7684c1');
+FROM risk.read_user_stream('98a01a76-614d-48b7-9364-d0c79a7684c1');
 ```
+
+The `:decode` option controls representation:
+
+- `:raw` returns `data bytea` without database decoding.
+- `{:fields, EventModule, [:field, ...]}` filters to that event type and returns
+  selected fixed fields as native PostgreSQL columns.
+- `:jsonb` (the backward-compatible default) returns the complete decoded
+  payload. Reserve it for JSON consumers and ad hoc inspection.
 
 The event table should have an index beginning with the native stream-id and
 version columns:
@@ -114,6 +143,31 @@ The generated predicate does not cast the stream-id column, so PostgreSQL can
 use that index. Supported argument types are `:text`, `:uuid`, `:bigint`, and
 `:integer`. Envelope column names are configurable; see
 `GridCodec.SQL.generate_stream_decoder/1`.
+
+## Optional PL/Rust TLE accelerator
+
+`GridCodec.SQL.PLRust` generates bounds-checked native readers and can package
+them as a `pg_tle` extension:
+
+```elixir
+File.write!(
+  "priv/repo/sql/gridcodec_plrust.sql",
+  GridCodec.SQL.PLRust.generate_tle_install()
+)
+```
+
+The database must preload and install both `pg_tle` and `plrust`; installation
+also requires the appropriate `pgtle_admin` and PL/Rust language privileges.
+After registering the generated package, run:
+
+```sql
+CREATE EXTENSION gridcodec_plrust;
+```
+
+This accelerator is experimental and optional. Amazon RDS supports PL/Rust on
+PostgreSQL 13–17 but explicitly discontinued it for PostgreSQL 18, so
+production schemas and application queries must retain the pure-SQL/raw-BEAM
+path. Do not make core event replay depend on the extension.
 
 ## Fixed repeating groups
 
@@ -215,22 +269,34 @@ The example application includes:
 - `priv/sql_integration_test.exs` for encode, store, install, and PostgreSQL
   decode coverage, including a fixed typed group.
 - `benchmarks/sql_decode_bench.exs` for PostgreSQL decoding and indexed
-  whole-stream query baselines.
+  whole-stream query baselines, including raw plus BEAM, selected scalar
+  columns, typed rows, JSONB, and a configurable large scalar workload.
 
 Run them from `example_app/`:
 
 ```bash
 mix test test/example_app/sql_generation_test.exs
 DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
+GRIDCODEC_SQL_SCALAR_ROWS=2000000 DATABASE_HOST=db MIX_ENV=prod \
+  mix run benchmarks/sql_decode_bench.exs
 mix run priv/sql_integration_test.exs
 ```
 
-The SQL benchmark reports cached `EXPLAIN ANALYZE` execution time, decoded JSON
-size, shared/read/temp buffers, plan-node peak memory when PostgreSQL exposes
-it, and retained backend-memory delta. Cached execution time is a CPU-dominant
-proxy rather than a direct process-CPU counter. Retained memory is not peak
-resident set size; production capacity tests should also observe PostgreSQL
-process/container CPU and RSS externally.
+The SQL benchmark reports `EXPLAIN ANALYZE` execution time, throughput,
+decoded JSON size, shared/read/temp buffers, plan-node peak memory when
+PostgreSQL exposes it, and retained backend-memory delta. It forces values to
+be consumed rather than timing a projection that PostgreSQL can optimize away.
+Cached execution time is a CPU-dominant proxy rather than a direct process-CPU
+counter. Retained memory is not peak resident set size; production capacity
+tests should also observe PostgreSQL process/container CPU and RSS externally.
+
+On the development PostgreSQL 17 container, the representative 1,000-event
+comparison measured approximately 0.12 ms for raw database execution, 0.55 ms
+for raw fetch plus BEAM decode, 4 ms for three selected native columns, 259 ms
+for complete typed rows, and 335–352 ms for complete JSONB. The two-million
+event fixed-field aggregate completed in about 0.90 seconds (2.23 million
+events/second) while reading part of the table from shared storage. Treat these
+as relative baselines, not hardware-independent promises.
 
 The integration and benchmark scripts require PostgreSQL and `psql`; configure
 `ExampleApp.Repo` before running them.

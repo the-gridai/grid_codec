@@ -28,6 +28,7 @@ defmodule Mix.Tasks.Gridcodec.Sql do
   - Schema `gridcodec` with shared helper functions (`read_u64`, `read_decimal`, etc.)
   - Schema `gridcodec_enums` with enum lookup tables
   - Per-codec decode functions: `gridcodec.decode_<type_name>(bytea)`
+  - Per-codec fixed-field scalar readers for filtering and aggregation
   - Per-codec JSON functions and a universal type-name dispatcher
   - Fixed repeating groups as ordered `jsonb` arrays
   - Header parser: `gridcodec.read_header(bytea)`
