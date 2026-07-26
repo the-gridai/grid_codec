@@ -148,25 +148,49 @@ defmodule GridCodec.Breaking.Checker do
           {:ok, String.t()} | :new_file | {:error, term()}
   def baseline_from_git(git_ref, file_path) do
     with {:ok, repo_root} <- git_repo_root(),
-         {:ok, git_path} <- git_relative_path(file_path, repo_root) do
-      case System.cmd("git", ["show", "#{git_ref}:#{git_path}"], stderr_to_stdout: true) do
-        {content, 0} ->
-          {:ok, content}
-
-        {error_output, _code} ->
-          cond do
-            String.contains?(error_output, "does not exist") ->
-              :new_file
-
-            String.contains?(error_output, "not a valid object") ->
-              {:error, {:invalid_git_ref, git_ref}}
-
-            true ->
-              {:error, {:git_error, error_output}}
-          end
-      end
+         {:ok, git_path} <- git_relative_path(file_path, repo_root),
+         :ok <- verify_git_ref(git_ref, repo_root),
+         true <- baseline_file_exists?(git_ref, git_path, repo_root) do
+      git_show(git_ref, git_path, repo_root)
     else
+      false -> :new_file
       {:error, _} = error -> error
+    end
+  end
+
+  defp verify_git_ref(git_ref, repo_root) do
+    case System.cmd(
+           "git",
+           ["rev-parse", "--verify", "--quiet", "#{git_ref}^{commit}"],
+           cd: repo_root,
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} -> :ok
+      {_output, _code} -> {:error, {:invalid_git_ref, git_ref}}
+    end
+  end
+
+  defp baseline_file_exists?(git_ref, git_path, repo_root) do
+    case System.cmd(
+           "git",
+           ["cat-file", "-e", "#{git_ref}:#{git_path}"],
+           cd: repo_root,
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} -> true
+      {_output, _code} -> false
+    end
+  end
+
+  defp git_show(git_ref, git_path, repo_root) do
+    case System.cmd(
+           "git",
+           ["show", "#{git_ref}:#{git_path}"],
+           cd: repo_root,
+           stderr_to_stdout: true
+         ) do
+      {content, 0} -> {:ok, content}
+      {error_output, _code} -> {:error, {:git_error, error_output}}
     end
   end
 

@@ -27,6 +27,10 @@ defmodule GridCodec.SQL do
   - `gridcodec.read_u8(bytea, int)`, `read_u16(...)`, etc. — type extractors
   - `gridcodec.read_decimal(bytea, int)` — mantissa/exponent → `numeric`
   - `gridcodec.read_timestamp_us(bytea, int)` — microseconds → `timestamptz`
+
+  Fixed repeating groups are returned as `jsonb` arrays. Group and var-data
+  offsets are derived from the block lengths and counts in each wire header,
+  so newer fixed blocks and group entries can be skipped safely.
   """
 
   @header_size 8
@@ -139,6 +143,23 @@ defmodule GridCodec.SQL do
       END;
     $$ LANGUAGE sql IMMUTABLE STRICT;
 
+    -- Fixed char array reader: trim at the first zero byte before UTF-8 conversion
+    CREATE OR REPLACE FUNCTION gridcodec.read_char_array(data bytea, pos int, len int)
+    RETURNS text AS $$
+      SELECT convert_from(
+        CASE
+          WHEN position('\\x00'::bytea IN substring(data FROM pos + 1 FOR len)) = 0
+          THEN substring(data FROM pos + 1 FOR len)
+          ELSE substring(
+            data
+            FROM pos + 1
+            FOR position('\\x00'::bytea IN substring(data FROM pos + 1 FOR len)) - 1
+          )
+        END,
+        'UTF8'
+      );
+    $$ LANGUAGE sql IMMUTABLE STRICT;
+
     -- Decimal reader: 8 bytes mantissa (i64 LE) + 1 byte exponent (i8) → numeric
     CREATE OR REPLACE FUNCTION gridcodec.read_decimal(data bytea, pos int)
     RETURNS numeric AS $$
@@ -213,13 +234,23 @@ defmodule GridCodec.SQL do
     field_specs = module.__field_specs__()
     fields = schema.fields
     block_length = schema.block_length
+    groups = build_group_specs!(module, schema)
 
     fn_name = type_name |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
 
-    enum_tables = generate_enum_tables(fields)
+    enum_tables =
+      generate_enum_tables(fields ++ group_fields(schema) ++ group_enum_fields(groups))
 
     decode_fn =
-      generate_decode_function(fn_name, type_name, module, fields, field_specs, block_length)
+      generate_decode_function(
+        fn_name,
+        type_name,
+        module,
+        fields,
+        field_specs,
+        block_length,
+        groups
+      )
 
     enum_tables <> decode_fn
   end
@@ -246,11 +277,14 @@ defmodule GridCodec.SQL do
       end
       |> Enum.sort_by(& &1.__type__())
 
-    helpers = generate_helpers()
-    codec_sql = Enum.map_join(codecs, "\n", &generate/1)
-    universal_decoder = generate_universal_decoder(codecs)
+    {supported_codecs, skipped_codecs} = Enum.split_with(codecs, &sql_generation_supported?/1)
 
-    helpers <> "\n" <> codec_sql <> "\n" <> universal_decoder
+    helpers = generate_helpers()
+    skipped_comments = skipped_codec_comments(skipped_codecs)
+    codec_sql = Enum.map_join(supported_codecs, "\n", &generate/1)
+    universal_decoder = generate_universal_decoder(supported_codecs)
+
+    helpers <> "\n" <> skipped_comments <> codec_sql <> "\n" <> universal_decoder
   end
 
   @doc """
@@ -267,6 +301,30 @@ defmodule GridCodec.SQL do
       function_exported?(mod, :__gridcodec_struct__?, 0) and
       function_exported?(mod, :__field_specs__, 0) and
       function_exported?(mod, :__type__, 0)
+  end
+
+  defp sql_generation_supported?(module) do
+    schema = module.__schema__()
+    var_fields = Map.get(schema, :var_fields, [])
+    batch_names = schema |> Map.get(:batches, []) |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+
+    var_fields == [] or
+      Enum.all?(Map.get(schema, :groups, []), fn {name, _block, opts} ->
+        not MapSet.member?(batch_names, name) and
+          Keyword.get(opts, :framing) != :length_prefixed and
+          is_integer(Keyword.get(opts, :block_length))
+      end)
+  end
+
+  defp skipped_codec_comments([]), do: ""
+
+  defp skipped_codec_comments(modules) do
+    comments =
+      Enum.map_join(modules, "\n", fn module ->
+        "-- Skipped #{inspect(module)}: PostgreSQL SQL generation does not support its group framing before var-data."
+      end)
+
+    comments <> "\n\n"
   end
 
   # ============================================================================
@@ -305,6 +363,24 @@ defmodule GridCodec.SQL do
 
   defp prefixed_id_prefix(type) do
     type.__prefixed_id_meta__().prefix
+  end
+
+  defp char_array_type?(type) when is_atom(type) do
+    case Code.ensure_compiled(type) do
+      {:module, _} -> function_exported?(type, :__char_array_meta__, 0)
+      _ -> false
+    end
+  end
+
+  defp char_array_type?(_), do: false
+
+  defp sql_offset(offset) when is_integer(offset), do: Integer.to_string(offset)
+  defp sql_offset(offset) when is_binary(offset), do: "(#{offset})"
+
+  defp sql_offset_plus(offset, increment) when is_integer(offset), do: offset + increment
+
+  defp sql_offset_plus(offset, increment) when is_binary(offset) do
+    "(#{offset}) + #{increment}"
   end
 
   defp generate_enum_table(enum_module) do
@@ -347,10 +423,231 @@ defmodule GridCodec.SQL do
   end
 
   # ============================================================================
+  # Private: Fixed Group Layout
+  # ============================================================================
+
+  defp group_fields(schema) do
+    schema
+    |> Map.get(:group_fields, %{})
+    |> Map.values()
+    |> List.flatten()
+  end
+
+  defp group_enum_fields(groups) do
+    Enum.flat_map(groups, fn
+      %{entry: {:object, fields}} ->
+        Enum.map(fields, fn field -> {field.name, field.type, []} end)
+
+      %{entry: {:scalar, field}} ->
+        [{:value, field.type, []}]
+    end)
+  end
+
+  defp build_group_specs!(module, schema) do
+    groups = Map.get(schema, :groups, [])
+    var_fields = Map.get(schema, :var_fields, [])
+    batch_names = schema |> Map.get(:batches, []) |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+    first_start = "#{@header_size} + gridcodec.read_u16(data, 0)"
+
+    {specs, _next_start} =
+      Enum.reduce_while(groups, {[], first_start}, fn {name, _block, opts}, {specs, start_expr} ->
+        case validate_sql_group!(module, name, opts, var_fields, batch_names) do
+          :skip_remaining ->
+            {:halt, {specs, start_expr}}
+
+          :ok ->
+            block_length = Keyword.fetch!(opts, :block_length)
+            entry = group_entry_spec!(module, schema, name, opts)
+            block_length_expr = "gridcodec.read_u16(data, (#{start_expr}))"
+            count_expr = "gridcodec.read_u16(data, (#{start_expr}) + 2)"
+
+            end_expr =
+              "#{start_expr} + 4 + #{block_length_expr} * #{count_expr}"
+
+            spec = %{
+              name: name,
+              start_expr: start_expr,
+              end_expr: end_expr,
+              block_length: block_length,
+              block_length_expr: block_length_expr,
+              count_expr: count_expr,
+              entry: entry
+            }
+
+            {:cont, {[spec | specs], end_expr}}
+        end
+      end)
+
+    Enum.reverse(specs)
+  end
+
+  defp validate_sql_group!(module, name, opts, var_fields, batch_names) do
+    framing = Keyword.get(opts, :framing)
+
+    cond do
+      MapSet.member?(batch_names, name) ->
+        unsupported_group!(module, name, "batch-backed", var_fields)
+
+      framing == :length_prefixed ->
+        unsupported_group!(module, name, "length-prefixed", var_fields)
+
+      not is_integer(Keyword.get(opts, :block_length)) ->
+        unsupported_group!(module, name, "fixed group without block_length metadata", var_fields)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp unsupported_group!(_module, _name, _kind, []), do: :skip_remaining
+
+  defp unsupported_group!(module, name, kind, [field | _]) do
+    raise ArgumentError,
+          "cannot generate PostgreSQL SQL for #{inspect(module)}: " <>
+            "#{kind} group #{inspect(name)} before variable-length field #{inspect(field)} is not supported; " <>
+            "only fixed groups with standard u16 blockLength/u16 numInGroup headers are supported"
+  end
+
+  defp group_entry_spec!(module, schema, name, opts) do
+    of_type = Keyword.get(opts, :of)
+    fields = Map.get(Map.get(schema, :group_fields, %{}), name, [])
+
+    cond do
+      gridcodec_codec?(of_type) ->
+        {:object, typed_group_fields(of_type)}
+
+      of_type != nil ->
+        {type, type_mod} = resolve_sql_type!(of_type, [])
+
+        {:scalar,
+         %{name: :value, type: type, type_mod: type_mod, offset: 0, size: type_mod.size()}}
+
+      fields != [] ->
+        {:object, inline_group_fields(fields)}
+
+      true ->
+        raise ArgumentError,
+              "cannot generate PostgreSQL SQL for #{inspect(module)}: " <>
+                "fixed group #{inspect(name)} has no SQL-decodable entry metadata"
+    end
+  end
+
+  defp typed_group_fields(module) do
+    field_specs = module.__field_specs__(header: false)
+
+    Enum.map(module.__schema__().fields, fn {name, type, opts} ->
+      {type_mod, offset, _endian} = Map.fetch!(field_specs, name)
+
+      %{
+        name: name,
+        type: type,
+        type_mod: type_mod,
+        offset: offset,
+        size: type_mod.size(),
+        opts: opts
+      }
+    end)
+  end
+
+  defp inline_group_fields(fields) do
+    {field_specs, _offset} =
+      Enum.map_reduce(fields, 0, fn {name, type, opts}, offset ->
+        {normalized_type, type_mod} = resolve_sql_type!(type, opts)
+        size = type_mod.size()
+
+        spec = %{
+          name: name,
+          type: normalized_type,
+          type_mod: type_mod,
+          offset: offset,
+          size: size,
+          opts: opts
+        }
+
+        {spec, offset + size}
+      end)
+
+    field_specs
+  end
+
+  defp resolve_sql_type!(type, opts) do
+    {type_atom, _type_opts} =
+      case type do
+        {atom, type_opts} when is_atom(atom) and is_list(type_opts) -> {atom, type_opts}
+        atom when is_atom(atom) -> {atom, []}
+      end
+
+    type_mod =
+      case Keyword.get(opts, :__wire_module__) do
+        nil ->
+          case GridCodec.Type.lookup(type_atom) do
+            {:ok, module} ->
+              module
+
+            {:error, :unknown_type} ->
+              raise ArgumentError, "unsupported SQL group type: #{inspect(type)}"
+          end
+
+        module ->
+          module
+      end
+
+    {type, type_mod}
+  end
+
+  defp var_data_start_expr([], block_length), do: "#{@header_size + block_length}"
+  defp var_data_start_expr(groups, _block_length), do: List.last(groups).end_expr
+
+  defp group_json_expr(group) do
+    entry_offset =
+      "(#{group.start_expr}) + 4 + entry_index * #{group.block_length_expr}"
+
+    entry_json =
+      case group.entry do
+        {:object, fields} ->
+          pairs =
+            Enum.map_join(fields, ", ", fn field ->
+              "'#{field.name}', #{group_field_value_expr(field, group, entry_offset)}"
+            end)
+
+          "jsonb_build_object(#{pairs})"
+
+        {:scalar, field} ->
+          group_field_value_expr(field, group, entry_offset)
+      end
+
+    "COALESCE((SELECT jsonb_agg(#{entry_json} ORDER BY entry_index) " <>
+      "FROM generate_series(0, #{group.count_expr} - 1) AS entries(entry_index)), " <>
+      "'[]'::jsonb)"
+  end
+
+  defp group_field_value_expr(field, group, entry_offset) do
+    field_offset =
+      if field.offset == 0 do
+        entry_offset
+      else
+        "#{entry_offset} + #{field.offset}"
+      end
+
+    value_expr = sql_json_value_expr(field.name, field.type, field.type_mod, field_offset)
+
+    "CASE WHEN #{group.block_length_expr} < #{field.offset + field.size} " <>
+      "THEN NULL ELSE #{value_expr} END"
+  end
+
+  # ============================================================================
   # Private: Decode Function Generation
   # ============================================================================
 
-  defp generate_decode_function(fn_name, type_name, module, fields, field_specs, block_length) do
+  defp generate_decode_function(
+         fn_name,
+         type_name,
+         module,
+         fields,
+         field_specs,
+         block_length,
+         groups
+       ) do
     fixed_fields =
       fields
       |> Enum.filter(fn {name, _type, _opts} ->
@@ -369,9 +666,9 @@ defmodule GridCodec.SQL do
       end)
 
     columns =
-      Enum.map(fixed_fields ++ var_fields, fn {name, type, _opts} ->
-        {name, sql_column_type(type)}
-      end)
+      Enum.map(fixed_fields, fn {name, type, _opts} -> {name, sql_column_type(type)} end) ++
+        Enum.map(groups, fn group -> {group.name, "jsonb"} end) ++
+        Enum.map(var_fields, fn {name, type, _opts} -> {name, sql_column_type(type)} end)
 
     column_defs =
       Enum.map_join(columns, ",\n  ", fn {name, type} ->
@@ -384,6 +681,11 @@ defmodule GridCodec.SQL do
         sql_read_expr(name, type, type_mod, offset)
       end)
 
+    group_select_exprs =
+      Enum.map(groups, fn group ->
+        "#{group_json_expr(group)} AS \"#{group.name}\""
+      end)
+
     # Variable-length fields are sequential: each starts after the previous one's
     # 2-byte length prefix + content. We track the cumulative offset in SQL.
     {var_select_exprs, _} =
@@ -391,7 +693,7 @@ defmodule GridCodec.SQL do
         offset_expr =
           case prev_offset_expr do
             nil ->
-              "#{@header_size + block_length}"
+              var_data_start_expr(groups, block_length)
 
             prev ->
               "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
@@ -401,7 +703,8 @@ defmodule GridCodec.SQL do
         {expr, offset_expr}
       end)
 
-    all_exprs = Enum.map_join(select_exprs ++ var_select_exprs, ",\n  ", & &1)
+    all_exprs =
+      Enum.map_join(select_exprs ++ group_select_exprs ++ var_select_exprs, ",\n  ", & &1)
 
     """
     -- Codec: #{inspect(module)}
@@ -456,6 +759,7 @@ defmodule GridCodec.SQL do
     field_specs = module.__field_specs__()
     fields = schema.fields
     block_length = schema.block_length
+    groups = build_group_specs!(module, schema)
 
     fn_name = type_name |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
 
@@ -483,11 +787,16 @@ defmodule GridCodec.SQL do
         "'#{name}', #{value_expr}"
       end)
 
+    group_pairs =
+      Enum.map(groups, fn group ->
+        "'#{group.name}', #{group_json_expr(group)}"
+      end)
+
     {var_pairs, _} =
       Enum.map_reduce(var_fields, nil, fn {name, type, _opts}, prev_offset_expr ->
         offset_expr =
           case prev_offset_expr do
-            nil -> "#{@header_size + block_length}"
+            nil -> var_data_start_expr(groups, block_length)
             prev -> "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
           end
 
@@ -495,7 +804,7 @@ defmodule GridCodec.SQL do
         {"'#{name}', #{value_expr}", offset_expr}
       end)
 
-    all_pairs = Enum.join(fixed_pairs ++ var_pairs, ",\n    ")
+    all_pairs = Enum.join(fixed_pairs ++ group_pairs ++ var_pairs, ",\n    ")
 
     """
     CREATE OR REPLACE FUNCTION gridcodec.decode_#{fn_name}_json(data bytea)
@@ -508,56 +817,67 @@ defmodule GridCodec.SQL do
     """
   end
 
-  defp sql_json_value_expr(_name, type, _type_mod, offset) do
+  defp sql_json_value_expr(_name, type, type_mod, offset) do
     cond do
+      char_array_type?(type_mod) ->
+        length = type_mod.__char_array_meta__().length
+        "gridcodec.read_char_array(data, #{sql_offset(offset)}, #{length})"
+
       enum_type?(type) ->
         table = enum_table_name(type)
-        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset}))"
+
+        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{sql_offset(offset)}))"
 
       type == :u8 ->
-        "CASE WHEN get_byte(data, #{offset}) = 255 THEN NULL ELSE get_byte(data, #{offset}) END"
+        "CASE WHEN get_byte(data, #{sql_offset(offset)}) = 255 THEN NULL ELSE get_byte(data, #{sql_offset(offset)}) END"
 
       type == :i8 ->
-        "CASE WHEN gridcodec.read_i8(data, #{offset}) = -128 THEN NULL ELSE gridcodec.read_i8(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_i8(data, #{sql_offset(offset)}) = -128 THEN NULL ELSE gridcodec.read_i8(data, #{sql_offset(offset)}) END"
 
       type == :u16 ->
-        "CASE WHEN gridcodec.read_u16(data, #{offset}) = 65535 THEN NULL ELSE gridcodec.read_u16(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_u16(data, #{sql_offset(offset)}) = 65535 THEN NULL ELSE gridcodec.read_u16(data, #{sql_offset(offset)}) END"
 
       type == :i16 ->
-        "CASE WHEN gridcodec.read_i16(data, #{offset}) = -32768 THEN NULL ELSE gridcodec.read_i16(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_i16(data, #{sql_offset(offset)}) = -32768 THEN NULL ELSE gridcodec.read_i16(data, #{sql_offset(offset)}) END"
 
       type == :u32 ->
-        "CASE WHEN gridcodec.read_u32(data, #{offset}) = 4294967295 THEN NULL ELSE gridcodec.read_u32(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_u32(data, #{sql_offset(offset)}) = 4294967295 THEN NULL ELSE gridcodec.read_u32(data, #{sql_offset(offset)}) END"
 
       type == :i32 ->
-        "CASE WHEN gridcodec.read_i32(data, #{offset}) = -2147483648 THEN NULL ELSE gridcodec.read_i32(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_i32(data, #{sql_offset(offset)}) = -2147483648 THEN NULL ELSE gridcodec.read_i32(data, #{sql_offset(offset)}) END"
 
       type == :u64 ->
-        "CASE WHEN gridcodec.read_u64(data, #{offset}) = 18446744073709551615 THEN NULL ELSE gridcodec.read_u64(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_u64(data, #{sql_offset(offset)}) = 18446744073709551615 THEN NULL ELSE gridcodec.read_u64(data, #{sql_offset(offset)}) END"
 
       type == :i64 ->
-        "CASE WHEN gridcodec.read_i64(data, #{offset}) = -9223372036854775808 THEN NULL ELSE gridcodec.read_i64(data, #{offset}) END"
+        "CASE WHEN gridcodec.read_i64(data, #{sql_offset(offset)}) = -9223372036854775808 THEN NULL ELSE gridcodec.read_i64(data, #{sql_offset(offset)}) END"
 
       type in [:uuid, :uuid_string] ->
-        "gridcodec.read_uuid_nullable(data, #{offset})::text"
+        "gridcodec.read_uuid_nullable(data, #{sql_offset(offset)})::text"
 
       prefixed_id_type?(type) ->
         prefix = prefixed_id_prefix(type)
 
-        "CASE WHEN get_byte(data, #{offset}) = 0" <>
-          " AND substring(data FROM #{offset + 2} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
+        "CASE WHEN get_byte(data, #{sql_offset(offset)}) = 0" <>
+          " AND substring(data FROM #{sql_offset_plus(offset, 2)} FOR 16) = '\\x00000000000000000000000000000000'::bytea" <>
           " THEN NULL" <>
-          " ELSE '#{prefix}' || encode(substring(data FROM #{offset + 2} FOR 16), 'hex')::uuid::text" <>
+          " ELSE '#{prefix}' || encode(substring(data FROM #{sql_offset_plus(offset, 2)} FOR 16), 'hex')::uuid::text" <>
           " END"
 
       type == :bool ->
-        "gridcodec.read_bool(data, #{offset})"
+        "gridcodec.read_bool(data, #{sql_offset(offset)})"
 
       type == :decimal ->
-        "gridcodec.read_decimal(data, #{offset})"
+        "gridcodec.read_decimal(data, #{sql_offset(offset)})"
+
+      match?({:decimal, _}, type) ->
+        "gridcodec.read_i64(data, #{sql_offset(offset)})"
+
+      match?({:positive_decimal, _}, type) ->
+        "gridcodec.read_u64(data, #{sql_offset(offset)})"
 
       type in [:timestamp_us, :datetime_us] ->
-        "gridcodec.read_timestamp_us(data, #{offset})"
+        "gridcodec.read_timestamp_us(data, #{sql_offset(offset)})"
 
       true ->
         "NULL"
@@ -603,6 +923,10 @@ defmodule GridCodec.SQL do
 
   defp sql_read_expr(name, type, type_mod, offset) do
     cond do
+      char_array_type?(type_mod) ->
+        length = type_mod.__char_array_meta__().length
+        "gridcodec.read_char_array(data, #{offset}, #{length}) AS \"#{name}\""
+
       prefixed_id_type?(type) ->
         prefix = prefixed_id_prefix(type)
 

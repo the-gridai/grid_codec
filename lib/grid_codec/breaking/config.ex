@@ -10,6 +10,7 @@ defmodule GridCodec.Breaking.Config do
 
   @default_config %{
     schema_files: ["priv/schemas/**/*.grid"],
+    schema_ids: [],
     against: "origin/main",
     category: :source,
     except: [],
@@ -20,6 +21,7 @@ defmodule GridCodec.Breaking.Config do
 
   @type t :: %{
           schema_files: [String.t()],
+          schema_ids: [non_neg_integer()],
           against: String.t(),
           category: :wire | :source,
           except: [atom()],
@@ -84,6 +86,9 @@ defmodule GridCodec.Breaking.Config do
       {:schema_files, v}, acc when is_list(v) ->
         %{acc | schema_files: v}
 
+      {:schema_ids, v}, acc when is_list(v) ->
+        %{acc | schema_ids: normalize_schema_ids(v)}
+
       {:against, v}, acc when is_binary(v) ->
         %{acc | against: v}
 
@@ -115,6 +120,7 @@ defmodule GridCodec.Breaking.Config do
     |> maybe_put(:against, cli_opts[:against])
     |> maybe_put(:category, parse_category(cli_opts[:category]))
     |> maybe_put(:schema_files, cli_opts[:schema_files])
+    |> maybe_put(:schema_ids, cli_opts[:schema_ids])
   end
 
   defp maybe_put(config, _key, nil), do: config
@@ -126,6 +132,13 @@ defmodule GridCodec.Breaking.Config do
   defp parse_category(:wire), do: :wire
   defp parse_category(:source), do: :source
   defp parse_category(_), do: nil
+
+  defp normalize_schema_ids(schema_ids) do
+    schema_ids
+    |> Enum.filter(&(is_integer(&1) and &1 in 0..65_535))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 
   defp normalize_overrides(overrides) do
     overrides

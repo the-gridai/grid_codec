@@ -499,6 +499,15 @@ SELECT (gridcodec.decode_ordercreated(data)).* FROM events;
 SELECT gridcodec.decode('OrderCreated', data)->>'price' FROM events;
 ```
 
+The generated typed decoder exposes fixed repeating groups as `jsonb` columns,
+and the universal decoder returns them as ordered JSON arrays. SQL generation
+supports standard fixed groups whose wire header contains `blockLength` and
+`numInGroup`; it uses those wire values to locate subsequent groups and
+variable-length fields safely. Length-prefixed/framed and batch-backed groups
+are not decoded. Generating one such codec raises when the unsupported group
+precedes variable data; bulk generation skips that codec and emits a SQL
+comment instead of installing a decoder with incorrect offsets.
+
 ## Type-Aware Field Comparison
 
 Compare fixed-size fields directly from encoded binaries without full decode:

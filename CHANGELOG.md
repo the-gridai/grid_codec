@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-07-26
+
+### Added
+
+- **PostgreSQL decoding for fixed repeating groups** — generated typed
+  decoders expose fixed groups as `jsonb` columns and universal decoders return
+  ordered JSON arrays. Group and following var-data offsets use each wire
+  header's `blockLength` and `numInGroup`, including multiple sequential groups.
+  Unsupported framed or batch-backed groups are rejected for single-codec
+  generation when they precede var-data and safely skipped during bulk
+  generation.
+- **Multi-schema breaking checks** — `mix grid_codec.breaking` accepts
+  repeatable or comma-separated `--schema-id` options and `schema_ids`
+  configuration, so CI can check selected schema namespaces without wrapper
+  scripts. Missing IDs fail explicitly, while schemas new to the baseline are
+  reported and skipped.
+
 ## [0.48.0] - 2026-07-14
 
 ### Added

@@ -7,6 +7,7 @@ defmodule GridCodec.Breaking.ConfigTest do
     test "returns expected defaults" do
       defaults = Config.defaults()
       assert defaults.schema_files == ["priv/schemas/**/*.grid"]
+      assert defaults.schema_ids == []
       assert defaults.against == "origin/main"
       assert defaults.category == :source
       assert defaults.except == []
@@ -24,9 +25,12 @@ defmodule GridCodec.Breaking.ConfigTest do
     end
 
     test "CLI opts override defaults" do
-      assert {:ok, config} = Config.load(against: "v1.0.0", category: "wire")
+      assert {:ok, config} =
+               Config.load(against: "v1.0.0", category: "wire", schema_ids: [2, 1])
+
       assert config.against == "v1.0.0"
       assert config.category == :wire
+      assert config.schema_ids == [2, 1]
     end
 
     test "loads docs policy from config file" do
@@ -41,6 +45,7 @@ defmodule GridCodec.Breaking.ConfigTest do
       [
         breaking: [
           include_docs: false,
+          schema_ids: [2, 1, 2, -1, 70000],
           fail_on: [:error, :warning],
           severity_overrides: [DOC_FIELD_DOC_CHANGED: :error]
         ]
@@ -49,6 +54,7 @@ defmodule GridCodec.Breaking.ConfigTest do
 
       assert {:ok, config} = Config.load(config: config_path)
       assert config.include_docs == false
+      assert config.schema_ids == [1, 2]
       assert config.fail_on == [:error, :warning]
       assert config.severity_overrides == %{DOC_FIELD_DOC_CHANGED: :error}
     end

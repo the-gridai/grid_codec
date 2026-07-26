@@ -1,7 +1,8 @@
 defmodule GridCodec.SQLTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias GridCodec.SQL
+  alias GridCodec.TestSupport.SQLGroupsEvent
 
   # Generate once, reuse across all tests that need it
   @order_event_sql SQL.generate(GridCodec.TestSupport.OrderEvent)
@@ -150,6 +151,92 @@ defmodule GridCodec.SQLTest do
     end
   end
 
+  describe "generate/1 with fixed repeating groups" do
+    test "adds jsonb columns for inline, typed, and scalar groups" do
+      sql = SQL.generate(SQLGroupsEvent)
+
+      assert sql =~ ~s("signals" jsonb)
+      assert sql =~ ~s("history" jsonb)
+      assert sql =~ ~s("codes" jsonb)
+      assert sql =~ "COALESCE((SELECT jsonb_agg("
+      assert sql =~ "ORDER BY entry_index) FROM generate_series"
+      assert sql =~ "'[]'::jsonb)"
+    end
+
+    test "decodes known group entry fields at offsets within each wire-sized entry" do
+      sql = SQL.generate(SQLGroupsEvent)
+
+      assert sql =~ "gridcodec.read_char_array(data,"
+      assert sql =~ "gridcodec.read_i32(data,"
+      assert sql =~ "gridcodec.read_uuid_nullable(data,"
+      assert sql =~ "'symbol'"
+      assert sql =~ "'score'"
+      assert sql =~ "'related_id'"
+    end
+
+    test "walks multiple groups using wire block lengths and counts before var-data" do
+      sql = SQL.generate(SQLGroupsEvent)
+
+      assert sql =~ "8 + gridcodec.read_u16(data, 0)"
+
+      assert sql =~
+               "4 + gridcodec.read_u16(data, (8 + gridcodec.read_u16(data, 0))) * " <>
+                 "gridcodec.read_u16(data, (8 + gridcodec.read_u16(data, 0)) + 2)"
+
+      reason_line =
+        sql
+        |> String.split("\n")
+        |> Enum.find(&String.contains?(&1, ~s(AS "reason")))
+
+      assert reason_line =~ "gridcodec.read_u16(data, 0)"
+      assert length(Regex.scan(~r/gridcodec\.read_u16/, reason_line)) >= 7
+    end
+
+    test "uses each preceding var field length after the group-derived start" do
+      sql = SQL.generate(SQLGroupsEvent)
+
+      detail_line =
+        sql
+        |> String.split("\n")
+        |> Enum.find(&String.contains?(&1, ~s(AS "detail")))
+
+      assert detail_line =~ "+ 2 + gridcodec.read_u16"
+    end
+
+    test "rejects framed groups before a variable tail" do
+      module = Module.concat(__MODULE__, "FramedGroup#{System.unique_integer([:positive])}")
+
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(module) do
+            use GridCodec.Struct, template_id: 623, schema_id: 62
+
+            defcodec do
+              field :event_id, :u64
+              group :entries, of: :string16
+              field :tail, :string16
+            end
+          end
+        end
+      )
+
+      try do
+        assert_raise ArgumentError,
+                     ~r/cannot generate PostgreSQL SQL.*length-prefixed group :entries.*variable-length field :tail/s,
+                     fn ->
+                       SQL.generate(module)
+                     end
+
+        generated_all = SQL.generate_all([module])
+        assert generated_all =~ "-- Skipped #{inspect(module)}:"
+        refute generated_all =~ "WHEN type_name = '#{module.__type__()}'"
+      after
+        :code.purge(module)
+        :code.delete(module)
+      end
+    end
+  end
+
   describe "generate/1 universal JSONB decoder" do
     test "generate_all includes universal decode function" do
       sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
@@ -181,6 +268,17 @@ defmodule GridCodec.SQLTest do
       sql = SQL.generate_all([GridCodec.TestSupport.OrderEvent])
 
       assert sql =~ "unknown type"
+    end
+
+    test "includes fixed groups as ordered JSON arrays" do
+      sql = SQL.generate_all([SQLGroupsEvent])
+
+      assert sql =~ "gridcodec.decode_sqlgroupsevent_json(data bytea)"
+      assert sql =~ "'signals', COALESCE((SELECT jsonb_agg("
+      assert sql =~ "'history', COALESCE((SELECT jsonb_agg("
+      assert sql =~ "'codes', COALESCE((SELECT jsonb_agg("
+      assert sql =~ "ORDER BY entry_index) FROM generate_series"
+      assert sql =~ "'[]'::jsonb)"
     end
   end
 

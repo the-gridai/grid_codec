@@ -58,6 +58,86 @@ defmodule Mix.Tasks.GridCodec.BreakingTest do
     end)
   end
 
+  test "repeatable --schema-id checks multiple selected schemas", %{example_app_dir: dir} do
+    repo_dir = Path.dirname(dir)
+    events_path = Path.join(dir, "priv/schemas/events/schema.grid")
+    risk_path = Path.join(dir, "priv/schemas/risk/schema.grid")
+
+    File.write!(events_path, schema_with_struct("Events", 100))
+    File.mkdir_p!(Path.dirname(risk_path))
+    File.write!(risk_path, schema_with_struct("Risk", 200))
+    commit_all!(repo_dir, "two schema baseline")
+
+    File.write!(events_path, schema_without_struct("Events", 100))
+
+    File.cd!(dir, fn ->
+      output =
+        capture_task(fn ->
+          Breaking.run(["--schema-id", "200", "--against", "HEAD"])
+        end)
+
+      assert output =~ "No breaking changes detected."
+
+      assert catch_exit(
+               capture_task(fn ->
+                 Breaking.run([
+                   "--schema-id",
+                   "100",
+                   "--schema-id",
+                   "200",
+                   "--against",
+                   "HEAD"
+                 ])
+               end)
+             ) == {:shutdown, 1}
+    end)
+  end
+
+  test "comma-separated schema IDs are accepted and missing IDs fail explicitly", %{
+    example_app_dir: dir
+  } do
+    File.cd!(dir, fn ->
+      output =
+        capture_task(fn ->
+          Breaking.run(["--schema-id", "100", "--against", "HEAD"])
+        end)
+
+      assert output =~ "No breaking changes detected."
+
+      assert catch_exit(
+               capture_task(fn ->
+                 Breaking.run(["--schema-id", "100,999", "--against", "HEAD"])
+               end)
+             ) == {:shutdown, 2}
+    end)
+  end
+
+  test "new selected schemas are reported and skipped without a wrapper script", %{
+    example_app_dir: dir
+  } do
+    risk_path = Path.join(dir, "priv/schemas/risk/schema.grid")
+    File.mkdir_p!(Path.dirname(risk_path))
+    File.write!(risk_path, schema_without_struct("Risk", 200))
+
+    File.cd!(dir, fn ->
+      output =
+        capture_task(fn ->
+          Breaking.run([
+            "--schema-id",
+            "100",
+            "--schema-id",
+            "200",
+            "--against",
+            "HEAD"
+          ])
+        end)
+
+      assert output =~ "Skipping priv/schemas/risk/schema.grid"
+      assert output =~ "schema is new relative to HEAD"
+      assert output =~ "No breaking changes detected."
+    end)
+  end
+
   test "task reports non-blocking documentation issues without failing", %{example_app_dir: dir} do
     schema_path = Path.join(dir, "priv/schemas/events/schema.grid")
 
@@ -218,6 +298,46 @@ defmodule Mix.Tasks.GridCodec.BreakingTest do
       {_output, 0} -> :ok
       {output, code} -> flunk("git #{Enum.join(args, " ")} failed with #{code}:\n#{output}")
     end
+  end
+
+  defp commit_all!(repo_dir, message) do
+    git!(repo_dir, ["add", "."])
+
+    git!(repo_dir, [
+      "-c",
+      "user.name=GridCodec Tests",
+      "-c",
+      "user.email=tests@example.com",
+      "commit",
+      "-m",
+      message
+    ])
+  end
+
+  defp schema_with_struct(name, id) do
+    """
+    @syntax 1
+
+    schema #{name} {
+      id: #{id}
+      version: 1
+    }
+
+    struct Order (template_id: 1) {
+      id: uuid_string
+    }
+    """
+  end
+
+  defp schema_without_struct(name, id) do
+    """
+    @syntax 1
+
+    schema #{name} {
+      id: #{id}
+      version: 1
+    }
+    """
   end
 
   defp capture_task(fun) do

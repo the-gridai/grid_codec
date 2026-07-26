@@ -42,6 +42,19 @@ purposes and are usually run together:
 - `mix grid_codec.breaking` compares the current schema snapshot to a baseline and
   reports semantic compatibility issues such as `WIRE_STRUCT_REMOVED`.
 
+Limit a check to one or more wire schema namespaces with repeatable
+`--schema-id` options (comma-separated values are also accepted):
+
+```bash
+mix grid_codec.breaking --schema-id 1 --schema-id 2 --against origin/main
+mix grid_codec.breaking --schema-id 1,2 --against origin/main
+```
+
+For CI, the equivalent configuration is `schema_ids: [1, 2]` inside the
+`breaking:` section of `.grid_codec.exs`. Requested IDs that are not present in
+the current export fail explicitly; schemas that are new relative to the
+baseline are reported and skipped because export validation covers them.
+
 If you delete or rename a codec, `mix grid_codec.export --prune` removes orphaned
 generated files before you commit the new baseline.
 
