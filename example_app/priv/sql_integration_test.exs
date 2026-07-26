@@ -8,6 +8,8 @@
 alias ExampleApp.Repo
 alias ExampleApp.Events.OrderCreated
 alias ExampleApp.Events.TradeExecuted
+alias ExampleApp.Views.CurrencyAccount
+alias ExampleApp.Views.Reservation
 
 IO.puts("=== GridCodec SQL Integration Test ===\n")
 
@@ -36,44 +38,68 @@ CREATE TABLE gridcodec_test_events (
 IO.puts("2. Inserting encoded events...")
 
 events = [
-  {"market-1", %OrderCreated{
-    order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
-    user_id: 42,
-    symbol: "BTC/USD",
-    side: :buy,
-    price: 67_500,
-    quantity: 100,
-    timestamp: 1_709_000_000_000_000,
-    flags: 1
-  }},
-  {"market-1", %OrderCreated{
-    order_id: <<16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1>>,
-    user_id: 99,
-    symbol: "ETH/USD",
-    side: :sell,
-    price: 3_400,
-    quantity: 50,
-    timestamp: 1_709_000_001_000_000,
-    flags: 0
-  }},
-  {"market-1", %OrderCreated{
-    order_id: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99>>,
-    user_id: nil,
-    symbol: nil,
-    side: nil,
-    price: nil,
-    quantity: nil,
-    timestamp: nil,
-    flags: nil
-  }},
-  {"market-2", %TradeExecuted{
-    trade_id: <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
-    order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
-    side: :buy,
-    price: 67_500,
-    quantity: 50,
-    timestamp: 1_709_000_002_000_000
-  }}
+  {"market-1",
+   %OrderCreated{
+     order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
+     user_id: 42,
+     symbol: "BTC/USD",
+     side: :buy,
+     price: 67_500,
+     quantity: 100,
+     timestamp: 1_709_000_000_000_000,
+     flags: 1
+   }},
+  {"market-1",
+   %OrderCreated{
+     order_id: <<16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1>>,
+     user_id: 99,
+     symbol: "ETH/USD",
+     side: :sell,
+     price: 3_400,
+     quantity: 50,
+     timestamp: 1_709_000_001_000_000,
+     flags: 0
+   }},
+  {"market-1",
+   %OrderCreated{
+     order_id: <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99>>,
+     user_id: nil,
+     symbol: nil,
+     side: nil,
+     price: nil,
+     quantity: nil,
+     timestamp: nil,
+     flags: nil
+   }},
+  {"market-2",
+   %TradeExecuted{
+     trade_id: <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
+     order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
+     side: :buy,
+     price: 67_500,
+     quantity: 50,
+     timestamp: 1_709_000_002_000_000
+   }},
+  {"account-7",
+   %CurrencyAccount{
+     account_id: 7,
+     reservations: [
+       %Reservation{
+         reservation_id: 701,
+         order_id: 42,
+         amount: 15_000,
+         active: true,
+         expires_at: ~U[2026-07-26 12:00:00.000000Z]
+       },
+       %Reservation{
+         reservation_id: 702,
+         order_id: 43,
+         amount: 5_000,
+         active: false,
+         expires_at: nil
+       }
+     ]
+   }}
 ]
 
 for {stream_id, event} <- events do
@@ -94,18 +120,20 @@ IO.puts("   Inserted #{length(events)} events\n")
 
 IO.puts("3. Generating and installing SQL functions...")
 
-sql = GridCodec.SQL.generate_all([OrderCreated, TradeExecuted])
+sql = GridCodec.SQL.generate_all([OrderCreated, TradeExecuted, CurrencyAccount])
 tmp_path = Path.join(System.tmp_dir!(), "gridcodec_functions.sql")
 File.write!(tmp_path, sql)
 
 config = ExampleApp.Repo.config()
 db = Keyword.fetch!(config, :database)
 user = Keyword.get(config, :username, "postgres")
+password = Keyword.get(config, :password, "postgres")
 host = Keyword.get(config, :hostname, "localhost")
 port = Keyword.get(config, :port, 5432)
 
 {output, exit_code} =
   System.cmd("psql", ["-h", host, "-p", "#{port}", "-U", user, "-d", db, "-f", tmp_path],
+    env: [{"PGPASSWORD", password}],
     stderr_to_stdout: true
   )
 
@@ -124,7 +152,9 @@ IO.puts("   SQL functions installed via psql\n")
 IO.puts("4. Raw events in table:")
 
 %{rows: rows} =
-  Repo.query!("SELECT id, stream_id, event_type, octet_length(data) as bytes FROM gridcodec_test_events")
+  Repo.query!(
+    "SELECT id, stream_id, event_type, octet_length(data) as bytes FROM gridcodec_test_events"
+  )
 
 for [id, stream, type, bytes] <- rows do
   IO.puts("   ##{id} | #{stream} | #{type} | #{bytes} bytes")
@@ -145,7 +175,9 @@ IO.puts("5. Headers parsed:")
   """)
 
 for [id, type, bl, tid, sid, ver] <- rows do
-  IO.puts("   ##{id} | #{type} | block_length=#{bl}, template_id=#{tid}, schema_id=#{sid}, version=#{ver}")
+  IO.puts(
+    "   ##{id} | #{type} | block_length=#{bl}, template_id=#{tid}, schema_id=#{sid}, version=#{ver}"
+  )
 end
 
 IO.puts("")
@@ -216,10 +248,33 @@ IO.inspect(row, label: "   Row 3")
 IO.puts("")
 
 # ============================================================================
-# 9. Cleanup
+# 9. Query a fixed repeating group as JSONB
 # ============================================================================
 
-IO.puts("9. Cleaning up...")
+IO.puts("9. Decoded CurrencyAccount reservations:")
+
+%{rows: [[account_id, reservations]]} =
+  Repo.query!("""
+  SELECT d.account_id, d.reservations
+  FROM gridcodec_test_events e,
+       gridcodec.decode_exampleapp_views_currencyaccount(e.data) d
+  WHERE e.event_type = 'ExampleApp.Views.CurrencyAccount'
+  """)
+
+IO.puts("   account_id=#{account_id}")
+IO.inspect(reservations, label: "   reservations")
+
+unless length(reservations) == 2 and Enum.at(reservations, 0)["reservation_id"] == 701 do
+  raise "fixed-group SQL decoding returned unexpected reservations"
+end
+
+IO.puts("")
+
+# ============================================================================
+# 10. Cleanup
+# ============================================================================
+
+IO.puts("10. Cleaning up...")
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")
 

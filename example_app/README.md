@@ -21,6 +21,7 @@ example_app/
 │   ├── quick_bench.exs       # Quick dev benchmark
 │   ├── parameterized_bench.exs  # Size-parameterized benchmarks
 │   ├── encode_decode.exs     # Encode/decode performance
+│   ├── sql_generation_bench.exs # PostgreSQL SQL-generation performance
 │   ├── data_structures.exs   # Test data definitions
 │   └── config.exs            # Benchmark configuration
 └── mix.exs
@@ -56,10 +57,14 @@ mix bench.parameterized
 # Validation pipeline benchmark
 mix bench.validation
 
+# PostgreSQL SQL-generation benchmark
+MIX_ENV=prod mix bench.sql
+
 # Or run directly
 mix run benchmarks/encode_decode.exs
 MIX_ENV=prod mix run benchmarks/lookup_bench.exs
 MIX_ENV=prod mix run benchmarks/validation_bench.exs
+MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
 ```
 
 ### Example Codecs
@@ -130,6 +135,32 @@ ExampleApp.lookup_usage()
 
 The lookup examples in `views/` are also part of the example app's Dialyzer
 coverage, so they double as integration tests for normal consumer usage.
+
+### PostgreSQL SQL Generation
+
+`CurrencyAccount` is also the grouped-codec example used to verify SQL
+generation. Its fixed `reservations` group becomes an ordered `jsonb` array in
+both typed and universal PostgreSQL decoders.
+
+```elixir
+sql =
+  GridCodec.SQL.generate_all([
+    ExampleApp.Events.OrderCreated,
+    ExampleApp.Views.CurrencyAccount
+  ])
+```
+
+Run the consumer-level generation test and optional PostgreSQL integration:
+
+```bash
+mix test test/example_app/sql_generation_test.exs
+mix run priv/sql_integration_test.exs
+```
+
+The integration script creates a temporary event table, installs the generated
+functions, verifies scalar and fixed-group decoding, and removes the table.
+See the root [SQL generation guide](../docs/sql-generation.md) for supported
+wire shapes and migration guidance.
 
 ### Lifecycle Hooks
 

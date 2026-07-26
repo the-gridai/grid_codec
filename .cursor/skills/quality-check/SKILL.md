@@ -169,7 +169,29 @@ Check:
 - [ ] Breaking change detection returns clean: `cd example_app && mix grid_codec.breaking`
 - [ ] Parser round-trips: parse `.grid` -> format -> re-parse produces equivalent schema
 
-## Phase 6: Performance Baseline
+## Phase 6: PostgreSQL SQL Compatibility
+
+SQL generation is a public consumer surface, not an optional afterthought.
+Whenever a type, group, field option, or wire layout changes, check:
+
+- [ ] `GridCodec.SQL.generate/1` emits the correct typed column and reader.
+- [ ] `generate_all/1` emits the correct universal JSON representation.
+- [ ] Null sentinels and custom types match Elixir decode semantics.
+- [ ] Group and var-data offsets use wire metadata where required.
+- [ ] Unsupported framed groups, batches, or types fail/skip explicitly rather
+  than producing plausible but incorrect SQL.
+- [ ] Example-app consumer coverage exercises the feature.
+- [ ] Return-shape changes include safe drop/reinstall migration guidance.
+
+```bash
+mix test test/grid_codec/sql_test.exs test/mix/tasks/gridcodec_sql_test.exs
+cd example_app && mix test test/example_app/sql_generation_test.exs
+cd example_app && MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
+# With PostgreSQL configured:
+cd example_app && mix run priv/sql_integration_test.exs
+```
+
+## Phase 7: Performance Baseline
 
 **Read the performance-optimization skill** for profiling workflow.
 
@@ -178,6 +200,7 @@ Run the benchmark suite and record baselines:
 cd example_app && mix run benchmarks/quick_bench.exs
 cd example_app && mix run benchmarks/group_bench.exs
 cd example_app && mix run benchmarks/lookup_bench.exs
+cd example_app && MIX_ENV=prod mix run --no-start benchmarks/sql_generation_bench.exs
 ```
 
 Check:
@@ -185,8 +208,9 @@ Check:
 - [ ] Decode throughput matches expected range
 - [ ] No regression from previous known baselines
 - [ ] Lookup benchmarks show generated accessors outperform manual pipelines
+- [ ] SQL generation has fixed-codec, grouped-codec, and catalog baselines
 
-## Phase 7: Cross-Repo Compatibility
+## Phase 8: Cross-Repo Compatibility
 
 **Read the cross-repo-review skill** if consumer codebases are available.
 
@@ -234,11 +258,18 @@ After all phases, produce a summary:
 - Breaking rules coverage: 27 WIRE + 9 SOURCE rules
 - Example app baselines: up to date / stale
 
-### Phase 6: Performance
+### Phase 6: PostgreSQL SQL Compatibility
+- SQL compatibility: PASS/FAIL (typed, JSON, groups, unsupported shapes)
+
+### Phase 7: Performance
 - Encode baseline: X ns/op (simple), Y ms (groups)
 - Decode baseline: X ns/op (simple), Y ms (groups)
 - Lookup baseline: X ms (keyed map), Y ms (filtered list)
 - Regressions: [list or "none"]
+
+### Phase 8: Cross-Repo Compatibility
+- Consumer compilation: PASS/FAIL
+- Integration findings: [list or "none"]
 
 ### Recommendations
 1. [Prioritized action items]

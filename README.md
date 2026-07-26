@@ -61,7 +61,7 @@ Add `grid_codec` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.48.0"}
+    {:grid_codec, git: "https://github.com/the-gridai/grid_codec.git", tag: "v0.49.0"}
   ]
 end
 ```
@@ -508,6 +508,10 @@ are not decoded. Generating one such codec raises when the unsupported group
 precedes variable data; bulk generation skips that codec and emits a SQL
 comment instead of installing a decoder with incorrect offsets.
 
+See [PostgreSQL SQL generation](docs/sql-generation.md) for the generated
+database API, supported wire shapes, migration lifecycle, indexed query
+patterns, integration test, and benchmarks.
+
 ## Type-Aware Field Comparison
 
 Compare fixed-size fields directly from encoded binaries without full decode:
@@ -529,7 +533,8 @@ GridCodec.compare_binaries(binary_a, spec, :<=, binary_b)
 5. **Filtering & transcoding** — [Binary filtering](docs/binary-filtering.md): matchspecs, cross-field guards, codec-to-codec transcoding, ETS patterns
 6. **Performance** — [Performance](docs/performance.md): profiling and optimization
 7. **Consumer integration** — [Consumer integration](docs/consumer-integration.md): using GridCodec as a dependency
-8. **Troubleshooting** — [Troubleshooting](docs/troubleshooting.md): common issues and fixes
+8. **PostgreSQL** — [SQL generation](docs/sql-generation.md): query binaries from PostgreSQL
+9. **Troubleshooting** — [Troubleshooting](docs/troubleshooting.md): common issues and fixes
 
 ## Documentation
 

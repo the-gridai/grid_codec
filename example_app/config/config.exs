@@ -4,7 +4,7 @@ config :example_app, ExampleApp.Repo,
   database: "gridcodec_example",
   username: "postgres",
   password: "postgres",
-  hostname: "localhost",
+  hostname: System.get_env("DATABASE_HOST", "localhost"),
   port: 5432
 
 config :example_app,

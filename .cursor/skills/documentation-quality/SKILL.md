@@ -16,6 +16,7 @@ description: Audit and improve GridCodec documentation quality — moduledocs, t
 | README | `README.md` | First-time users | Feature overview + quick start |
 | Agent guide | `AGENTS.md` | AI agents working with the code | Architecture + workflows |
 | Design docs | `docs/` | Deep technical reference | As needed |
+| SQL guide | `docs/sql-generation.md` | PostgreSQL consumers | Supported shapes, migrations, queries, benchmarks |
 
 ## Changelog Standards
 
@@ -142,6 +143,9 @@ One-sentence description.
 - [ ] `CHANGELOG.md` is up to date with latest version
 - [ ] `AGENTS.md` reflects current architecture
 - [ ] **Generated codec docs** — `GridCodec.Struct` options in `lib/grid_codec/struct.ex` include `doc_examples:`; README/AGENTS describe consumer `doctest/1` + `iex>` guard when this area changes
+- [ ] Wire-feature changes update SQL support or explicit limitations in `docs/sql-generation.md`
+- [ ] SQL examples filter on indexed envelope columns before payload decoding
+- [ ] SQL return-shape changes explain drop/reinstall migration requirements
 
 ### Quality
 - [ ] Examples are copy-pasteable (no `...` or `# your code here`)
