@@ -3,6 +3,7 @@ defmodule GridCodec.SQLTest do
 
   alias GridCodec.SQL
   alias GridCodec.TestSupport.SQLGroupsEvent
+  alias GridCodec.TestSupport.SQLNumericGroupsEvent
 
   # Generate once, reuse across all tests that need it
   @order_event_sql SQL.generate(GridCodec.TestSupport.OrderEvent)
@@ -234,6 +235,52 @@ defmodule GridCodec.SQLTest do
         :code.purge(module)
         :code.delete(module)
       end
+    end
+
+    test "rejects framed-only codecs instead of generating empty SQL" do
+      module = Module.concat(__MODULE__, "FramedOnlyGroup#{System.unique_integer([:positive])}")
+
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(module) do
+            use GridCodec.Struct, template_id: 626, schema_id: 62
+
+            defcodec do
+              group :entries, of: :string16
+            end
+          end
+        end
+      )
+
+      try do
+        assert_raise ArgumentError,
+                     ~r/cannot generate PostgreSQL SQL.*length-prefixed group :entries/s,
+                     fn -> SQL.generate(module) end
+
+        generated_all = SQL.generate_all([module])
+        assert generated_all =~ "-- Skipped #{inspect(module)}:"
+        refute generated_all =~ "RETURNS TABLE (\n  \n)"
+        refute generated_all =~ "WHEN type_name = '#{module.__type__()}'"
+      after
+        :code.purge(module)
+        :code.delete(module)
+      end
+    end
+
+    test "preserves scaled decimal and wide-enum semantics in inline and typed groups" do
+      sql = SQL.generate(SQLNumericGroupsEvent)
+
+      assert sql =~ "CREATE TABLE IF NOT EXISTS gridcodec_enums.sql_wide_status"
+      assert sql =~ "id integer PRIMARY KEY"
+      assert sql =~ "gridcodec.read_u16(data,"
+      refute sql =~ "e.id = get_byte(data,"
+
+      assert sql =~ "gridcodec.read_i64(data,"
+      assert sql =~ "gridcodec.read_u64(data,"
+      assert sql =~ "power(10::numeric, -2)"
+      assert sql =~ "= -9223372036854775808 THEN NULL"
+      assert sql =~ "= 18446744073709551615 THEN NULL"
+      refute sql =~ "gridcodec.read_decimal(data,"
     end
   end
 

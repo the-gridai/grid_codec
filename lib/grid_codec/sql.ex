@@ -411,15 +411,13 @@ defmodule GridCodec.SQL do
 
   defp sql_generation_supported?(module) do
     schema = module.__schema__()
-    var_fields = Map.get(schema, :var_fields, [])
     batch_names = schema |> Map.get(:batches, []) |> Enum.map(&elem(&1, 0)) |> MapSet.new()
 
-    var_fields == [] or
-      Enum.all?(Map.get(schema, :groups, []), fn {name, _block, opts} ->
-        not MapSet.member?(batch_names, name) and
-          Keyword.get(opts, :framing) != :length_prefixed and
-          is_integer(Keyword.get(opts, :block_length))
-      end)
+    Enum.all?(Map.get(schema, :groups, []), fn {name, _block, opts} ->
+      not MapSet.member?(batch_names, name) and
+        Keyword.get(opts, :framing) != :length_prefixed and
+        is_integer(Keyword.get(opts, :block_length))
+    end)
   end
 
   defp skipped_codec_comments([]), do: ""
@@ -427,7 +425,7 @@ defmodule GridCodec.SQL do
   defp skipped_codec_comments(modules) do
     comments =
       Enum.map_join(modules, "\n", fn module ->
-        "-- Skipped #{inspect(module)}: PostgreSQL SQL generation does not support its group framing before var-data."
+        "-- Skipped #{inspect(module)}: PostgreSQL SQL generation does not support one or more group layouts."
       end)
 
     comments <> "\n\n"
@@ -457,6 +455,29 @@ defmodule GridCodec.SQL do
 
   defp enum_type?({_type, _opts}), do: false
   defp enum_type?(_), do: false
+
+  defp enum_encoding!(module) do
+    case module.encoding() do
+      encoding when encoding in [:u8, :u16, :u32] -> encoding
+      encoding -> raise ArgumentError, "unsupported SQL enum encoding: #{inspect(encoding)}"
+    end
+  end
+
+  defp enum_sql_id_type(module) do
+    case enum_encoding!(module) do
+      :u8 -> "smallint"
+      :u16 -> "integer"
+      :u32 -> "bigint"
+    end
+  end
+
+  defp enum_sql_read_expr(module, data, offset) do
+    case enum_encoding!(module) do
+      :u8 -> "get_byte(#{data}, #{sql_offset(offset)})"
+      :u16 -> "gridcodec.read_u16(#{data}, #{sql_offset(offset)})"
+      :u32 -> "gridcodec.read_u32(#{data}, #{sql_offset(offset)})"
+    end
+  end
 
   defp prefixed_id_type?(type) when is_atom(type) do
     case Code.ensure_compiled(type) do
@@ -491,6 +512,7 @@ defmodule GridCodec.SQL do
 
   defp generate_enum_table(enum_module) do
     table_name = enum_table_name(enum_module)
+    id_type = enum_sql_id_type(enum_module)
 
     values =
       if function_exported?(enum_module, :values, 0) do
@@ -510,9 +532,10 @@ defmodule GridCodec.SQL do
       """
       -- Enum: #{inspect(enum_module)}
       CREATE TABLE IF NOT EXISTS gridcodec_enums.#{table_name} (
-        id smallint PRIMARY KEY,
+        id #{id_type} PRIMARY KEY,
         name text NOT NULL
       );
+      ALTER TABLE gridcodec_enums.#{table_name} ALTER COLUMN id TYPE #{id_type};
       TRUNCATE gridcodec_enums.#{table_name};
       INSERT INTO gridcodec_enums.#{table_name} (id, name) VALUES
         #{rows};
@@ -556,32 +579,27 @@ defmodule GridCodec.SQL do
     first_start = "#{@header_size} + gridcodec.read_u16(data, 0)"
 
     {specs, _next_start} =
-      Enum.reduce_while(groups, {[], first_start}, fn {name, _block, opts}, {specs, start_expr} ->
-        case validate_sql_group!(module, name, opts, var_fields, batch_names) do
-          :skip_remaining ->
-            {:halt, {specs, start_expr}}
+      Enum.reduce(groups, {[], first_start}, fn {name, _block, opts}, {specs, start_expr} ->
+        validate_sql_group!(module, name, opts, var_fields, batch_names)
+        block_length = Keyword.fetch!(opts, :block_length)
+        entry = group_entry_spec!(module, schema, name, opts)
+        block_length_expr = "gridcodec.read_u16(data, (#{start_expr}))"
+        count_expr = "gridcodec.read_u16(data, (#{start_expr}) + 2)"
 
-          :ok ->
-            block_length = Keyword.fetch!(opts, :block_length)
-            entry = group_entry_spec!(module, schema, name, opts)
-            block_length_expr = "gridcodec.read_u16(data, (#{start_expr}))"
-            count_expr = "gridcodec.read_u16(data, (#{start_expr}) + 2)"
+        end_expr =
+          "#{start_expr} + 4 + #{block_length_expr} * #{count_expr}"
 
-            end_expr =
-              "#{start_expr} + 4 + #{block_length_expr} * #{count_expr}"
+        spec = %{
+          name: name,
+          start_expr: start_expr,
+          end_expr: end_expr,
+          block_length: block_length,
+          block_length_expr: block_length_expr,
+          count_expr: count_expr,
+          entry: entry
+        }
 
-            spec = %{
-              name: name,
-              start_expr: start_expr,
-              end_expr: end_expr,
-              block_length: block_length,
-              block_length_expr: block_length_expr,
-              count_expr: count_expr,
-              entry: entry
-            }
-
-            {:cont, {[spec | specs], end_expr}}
-        end
+        {[spec | specs], end_expr}
       end)
 
     Enum.reverse(specs)
@@ -605,12 +623,16 @@ defmodule GridCodec.SQL do
     end
   end
 
-  defp unsupported_group!(_module, _name, _kind, []), do: :skip_remaining
+  defp unsupported_group!(module, name, kind, var_fields) do
+    tail_context =
+      case var_fields do
+        [field | _] -> " before variable-length field #{inspect(field)}"
+        [] -> ""
+      end
 
-  defp unsupported_group!(module, name, kind, [field | _]) do
     raise ArgumentError,
           "cannot generate PostgreSQL SQL for #{inspect(module)}: " <>
-            "#{kind} group #{inspect(name)} before variable-length field #{inspect(field)} is not supported; " <>
+            "#{kind} group #{inspect(name)}#{tail_context} is not supported; " <>
             "only fixed groups with standard u16 blockLength/u16 numInGroup headers are supported"
   end
 
@@ -677,10 +699,18 @@ defmodule GridCodec.SQL do
   end
 
   defp resolve_sql_type!(type, opts) do
-    {type_atom, _type_opts} =
+    {type_atom, declared_type_opts} =
       case type do
         {atom, type_opts} when is_atom(atom) and is_list(type_opts) -> {atom, type_opts}
         atom when is_atom(atom) -> {atom, []}
+      end
+
+    type_opts = Keyword.get(opts, :__type_opts__, declared_type_opts)
+
+    normalized_type =
+      case type_opts do
+        [] -> type_atom
+        type_opts -> {type_atom, type_opts}
       end
 
     type_mod =
@@ -698,7 +728,7 @@ defmodule GridCodec.SQL do
           module
       end
 
-    {type, type_mod}
+    {normalized_type, type_mod}
   end
 
   defp var_data_start_expr([], block_length), do: "#{@header_size + block_length}"
@@ -931,8 +961,9 @@ defmodule GridCodec.SQL do
 
       enum_type?(type) ->
         table = enum_table_name(type)
+        read = enum_sql_read_expr(type, "data", offset)
 
-        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{sql_offset(offset)}))"
+        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = #{read})"
 
       type == :u8 ->
         "CASE WHEN get_byte(data, #{sql_offset(offset)}) = 255 THEN NULL ELSE get_byte(data, #{sql_offset(offset)}) END"
@@ -973,14 +1004,8 @@ defmodule GridCodec.SQL do
       type == :bool ->
         "gridcodec.read_bool(data, #{sql_offset(offset)})"
 
-      type == :decimal ->
-        "gridcodec.read_decimal(data, #{sql_offset(offset)})"
-
-      match?({:decimal, _}, type) ->
-        "gridcodec.read_i64(data, #{sql_offset(offset)})"
-
-      match?({:positive_decimal, _}, type) ->
-        "gridcodec.read_u64(data, #{sql_offset(offset)})"
+      decimal_domain_type?(type) ->
+        decimal_sql_value_expr(type, type_mod, "data", offset)
 
       type in [:timestamp_us, :datetime_us] ->
         "gridcodec.read_timestamp_us(data, #{sql_offset(offset)})"
@@ -998,6 +1023,44 @@ defmodule GridCodec.SQL do
       _ ->
         "NULL"
     end
+  end
+
+  defp decimal_domain_type?(:decimal), do: true
+  defp decimal_domain_type?(:positive_decimal), do: true
+  defp decimal_domain_type?({type, _opts}), do: type in [:decimal, :positive_decimal]
+  defp decimal_domain_type?(_type), do: false
+
+  defp decimal_sql_value_expr(type, type_mod, data, offset) do
+    if type_mod in [GridCodec.Types.Decimal, GridCodec.Types.PositiveDecimal] do
+      "gridcodec.read_decimal(#{data}, #{sql_offset(offset)})"
+    else
+      scale = decimal_scale(type)
+      read = integer_wire_read_expr!(type_mod, data, offset)
+      null_value = type_mod.null_value()
+
+      "CASE WHEN #{read} = #{null_value} THEN NULL " <>
+        "ELSE #{read} * power(10::numeric, #{-scale}) END"
+    end
+  end
+
+  defp decimal_scale({_type, opts}), do: Keyword.get(opts, :scale, 0)
+  defp decimal_scale(_type), do: 0
+
+  defp integer_wire_read_expr!(type_mod, data, offset) do
+    function =
+      case type_mod do
+        GridCodec.Types.U8 -> "read_u8"
+        GridCodec.Types.I8 -> "read_i8"
+        GridCodec.Types.U16 -> "read_u16"
+        GridCodec.Types.I16 -> "read_i16"
+        GridCodec.Types.U32 -> "read_u32"
+        GridCodec.Types.I32 -> "read_i32"
+        GridCodec.Types.U64 -> "read_u64"
+        GridCodec.Types.I64 -> "read_i64"
+        _ -> raise ArgumentError, "unsupported SQL decimal wire type: #{inspect(type_mod)}"
+      end
+
+    "gridcodec.#{function}(#{data}, #{sql_offset(offset)})"
   end
 
   # ============================================================================
@@ -1044,8 +1107,12 @@ defmodule GridCodec.SQL do
 
       enum_type?(type) ->
         table = enum_table_name(type)
+        read = enum_sql_read_expr(type, "data", offset)
 
-        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = get_byte(data, #{offset})) AS \"#{name}\""
+        "(SELECT e.name FROM gridcodec_enums.#{table} e WHERE e.id = #{read}) AS \"#{name}\""
+
+      decimal_domain_type?(type) ->
+        "#{decimal_sql_value_expr(type, type_mod, "data", offset)} AS \"#{name}\""
 
       true ->
         null_expr = null_check_expr(type, type_mod, offset)
@@ -1081,15 +1148,6 @@ defmodule GridCodec.SQL do
 
             type == :bool ->
               "gridcodec.read_bool(data, #{offset})"
-
-            type == :decimal ->
-              "gridcodec.read_decimal(data, #{offset})"
-
-            match?({:decimal, _}, type) ->
-              "gridcodec.read_i64(data, #{offset})"
-
-            match?({:positive_decimal, _}, type) ->
-              "gridcodec.read_u64(data, #{offset})"
 
             type in [:timestamp_us, :datetime_us] ->
               "gridcodec.read_timestamp_us(data, #{offset})"

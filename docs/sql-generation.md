@@ -175,11 +175,15 @@ automatically SQL-queryable merely because Elixir encode/decode supports it.
 Its SQL column mapping, read expression, null sentinel, JSON representation,
 tests, documentation, and benchmark coverage must be reviewed separately.
 
+Enum lookup tables and readers follow each enum's `:u8`, `:u16`, or `:u32`
+encoding. Parameterized decimal groups preserve their declared scale and the
+null sentinel of the configured integer wire format.
+
 Length-prefixed/framed groups and heterogeneous batches are not decoded into
-SQL rows or JSON arrays. If one precedes variable data, `GridCodec.SQL.generate/1`
-raises rather than generating incorrect offsets. Bulk `generate_all/1` skips
-that codec and emits a SQL comment; the universal dispatcher then treats its
-type name as unknown.
+SQL rows or JSON arrays. `GridCodec.SQL.generate/1` rejects any codec containing
+one rather than emitting a partial or empty decoder. Bulk `generate_all/1`
+skips that codec and emits a SQL comment; the universal dispatcher then treats
+its type name as unknown.
 
 ## Migration lifecycle
 

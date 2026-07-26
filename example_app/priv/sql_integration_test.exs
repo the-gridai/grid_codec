@@ -5,9 +5,57 @@
 # Run from example_app/:
 #   mix run priv/sql_integration_test.exs
 
+defmodule ExampleApp.SQLIntegrationWideStatus do
+  @moduledoc false
+
+  use GridCodec.Types.Enum, encoding: :u16
+
+  defenum do
+    value(:pending, 1)
+    value(:review, 300)
+  end
+end
+
+defmodule ExampleApp.SQLIntegrationNumericEntry do
+  @moduledoc false
+
+  use GridCodec.Struct, template_id: 90, schema_id: 100
+
+  alias ExampleApp.SQLIntegrationWideStatus
+
+  defcodec do
+    field :status, SQLIntegrationWideStatus
+    field :amount, {:decimal, scale: 2}, wire_format: :i64
+    field :positive_amount, {:positive_decimal, scale: 2}, wire_format: :u64
+  end
+end
+
+defmodule ExampleApp.SQLIntegrationNumericGroups do
+  @moduledoc false
+
+  use GridCodec.Struct, template_id: 91, schema_id: 100
+
+  alias ExampleApp.SQLIntegrationNumericEntry
+  alias ExampleApp.SQLIntegrationWideStatus
+
+  defcodec do
+    field :event_id, :u64
+
+    group :inline_values do
+      field :status, SQLIntegrationWideStatus
+      field :amount, {:decimal, scale: 2}, wire_format: :i64
+      field :positive_amount, {:positive_decimal, scale: 2}, wire_format: :u64
+    end
+
+    group :typed_values, of: SQLIntegrationNumericEntry
+  end
+end
+
 alias ExampleApp.Repo
 alias ExampleApp.Events.OrderCreated
 alias ExampleApp.Events.TradeExecuted
+alias ExampleApp.SQLIntegrationNumericEntry
+alias ExampleApp.SQLIntegrationNumericGroups
 alias ExampleApp.Views.CurrencyAccount
 alias ExampleApp.Views.Reservation
 
@@ -106,7 +154,21 @@ events = [
          expires_at: nil
        }
      ]
-   }}
+   }},
+  {"numeric-1", 1,
+   struct(SQLIntegrationNumericGroups,
+     event_id: 9001,
+     inline_values: [
+       %{status: :review, amount: Decimal.new("123.45"), positive_amount: Decimal.new("67.89")}
+     ],
+     typed_values: [
+       struct(SQLIntegrationNumericEntry,
+         status: :review,
+         amount: Decimal.new("-12.34"),
+         positive_amount: Decimal.new("56.78")
+       )
+     ]
+   )}
 ]
 
 for {stream_id, stream_version, event} <- events do
@@ -131,7 +193,12 @@ IO.puts("   Inserted #{length(events)} events\n")
 IO.puts("3. Generating and installing SQL functions...")
 
 sql =
-  GridCodec.SQL.generate_all([OrderCreated, TradeExecuted, CurrencyAccount]) <>
+  GridCodec.SQL.generate_all([
+    OrderCreated,
+    TradeExecuted,
+    CurrencyAccount,
+    SQLIntegrationNumericGroups
+  ]) <>
     GridCodec.SQL.generate_stream_decoder(
       function: "public.gridcodec_test_decode_stream",
       table: "public.gridcodec_test_events",
@@ -288,10 +355,38 @@ end
 IO.puts("")
 
 # ============================================================================
-# 10. Retrieve and decode one complete stream
+# 10. Decode wide enums and scaled decimal groups
 # ============================================================================
 
-IO.puts("10. Decoded market-1 stream:")
+IO.puts("10. Decoded wide-enum and scaled-decimal groups:")
+
+%{rows: [[inline_values, typed_values]]} =
+  Repo.query!("""
+  SELECT d.inline_values, d.typed_values
+  FROM gridcodec_test_events e,
+       gridcodec.decode_exampleapp_sqlintegrationnumericgroups(e.data) d
+  WHERE e.stream_id = 'numeric-1'
+  """)
+
+IO.inspect(inline_values, label: "   inline")
+IO.inspect(typed_values, label: "   typed")
+
+unless get_in(inline_values, [Access.at(0), "status"]) == "review" and
+         get_in(inline_values, [Access.at(0), "amount"]) == 123.45 and
+         get_in(inline_values, [Access.at(0), "positive_amount"]) == 67.89 and
+         get_in(typed_values, [Access.at(0), "status"]) == "review" and
+         get_in(typed_values, [Access.at(0), "amount"]) == -12.34 and
+         get_in(typed_values, [Access.at(0), "positive_amount"]) == 56.78 do
+  raise "wide-enum or scaled-decimal SQL decoding returned unexpected values"
+end
+
+IO.puts("")
+
+# ============================================================================
+# 11. Retrieve and decode one complete stream
+# ============================================================================
+
+IO.puts("11. Decoded market-1 stream:")
 
 %{rows: stream_rows} =
   Repo.query!(
@@ -314,10 +409,10 @@ end
 IO.puts("")
 
 # ============================================================================
-# 11. Cleanup
+# 12. Cleanup
 # ============================================================================
 
-IO.puts("11. Cleaning up...")
+IO.puts("12. Cleaning up...")
 Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_decode_stream(text);")
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")

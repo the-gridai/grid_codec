@@ -516,9 +516,10 @@ and the universal decoder returns them as ordered JSON arrays. SQL generation
 supports standard fixed groups whose wire header contains `blockLength` and
 `numInGroup`; it uses those wire values to locate subsequent groups and
 variable-length fields safely. Length-prefixed/framed and batch-backed groups
-are not decoded. Generating one such codec raises when the unsupported group
-precedes variable data; bulk generation skips that codec and emits a SQL
-comment instead of installing a decoder with incorrect offsets.
+are not decoded. Single-codec generation rejects those layouts; bulk generation
+skips the codec and emits a SQL comment instead of installing a partial or
+invalid decoder. Wide enums use their declared integer encoding, and
+parameterized decimal groups preserve scale and wire-format null semantics.
 
 See [PostgreSQL SQL generation](docs/sql-generation.md) for the generated
 database API, supported wire shapes, migration lifecycle, indexed query

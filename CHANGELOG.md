@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   agent quality gates that require every new wire feature to support SQL
   explicitly or fail with a documented limitation.
 
+### Fixed
+
+- **PostgreSQL group correctness** — reject framed and batch-only codecs instead
+  of emitting partial/empty functions, preserve parameterized decimal scale and
+  wire null sentinels, and decode `u16`/`u32` enums with width-correct readers
+  and lookup-table columns.
+
 ## [0.49.0] - 2026-07-26
 
 ### Added
