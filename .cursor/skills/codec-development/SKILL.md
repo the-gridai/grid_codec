@@ -88,6 +88,38 @@ The compiler detects scalar vs module via `scalar_type?/1` which checks `GridCod
 
 Custom types work in groups — aliases are expanded in the `group` macro via `Macro.prewalk` + `Macro.expand`.
 
+## PostgreSQL SQL Compatibility
+
+Treat `GridCodec.SQL` as a first-class consumer of every wire feature. Elixir
+encode/decode support does not imply that PostgreSQL can decode the same type or
+locate the tail correctly.
+
+For every new type, group style, field option, or layout change:
+
+- [ ] Decide whether SQL supports it, rejects it explicitly, or documents it as
+  unavailable. Never silently generate a decoder with guessed offsets.
+- [ ] Add the SQL column type, typed read expression, null sentinel, and JSON
+  representation where applicable.
+- [ ] Test preceding fixed fields, following variable fields, nil values, and
+  schema-evolution wire metadata.
+- [ ] For groups, cover empty, one-entry, multi-entry, and multiple sequential
+  groups; derive offsets from wire headers where compatibility requires it.
+- [ ] Add or update a consumer fixture in `example_app/` and verify
+  `GridCodec.SQL.generate/1` plus `generate_all/1`.
+- [ ] Update `docs/sql-generation.md` and run the PostgreSQL decoder benchmark:
+  `DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs`.
+- [ ] Review cached execution time, buffers/temp spill, decoded payload size,
+  retained backend memory, and external PostgreSQL CPU/RSS for large streams.
+- [ ] Benchmark the representation actually needed: raw plus BEAM, selected
+  scalar columns, set-based native typed rows, legacy per-event typed rows, and
+  JSONB are different workloads.
+- [ ] Keep PL/Rust/TLE acceleration optional and preserve pure SQL for
+  PostgreSQL 18 and providers without PL/Rust.
+- [ ] For schema evolution, use the generated drop/install statement APIs and
+  run the V1 → V2 → V3 PostgreSQL evolution test; do not regex-parse catalog SQL.
+- [ ] When practical, execute generated SQL against PostgreSQL using
+  `example_app/priv/sql_integration_test.exs`.
+
 ## Field Options
 
 Fields support several options that affect wire layout and API:
@@ -214,6 +246,7 @@ systems that need updating based on what kind of change you're making.
 | L-GRD | .grid loader | `struct.ex` — `generate_from_struct_def` |
 | B-WIR | Breaking: wire rules | `breaking/rules/wire.ex` |
 | B-SRC | Breaking: source rules | `breaking/rules/source.ex` |
+| SQL | PostgreSQL generation | `sql.ex`, `mix/tasks/gridcodec.sql.ex` |
 | MACRO | DSL macro | `grid_codec.ex` — `group/2`, `field/3`, `virtual/2`, etc. |
 | DOC | Documentation | `AGENTS.md`, `CHANGELOG.md`, moduledocs |
 | TEST | Tests | unit + property + `.grid` roundtrip |
@@ -235,6 +268,7 @@ systems that need updating based on what kind of change you're making.
 - [ ] L-GRD — convert parsed group back to DSL opts in `generate_from_struct_def`
 - [ ] DOC — update `group.ex` moduledoc, `AGENTS.md`, `CHANGELOG.md`
 - [ ] TEST — roundtrip, `new/1`, schema introspection, `.grid` parse+format
+- [ ] SQL — verify group JSON, wire-derived offsets, following var-data, and unsupported framing behavior
 
 **Adding a new field option** (e.g., `since:`, `presence:`, `wire_format:`):
 - [ ] MACRO — pass through (field options are opaque)
@@ -247,12 +281,14 @@ systems that need updating based on what kind of change you're making.
 - [ ] B-WIR — add wire rule if it affects binary layout
 - [ ] B-SRC — add source rule if it affects API
 - [ ] TEST — roundtrip, breaking detection, `.grid` roundtrip
+- [ ] SQL — map or explicitly reject the option in typed and JSON decoders
 
 **Adding a new built-in type**:
 - [ ] Type module — implement `@behaviour GridCodec.Type` callbacks
 - [ ] Register in `builtin_types()` in `lib/grid_codec/type.ex`
 - [ ] P-GRM — parser resolves type atoms automatically (no change if simple)
 - [ ] TEST — roundtrip in `struct_all_types_test.exs`, property test if `generator/0`
+- [ ] SQL — add column/read/JSON/null handling or an explicit generation error
 
 **Adding a new struct-level feature** (e.g., virtual fields):
 - [ ] MACRO — new macro or option in `defcodec`
@@ -265,6 +301,7 @@ systems that need updating based on what kind of change you're making.
 - [ ] B-WIR — model mixed-version deployment hazards, not only new-reader/old-data compatibility
 - [ ] DOC — AGENTS.md, CHANGELOG, moduledoc
 - [ ] TEST — struct definition, encode/decode behavior, parser/formatter/loader round-trip, breaking rules
+- [ ] SQL — add an example-app generation fixture and review migration shape changes
 
 ### Fixed-append forward reader contract
 

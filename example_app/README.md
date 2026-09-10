@@ -21,6 +21,7 @@ example_app/
 │   ├── quick_bench.exs       # Quick dev benchmark
 │   ├── parameterized_bench.exs  # Size-parameterized benchmarks
 │   ├── encode_decode.exs     # Encode/decode performance
+│   ├── sql_decode_bench.exs # PostgreSQL decode and stream-query performance
 │   ├── data_structures.exs   # Test data definitions
 │   └── config.exs            # Benchmark configuration
 └── mix.exs
@@ -56,10 +57,17 @@ mix bench.parameterized
 # Validation pipeline benchmark
 mix bench.validation
 
+# PostgreSQL raw/BEAM/scalar/typed/JSONB comparison
+DATABASE_HOST=db MIX_ENV=prod mix bench.sql
+
+# Match published two-million-row scalar extraction workloads
+GRIDCODEC_SQL_SCALAR_ROWS=2000000 DATABASE_HOST=db MIX_ENV=prod mix bench.sql
+
 # Or run directly
 mix run benchmarks/encode_decode.exs
 MIX_ENV=prod mix run benchmarks/lookup_bench.exs
 MIX_ENV=prod mix run benchmarks/validation_bench.exs
+DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 ```
 
 ### Example Codecs
@@ -130,6 +138,54 @@ ExampleApp.lookup_usage()
 
 The lookup examples in `views/` are also part of the example app's Dialyzer
 coverage, so they double as integration tests for normal consumer usage.
+
+### PostgreSQL SQL Generation
+
+`CurrencyAccount` is also the grouped-codec example used to verify SQL
+generation. Its fixed `reservations` group becomes an ordered `jsonb` array in
+both typed and universal PostgreSQL decoders.
+
+```elixir
+sql =
+  GridCodec.SQL.generate_all([
+    ExampleApp.Events.OrderCreated,
+    ExampleApp.Views.CurrencyAccount
+  ])
+```
+
+Consumer-owned event tables can expose a one-call, version-ordered stream API:
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "public.read_event_stream",
+  table: "public.events",
+  stream_id_type: :text,
+  decode: :raw
+)
+```
+
+Use `decode: {:typed, EventModule}` for all supported top-level native columns,
+or `decode: {:fields, EventModule, [:field, ...]}` for a smaller fixed-field
+projection. The backward-compatible `:jsonb` mode is intended for consumers
+that actually require complete JSON documents.
+
+Run the consumer-level generation test and optional PostgreSQL integration:
+
+```bash
+mix test test/example_app/sql_generation_test.exs
+mix run priv/sql_integration_test.exs
+mix run priv/sql_decoder_evolution_test.exs
+DATABASE_HOST=db MIX_ENV=prod mix bench.sql
+```
+
+The integration script creates a temporary event table, installs the generated
+functions, verifies scalar, raw-stream, selected-field, native typed, JSONB,
+and fixed-group decoding, and removes the table.
+The evolution script performs V1 → V2 → V3 → V3 catalog installations and
+queries every historical fixed and variable payload through the recreated
+native typed stream after each refresh.
+See the root [SQL generation guide](../docs/sql-generation.md) for supported
+wire shapes and migration guidance.
 
 ### Lifecycle Hooks
 

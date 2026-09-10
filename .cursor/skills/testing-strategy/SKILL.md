@@ -291,6 +291,42 @@ end
 - `test/grid_codec/breaking/parser_batch_test.exs` — batch parsing
 - `test/mix/tasks/grid_codec_export_test.exs` — `@syntax` output, `--syntax` flag, self-contained files, cross-schema imports
 
+### 6. PostgreSQL SQL Generation Tests
+
+Every new wire feature must prove one of two outcomes: generated PostgreSQL
+decoders handle it correctly, or generation rejects/skips it explicitly.
+
+Required coverage:
+
+- Typed decoder column type and read expression.
+- Universal JSON decoder value and null representation.
+- Fixed and variable offset math, including any preceding groups.
+- Empty, single-entry, and multi-entry fixed groups where relevant.
+- Wire-header `blockLength` / `numInGroup` handling for compatible evolution.
+- A consumer fixture in `example_app/test/example_app/sql_generation_test.exs`.
+- PostgreSQL execution through `example_app/priv/sql_integration_test.exs` when
+  the change affects generated SQL syntax or offset semantics.
+
+Focused commands:
+
+```bash
+mix test test/grid_codec/sql_test.exs test/mix/tasks/gridcodec_sql_test.exs
+cd example_app && mix test test/example_app/sql_generation_test.exs
+cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
+```
+
+Fast-path changes require generation tests for scalar readers and every stream
+representation (`:raw`, selected fixed fields, set-based native typed fields,
+and JSONB), plus PostgreSQL parity coverage for raw binaries and projected
+native values. Native typed functions must be recreated across a multi-version
+evolution test because their return shape can change. Optional PL/Rust
+generation must be tested separately and may not replace the portable SQL path.
+
+Schema or SQL lifecycle changes must run
+`example_app/priv/sql_decoder_evolution_test.exs`. It performs sequential
+V1 → V2 → V3 → V3 catalog refreshes and re-queries all historical fixed and
+variable payloads after each migration-shaped update.
+
 ## When to Add Tests
 
 | Change | Required tests |
@@ -304,6 +340,7 @@ end
 | New field option | Parser test, formatter round-trip, breaking rule test |
 | New .grid syntax | Parser `@syntax` test + formatter export test |
 | New breaking rule | Positive (triggers) + negative (no false positive) test |
+| Any new wire feature or type | Typed SQL + JSON SQL assertion, explicit unsupported behavior, example-app consumer test, SQL benchmark review |
 | Breaking rule severity/policy change | Rule-level severity test + `mix grid_codec.breaking` task test for blocking/non-blocking behavior + override/escalation test |
 | Generated code warning/Dialyzer fix | `test/support` fixture compiled by `MIX_ENV=test mix compile --warnings-as-errors`; consumer-style fixture in `example_app/lib`; focused tests for runtime behavior; run `mix dialyzer` and `cd example_app && mix dialyzer --force-check` |
 | `@syntax` change | Parser validation test, formatter emission test, `WIRE_SYNTAX_VERSION_CHANGED` test |

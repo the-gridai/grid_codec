@@ -32,6 +32,23 @@ cd example_app && mix dialyzer --force-check
 
 All must pass with zero issues. If any fail, fix before proceeding.
 
+### SQL compatibility gate
+
+When the release changes any type, group, field option, schema layout, or
+`GridCodec.SQL` code, also run:
+
+```bash
+mix test test/grid_codec/sql_test.exs test/mix/tasks/gridcodec_sql_test.exs
+cd example_app && mix test test/example_app/sql_generation_test.exs
+cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
+cd example_app && DATABASE_HOST=db mix run priv/sql_decoder_evolution_test.exs
+```
+
+Run `cd example_app && mix run priv/sql_integration_test.exs` when generated SQL
+syntax, null handling, group offsets, or variable-tail offsets changed. A
+release must either support the new wire feature in typed and JSON decoders or
+reject it explicitly and document the limitation.
+
 ## Release Steps
 
 ### 1. Determine Version Bump

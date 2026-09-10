@@ -126,6 +126,7 @@ defmodule GridCodec.MixProject do
         "docs/validations.md": [title: "Validation Pipelines"],
         "docs/schema-evolution.md": [title: "Schema Evolution"],
         "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
+        "docs/sql-generation.md": [title: "PostgreSQL SQL Generation"],
         "docs/performance.md": [title: "Performance Guide"],
         "docs/consumer-integration.md": [title: "Consumer Integration"],
         "docs/troubleshooting.md": [title: "Troubleshooting"],

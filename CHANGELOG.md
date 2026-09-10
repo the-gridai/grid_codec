@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PostgreSQL fast paths** — generate direct fixed-field scalar readers and
+  indexed stream functions that return raw `bytea` or selected native columns,
+  avoiding full JSONB materialization when applications only need replay or a
+  few query fields.
+- **Set-based native typed streams** — `decode: {:typed, CodecModule}` returns
+  all supported top-level fields as native PostgreSQL columns without JSONB or
+  one function scan per event. A native signed-`i64` timestamp reader reduces
+  the eight-field 1,000-event benchmark to about 11 ms from 257 ms for JSONB.
+- **Migration-safe SQL catalogs** — expose individual drop/install statements,
+  guard `since:` fields by the wire-header version, and locate variable tails
+  from each payload's encoded block length. A PostgreSQL integration test now
+  proves V1 → V2 → V3 → V3 refreshes against all historical events.
+- **Optional PL/Rust TLE package** — generate an experimental pg_tle package
+  containing bounds-checked native fixed-width readers for PostgreSQL 13–17;
+  pure SQL remains the portable default and PostgreSQL 18 path.
+
+### Documentation
+
+- **PostgreSQL support lifecycle** — added a dedicated SQL generation guide,
+  consumer-level example coverage, fixed-group integration usage, indexed
+  whole-stream decoder generation, raw/BEAM/native-column/JSONB benchmark
+  comparisons, a two-million-event scalar baseline, and agent quality gates
+  that require every new wire feature to support SQL explicitly or fail with a
+  documented limitation.
+
+### Fixed
+
+- **PostgreSQL group correctness** — reject framed and batch-only codecs instead
+  of emitting partial/empty functions, preserve parameterized decimal scale and
+  wire null sentinels, and decode `u16`/`u32` enums with width-correct readers
+  and lookup-table columns.
+
 ## [0.49.0] - 2026-07-26
 
 ### Added
