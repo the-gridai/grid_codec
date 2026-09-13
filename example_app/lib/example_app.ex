@@ -17,6 +17,7 @@ defmodule ExampleApp do
   - `ExampleApp.Events.TradeExecuted` — trade execution event
   - `ExampleApp.Views.CurrencyAccount` — typed-group example with generated lookups
   - `ExampleApp.Views.CommandEnvelope` — batch example with per-type keyed lookups
+  - `ExampleApp.SQL.Catalog` — host-owned mixed-type stream paging and stream max
   - `ExampleApp.Bench.BinaryTraceContext` — OpenTelemetry-style span
   - `ExampleApp.Bench.BinaryEnvelope` — compact routing header
 

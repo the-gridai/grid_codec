@@ -470,12 +470,14 @@ defmodule GridCodec.SQLTest do
         )
 
       assert sql =~
-               "CREATE OR REPLACE FUNCTION \"risk\".\"decode_user_stream\"(target_stream_id uuid)"
+               ~s|CREATE OR REPLACE FUNCTION "risk"."decode_user_stream"(target_stream_id uuid, start_version bigint DEFAULT 1, max_count integer DEFAULT NULL)|
 
       assert sql =~ "RETURNS TABLE (stream_version bigint, event_type text, decoded jsonb)"
       assert sql =~ ~s(FROM "risk"."recorded_events" AS events)
       assert sql =~ ~s(events."stream_uuid" = target_stream_id)
+      assert sql =~ ~s(events."stream_version" >= start_version)
       assert sql =~ ~s(ORDER BY events."stream_version")
+      assert sql =~ "LIMIT max_count;"
 
       assert sql =~
                ~s|gridcodec.decode(events."event_type"::text, events."data") AS decoded|
@@ -592,12 +594,131 @@ defmodule GridCodec.SQLTest do
       assert sql =~ ~s|gridcodec.decode(events."type"::text, events."payload")|
     end
 
+    test "filters mixed types while keeping the raw or JSONB payload shape" do
+      raw_sql =
+        SQL.generate_stream_decoder(
+          function: "risk.read_mixed_stream",
+          table: "risk.recorded_events",
+          stream_id_type: :uuid,
+          decode: {:raw, [GridCodec.TestSupport.OrderEvent, GridCodec.TestSupport.OrderEventVar]}
+        )
+
+      assert raw_sql =~ "RETURNS TABLE (stream_version bigint, event_type text, data bytea)"
+      assert raw_sql =~ ~s(events."data" AS data)
+
+      assert raw_sql =~
+               ~s|events."event_type" IN ('OrderEvent', 'OrderEventVar')|
+
+      refute raw_sql =~ "gridcodec.decode("
+
+      jsonb_sql =
+        SQL.generate_stream_decoder(
+          function: "risk.decode_mixed_stream",
+          table: "risk.recorded_events",
+          decode:
+            {:jsonb, [GridCodec.TestSupport.OrderEvent, GridCodec.TestSupport.OrderEventVar]}
+        )
+
+      assert jsonb_sql =~ "RETURNS TABLE (stream_version bigint, event_type text, decoded jsonb)"
+      assert jsonb_sql =~ ~s|events."event_type" IN ('OrderEvent', 'OrderEventVar')|
+      assert jsonb_sql =~ "gridcodec.decode("
+    end
+
+    test "can filter mixed types by schema and template identity columns" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "risk.read_mixed_stream",
+          table: "risk.recorded_events",
+          schema_id_column: :schema_id,
+          event_type_id_column: :event_type_id,
+          decode: {:raw, [GridCodec.TestSupport.OrderEvent, GridCodec.TestSupport.OrderEventVar]}
+        )
+
+      assert sql =~
+               ~s|(events."schema_id", events."event_type_id") IN ((60, 600), (60, 602))|
+
+      refute sql =~ ~s(events."event_type" IN)
+    end
+
+    test "treats a single-item typed list as the existing native projection" do
+      sql =
+        SQL.generate_stream_decoder(
+          function: "public.read_typed_order_stream",
+          table: "public.events",
+          decode: {:typed, [GridCodec.TestSupport.OrderEvent]}
+        )
+
+      assert sql =~ ~s("order_id" uuid)
+      assert sql =~ "events.\"event_type\" = 'OrderEvent'"
+    end
+
+    test "rejects mixed native typed projections" do
+      assert_raise ArgumentError, ~r/native columns are per-type/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_typed_mixed_stream",
+          table: "public.events",
+          decode:
+            {:typed, [GridCodec.TestSupport.OrderEvent, GridCodec.TestSupport.OrderEventVar]}
+        )
+      end
+    end
+
+    test "rejects an empty mixed-type codec list" do
+      assert_raise ArgumentError, ~r/codec list cannot be empty/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_mixed_stream",
+          table: "public.events",
+          decode: {:raw, []}
+        )
+      end
+    end
+
+    test "rejects identity columns unless both are set" do
+      assert_raise ArgumentError, ~r/must be set together/, fn ->
+        SQL.generate_stream_decoder(
+          function: "public.read_mixed_stream",
+          table: "public.events",
+          schema_id_column: :schema_id,
+          decode: {:raw, [GridCodec.TestSupport.OrderEvent]}
+        )
+      end
+    end
+
+    test "generates an unfiltered stream-version companion function" do
+      sql =
+        SQL.generate_stream_version(
+          function: "risk.read_user_stream_version",
+          table: "risk.recorded_events",
+          stream_id_type: :uuid,
+          stream_id_column: :stream_uuid
+        )
+
+      assert sql =~
+               ~s|CREATE OR REPLACE FUNCTION "risk"."read_user_stream_version"(target_stream_id uuid)|
+
+      assert sql =~ "RETURNS bigint"
+      assert sql =~ ~s|COALESCE(MAX(events."stream_version"), 0)::bigint|
+      assert sql =~ ~s(FROM "risk"."recorded_events" AS events)
+      assert sql =~ ~s(events."stream_uuid" = target_stream_id)
+      refute sql =~ "event_type"
+    end
+
     test "generates an idempotent drop for a consumer-owned stream decoder" do
-      assert SQL.drop_stream_decoder_statement(
-               function: "risk.read_typed_stream",
+      drop =
+        SQL.drop_stream_decoder_statement(
+          function: "risk.read_typed_stream",
+          stream_id_type: :uuid
+        )
+
+      assert drop =~ "DO $gridcodec$"
+      assert drop =~ ~s|DROP FUNCTION IF EXISTS "risk"."read_typed_stream"(uuid)|
+      assert drop =~ ~s|DROP FUNCTION IF EXISTS "risk"."read_typed_stream"(uuid, bigint, integer)|
+
+      assert SQL.drop_stream_version_statement(
+               function: "risk.read_user_stream_version",
                stream_id_type: :uuid
              ) ==
-               ~s|DROP FUNCTION IF EXISTS "risk"."read_typed_stream"(uuid);|
+               ~s|DROP FUNCTION IF EXISTS "risk"."read_user_stream_version"(uuid);|
     end
 
     test "rejects unsafe identifiers and unsupported stream id types" do

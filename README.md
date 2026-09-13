@@ -518,15 +518,24 @@ GridCodec.SQL.generate_stream_decoder(
 )
 ```
 
+Pass `decode: {:raw, [EventModule, ...]}` to keep the raw payload and filter to
+those types in stream-version order. The generated function accepts an
+inclusive `start_version` and a bounded `max_count`; omit them to read the
+whole matching slice. Pair it with `generate_stream_version/1` when a consumer
+needs the current unfiltered stream head after an empty type-filtered page.
+
 Use `decode: {:typed, EventModule}` for every supported top-level field as
 native PostgreSQL columns, or `decode: {:fields, EventModule, [:field, ...]}`
 when a query only needs selected fixed fields. Use the default `decode: :jsonb`
-only when a complete JSON document is actually required.
+only when a complete JSON document is actually required. Mixed native-column
+projections are not supported.
 
 Migration refreshes should execute
 `GridCodec.SQL.drop_statements/1 ++ GridCodec.SQL.generate_all_statements/1`.
 Recreate consumer-owned stream functions with
-`drop_stream_decoder_statement/1` before their return shape changes.
+`drop_stream_decoder_statement/1` before their return shape changes. That drop
+is one statement and removes both the legacy 1-argument overload and the
+paged form.
 Versioned fields are guarded by the payload header, so V1 binaries remain
 queryable after V2/V3 fields are added with `since:`.
 

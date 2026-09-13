@@ -305,7 +305,8 @@ Required coverage:
 - Wire-header `blockLength` / `numInGroup` handling for compatible evolution.
 - A consumer fixture in `example_app/test/example_app/sql_generation_test.exs`.
 - PostgreSQL execution through `example_app/priv/sql_integration_test.exs` when
-  the change affects generated SQL syntax or offset semantics.
+  the change affects generated SQL syntax or offset semantics. Example App
+  Quality CI runs this script against PostgreSQL 17.
 
 Focused commands:
 
@@ -316,11 +317,13 @@ cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_be
 ```
 
 Fast-path changes require generation tests for scalar readers and every stream
-representation (`:raw`, selected fixed fields, set-based native typed fields,
-and JSONB), plus PostgreSQL parity coverage for raw binaries and projected
-native values. Native typed functions must be recreated across a multi-version
-evolution test because their return shape can change. Optional PL/Rust
-generation must be tested separately and may not replace the portable SQL path.
+representation (`:raw`, mixed-type `:raw`/`:jsonb` lists, selected fixed fields,
+set-based native typed fields, and JSONB), plus PostgreSQL parity coverage for
+raw binaries, mixed-type paging, the unfiltered stream-version companion, and
+projected native values. Native typed functions must be recreated across a
+multi-version evolution test because their return shape can change. Optional
+PL/Rust generation must be tested separately and may not replace the portable
+SQL path.
 
 Schema or SQL lifecycle changes must run
 `example_app/priv/sql_decoder_evolution_test.exs`. It performs sequential
