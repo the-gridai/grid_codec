@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Mixed-type stream cursors** — `decode: {:raw, [CodecModule, ...]}` and
+  `decode: {:jsonb, [CodecModule, ...]}` keep the current payload shapes and
+  filter an indexed stream to those types in version order. Generated stream
+  functions accept an inclusive `start_version` and a bounded `max_count`.
+  `generate_stream_version/1` returns the unfiltered stream max, including
+  when the type-filtered page is empty. Native typed columns stay single-codec.
+
+### Documentation
+
+- **Example stream catalog** — `ExampleApp.SQL.Catalog` is the host-app wrapper
+  for mixed-type paging and the unfiltered stream max. Example App Quality CI
+  now runs `priv/sql_integration_test.exs` against PostgreSQL 17.
+
 ## [0.50.0] - 2026-09-10
 
 ### Added

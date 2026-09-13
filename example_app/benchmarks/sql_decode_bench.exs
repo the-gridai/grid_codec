@@ -43,10 +43,7 @@ defmodule SQLDecodeBench do
   end
 
   defp setup! do
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@typed_stream_function}(text)")
+    drop_stream_functions!()
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
 
     Repo.query!("""
@@ -536,11 +533,19 @@ defmodule SQLDecodeBench do
   defp format_signed_bytes(bytes), do: format_bytes(bytes)
 
   defp cleanup! do
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@raw_stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@projected_stream_function}(text)")
-    Repo.query!("DROP FUNCTION IF EXISTS public.#{@typed_stream_function}(text)")
+    drop_stream_functions!()
     Repo.query!("DROP TABLE IF EXISTS #{@table}")
+  end
+
+  defp drop_stream_functions! do
+    for function <- [
+          @stream_function,
+          @raw_stream_function,
+          @projected_stream_function,
+          @typed_stream_function
+        ] do
+      Repo.query!(SQL.drop_stream_decoder_statement(function: "public.#{function}"))
+    end
   end
 end
 

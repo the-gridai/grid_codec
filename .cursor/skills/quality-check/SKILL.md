@@ -192,6 +192,9 @@ cd example_app && mix run priv/sql_integration_test.exs
 cd example_app && mix run priv/sql_decoder_evolution_test.exs
 ```
 
+CI `example-app-quality` runs both PostgreSQL scripts. Do not treat them as
+local-only checks when stream SQL, paging, or catalog lifecycle changes.
+
 ## Phase 7: Performance Baseline
 
 **Read the performance-optimization skill** for profiling workflow.

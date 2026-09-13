@@ -51,9 +51,11 @@ defmodule ExampleApp.SQLIntegrationNumericGroups do
   end
 end
 
-alias ExampleApp.Repo
+alias ExampleApp.Events.MarketCreated
 alias ExampleApp.Events.OrderCreated
 alias ExampleApp.Events.TradeExecuted
+alias ExampleApp.Repo
+alias ExampleApp.SQL.Catalog
 alias ExampleApp.SQLIntegrationNumericEntry
 alias ExampleApp.SQLIntegrationNumericGroups
 alias ExampleApp.Views.CurrencyAccount
@@ -168,7 +170,46 @@ events = [
          positive_amount: Decimal.new("56.78")
        )
      ]
-   )}
+   )},
+  {"mixed-1", 1,
+   %OrderCreated{
+     order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
+     user_id: 42,
+     symbol: "BTC/USD",
+     side: :buy,
+     price: 67_500,
+     quantity: 100,
+     timestamp: 1_709_000_000_000_000,
+     flags: 1
+   }},
+  {"mixed-1", 2,
+   %TradeExecuted{
+     trade_id: <<2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2>>,
+     order_id: <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>,
+     side: :buy,
+     price: 67_500,
+     quantity: 50,
+     timestamp: 1_709_000_002_000_000
+   }},
+  {"mixed-1", 3,
+   %OrderCreated{
+     order_id: <<16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1>>,
+     user_id: 99,
+     symbol: "ETH/USD",
+     side: :sell,
+     price: 3_400,
+     quantity: 50,
+     timestamp: 1_709_000_001_000_000,
+     flags: 0
+   }},
+  {"mixed-1", 4,
+   %MarketCreated{
+     market_id: <<3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3>>,
+     active: true,
+     name: "BTC/USD",
+     description: "Bitcoin",
+     category: "crypto"
+   }}
 ]
 
 for {stream_id, stream_version, event} <- events do
@@ -192,60 +233,23 @@ IO.puts("   Inserted #{length(events)} events\n")
 
 IO.puts("3. Generating and installing SQL functions...")
 
-sql =
-  GridCodec.SQL.generate_all([
-    OrderCreated,
-    TradeExecuted,
-    CurrencyAccount,
-    SQLIntegrationNumericGroups
-  ]) <>
-    GridCodec.SQL.generate_stream_decoder(
-      function: "public.gridcodec_test_decode_stream",
-      table: "public.gridcodec_test_events",
-      stream_id_type: :text
-    ) <>
-    GridCodec.SQL.generate_stream_decoder(
-      function: "public.gridcodec_test_read_stream",
-      table: "public.gridcodec_test_events",
-      stream_id_type: :text,
-      decode: :raw
-    ) <>
-    GridCodec.SQL.generate_stream_decoder(
-      function: "public.gridcodec_test_project_order_stream",
-      table: "public.gridcodec_test_events",
-      stream_id_type: :text,
-      decode: {:fields, OrderCreated, [:side, :price, :quantity]}
-    ) <>
-    GridCodec.SQL.generate_stream_decoder(
-      function: "public.gridcodec_test_typed_order_stream",
-      table: "public.gridcodec_test_events",
-      stream_id_type: :text,
-      decode: {:typed, OrderCreated}
-    )
+codec_modules = [
+  OrderCreated,
+  TradeExecuted,
+  CurrencyAccount,
+  SQLIntegrationNumericGroups
+]
 
-tmp_path = Path.join(System.tmp_dir!(), "gridcodec_functions.sql")
-File.write!(tmp_path, sql)
+stream_opts = [table: "public.gridcodec_test_events"]
 
-config = ExampleApp.Repo.config()
-db = Keyword.fetch!(config, :database)
-user = Keyword.get(config, :username, "postgres")
-password = Keyword.get(config, :password, "postgres")
-host = Keyword.get(config, :hostname, "localhost")
-port = Keyword.get(config, :port, 5432)
+statements =
+  GridCodec.SQL.drop_statements(codec_modules) ++
+    GridCodec.SQL.generate_all_statements(codec_modules) ++
+    Catalog.drop_statements(stream_opts) ++
+    Catalog.install_statements(stream_opts)
 
-{output, exit_code} =
-  System.cmd("psql", ["-h", host, "-p", "#{port}", "-U", user, "-d", db, "-f", tmp_path],
-    env: [{"PGPASSWORD", password}],
-    stderr_to_stdout: true
-  )
-
-if exit_code != 0 do
-  IO.puts("   psql output:\n#{output}")
-  raise "psql failed with exit code #{exit_code}"
-end
-
-File.rm!(tmp_path)
-IO.puts("   SQL functions installed via psql\n")
+Enum.each(statements, &Repo.query!(&1))
+IO.puts("   SQL functions installed via Ecto\n")
 
 %{rows: [[zero, maximum, minimum, negative_one]]} =
   Repo.query!("""
@@ -424,7 +428,7 @@ IO.puts("11. Decoded market-1 stream:")
   Repo.query!(
     """
     SELECT stream_version, event_type, decoded
-    FROM public.gridcodec_test_decode_stream($1)
+    FROM #{Catalog.jsonb_stream_function()}($1)
     """,
     ["market-1"]
   )
@@ -442,7 +446,7 @@ end
   Repo.query!(
     """
     SELECT stream_version, event_type, data
-    FROM public.gridcodec_test_read_stream($1)
+    FROM #{Catalog.raw_stream_function()}($1)
     """,
     ["market-1"]
   )
@@ -458,7 +462,7 @@ end
   Repo.query!(
     """
     SELECT stream_version, side, price, quantity
-    FROM public.gridcodec_test_project_order_stream($1)
+    FROM #{Catalog.projected_stream_function()}($1)
     """,
     ["market-1"]
   )
@@ -485,7 +489,7 @@ end
       quantity,
       timestamp,
       flags
-    FROM public.gridcodec_test_typed_order_stream($1)
+    FROM #{Catalog.typed_stream_function()}($1)
     """,
     ["market-1"]
   )
@@ -520,6 +524,61 @@ unless [
   raise "native typed stream projection returned unexpected rows"
 end
 
+%{rows: mixed_rows} =
+  Repo.query!(
+    """
+    SELECT stream_version, event_type
+    FROM #{Catalog.mixed_stream_function()}($1)
+    """,
+    ["mixed-1"]
+  )
+
+unless mixed_rows == [
+         [1, "OrderCreated"],
+         [2, "TradeExecuted"],
+         [3, "OrderCreated"]
+       ] do
+  raise "mixed-type stream reader returned unexpected events"
+end
+
+%{rows: mixed_page} =
+  Repo.query!(
+    """
+    SELECT stream_version, event_type
+    FROM #{Catalog.mixed_stream_function()}($1, $2, $3)
+    """,
+    ["mixed-1", 2, 1]
+  )
+
+unless mixed_page == [[2, "TradeExecuted"]] do
+  raise "mixed-type stream page returned unexpected events"
+end
+
+%{rows: skipped_page} =
+  Repo.query!(
+    """
+    SELECT stream_version
+    FROM #{Catalog.mixed_stream_function()}($1, $2, $3)
+    """,
+    ["mixed-1", 4, 10]
+  )
+
+unless skipped_page == [] do
+  raise "mixed-type stream page should skip unmatched types"
+end
+
+%{rows: [[stream_max]]} =
+  Repo.query!(
+    """
+    SELECT #{Catalog.mixed_stream_version_function()}($1)
+    """,
+    ["mixed-1"]
+  )
+
+unless stream_max == 4 do
+  raise "unfiltered stream version should include unmatched types"
+end
+
 IO.puts("")
 
 # ============================================================================
@@ -527,10 +586,8 @@ IO.puts("")
 # ============================================================================
 
 IO.puts("12. Cleaning up...")
-Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_decode_stream(text);")
-Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_read_stream(text);")
-Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_project_order_stream(text);")
-Repo.query!("DROP FUNCTION IF EXISTS public.gridcodec_test_typed_order_stream(text);")
+
+Enum.each(Catalog.drop_statements(stream_opts), &Repo.query!(&1))
 Repo.query!("DROP TABLE IF EXISTS gridcodec_test_events;")
 IO.puts("   Done!\n")
 

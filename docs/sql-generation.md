@@ -123,9 +123,24 @@ SELECT *
 FROM risk.read_user_stream('98a01a76-614d-48b7-9364-d0c79a7684c1');
 ```
 
+The function also accepts an inclusive `start_version` and a bounded
+`max_count`. Omit both arguments to read the whole matching slice. `max_count`
+`NULL` means no limit.
+
+```sql
+SELECT *
+FROM risk.read_user_stream(
+  '98a01a76-614d-48b7-9364-d0c79a7684c1',
+  101,
+  500
+);
+```
+
 The `:decode` option controls representation:
 
 - `:raw` returns `data bytea` without database decoding.
+- `{:raw, [EventModule, ...]}` keeps that payload shape and filters to those
+  types, still in stream-version order.
 - `{:typed, EventModule}` filters to that event type and returns every
   supported top-level field as a native PostgreSQL column in one set-based
   scan. It avoids both JSONB materialization and a per-event function scan.
@@ -133,6 +148,11 @@ The `:decode` option controls representation:
   selected fixed fields as native PostgreSQL columns.
 - `:jsonb` (the backward-compatible default) returns the complete decoded
   payload. Reserve it for JSON consumers and ad hoc inspection.
+- `{:jsonb, [EventModule, ...]}` keeps the JSONB payload with a mixed-type
+  filter.
+
+Native typed columns stay single-codec. Mixed types use `:raw` or `:jsonb`
+lists. `{:typed, [EventModule]}` is accepted as an alias for one codec.
 
 ```elixir
 GridCodec.SQL.generate_stream_decoder(
@@ -143,6 +163,40 @@ GridCodec.SQL.generate_stream_decoder(
   decode: {:typed, MyApp.Events.SignupAttempted}
 )
 ```
+
+Generate a companion scalar when a consumer pages a type-filtered slice and
+still needs the current unfiltered stream head:
+
+```elixir
+GridCodec.SQL.generate_stream_decoder(
+  function: "risk.read_user_stream",
+  table: "risk.recorded_events",
+  stream_id_type: :uuid,
+  stream_id_column: :stream_uuid,
+  decode: {:raw, [MyApp.Events.OrderSubmitted, MyApp.Events.RiskScored]}
+)
+
+GridCodec.SQL.generate_stream_version(
+  function: "risk.read_user_stream_version",
+  table: "risk.recorded_events",
+  stream_id_type: :uuid,
+  stream_id_column: :stream_uuid
+)
+```
+
+```sql
+SELECT stream_version, event_type, data
+FROM risk.read_user_stream(stream_id, last_seen_version + 1, 500);
+
+SELECT risk.read_user_stream_version(stream_id);
+```
+
+The version function ignores type filters. An empty mixed-type page still
+returns the current max, or `0` when the stream has no rows.
+
+If the envelope stores identity columns, pass both `:schema_id_column` and
+`:event_type_id_column`. The generated filter then matches
+`(schema_id, template_id)` pairs instead of type names.
 
 Native typed mode supports top-level fixed fields and `string16` variable
 fields. It rejects repeating groups instead of silently converting them to
@@ -293,7 +347,22 @@ opts = [
 
 Ecto.Migration.execute(GridCodec.SQL.drop_stream_decoder_statement(opts))
 Ecto.Migration.execute(GridCodec.SQL.generate_stream_decoder(opts))
+Ecto.Migration.execute(
+  GridCodec.SQL.drop_stream_version_statement(function: "risk.read_user_stream_version")
+)
+Ecto.Migration.execute(
+  GridCodec.SQL.generate_stream_version(
+    function: "risk.read_user_stream_version",
+    table: "risk.recorded_events",
+    stream_id_type: :uuid,
+    stream_id_column: :stream_uuid
+  )
+)
 ```
+
+`drop_stream_decoder_statement/1` is one `DO` block. It drops both the legacy
+1-argument overload and the paged 3-argument form. Execute it before
+`CREATE OR REPLACE` so `fn(stream_id)` is not left ambiguous.
 
 Do not parse `generate_all/1` with a consumer-owned regex. That can silently
 miss new function forms such as scalar readers with `PARALLEL SAFE`.
@@ -314,7 +383,8 @@ The example application includes:
 
 - `test/example_app/sql_generation_test.exs` for consumer-side SQL generation.
 - `priv/sql_integration_test.exs` for encode, store, install, and PostgreSQL
-  decode coverage, including a fixed typed group.
+  decode coverage, including a fixed typed group, mixed-type paging, and the
+  unfiltered stream-version companion. Example App Quality CI runs this script.
 - `priv/sql_decoder_evolution_test.exs` for V1 → V2 → V3 catalog and native
   typed-stream refreshes, historical fixed/variable payloads, scalar readers,
   JSONB, and an idempotent V3 reinstall.

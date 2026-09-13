@@ -153,7 +153,16 @@ sql =
   ])
 ```
 
-Consumer-owned event tables can expose a one-call, version-ordered stream API:
+Consumer-owned event tables can expose a one-call, version-ordered stream API.
+`ExampleApp.SQL.Catalog` is the host-app wrapper: it binds GridCodec codecs to
+the envelope table and installs mixed-type paging plus the unfiltered
+stream-version companion.
+
+```elixir
+ExampleApp.SQL.Catalog.install_statements(table: "public.events")
+```
+
+That catalog generates:
 
 ```elixir
 GridCodec.SQL.generate_stream_decoder(
@@ -164,12 +173,19 @@ GridCodec.SQL.generate_stream_decoder(
 )
 ```
 
+Use `decode: {:raw, [EventModule, ...]}` to keep the raw payload and filter to
+those types. The generated function accepts an inclusive `start_version` and a
+bounded `max_count`. Pair it with `generate_stream_version/1` when a consumer
+needs the unfiltered stream head after an empty type-filtered page.
+
 Use `decode: {:typed, EventModule}` for all supported top-level native columns,
 or `decode: {:fields, EventModule, [:field, ...]}` for a smaller fixed-field
 projection. The backward-compatible `:jsonb` mode is intended for consumers
-that actually require complete JSON documents.
+that actually require complete JSON documents. Mixed native-column projections
+are not supported.
 
-Run the consumer-level generation test and optional PostgreSQL integration:
+Run the consumer-level generation test and PostgreSQL scripts (also run by
+Example App Quality CI):
 
 ```bash
 mix test test/example_app/sql_generation_test.exs
@@ -180,7 +196,8 @@ DATABASE_HOST=db MIX_ENV=prod mix bench.sql
 
 The integration script creates a temporary event table, installs the generated
 functions, verifies scalar, raw-stream, selected-field, native typed, JSONB,
-and fixed-group decoding, and removes the table.
+fixed-group, mixed-type paging, and unfiltered stream-max decoding, and removes
+the table.
 The evolution script performs V1 → V2 → V3 → V3 catalog installations and
 queries every historical fixed and variable payload through the recreated
 native typed stream after each refresh.

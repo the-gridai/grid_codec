@@ -509,14 +509,26 @@ defmodule GridCodec.SQL do
   - `:stream_id_column` — stream identifier column (default: `:stream_id`)
   - `:stream_version_column` — ordering column (default: `:stream_version`)
   - `:event_type_column` — GridCodec type-name column (default: `:event_type`)
+  - `:schema_id_column` and `:event_type_id_column` — when both are set, type
+    filters match `(schema_id, template_id)` instead of type names
   - `:data_column` — GridCodec `bytea` column (default: `:data`)
   - `:decode` — representation mode (default: `:jsonb`):
     - `:raw` returns the original `bytea` for BEAM decoding
+    - `{:raw, [CodecModule, ...]}` is the same payload with a mixed-type filter
     - `{:typed, CodecModule}` returns every supported top-level field as a
       native column in one set-based query
     - `{:fields, CodecModule, fields}` returns selected fixed fields as native
       columns and filters the stream to that codec's type
     - `:jsonb` returns a fully decoded JSONB payload
+    - `{:jsonb, [CodecModule, ...]}` is the same payload with a mixed-type filter
+
+  The generated function takes `start_version` (inclusive, default `1`) and
+  `max_count` (`NULL` means no limit). `SELECT * FROM fn(stream_id)` keeps the
+  previous unpaged call shape. Drop the previous 1-argument overload before
+  installing this form; `drop_stream_decoder_statement/1` drops both.
+
+  Mixed native-column projections are not supported. Use `{:raw, modules}`
+  or `{:jsonb, modules}` when more than one codec is in the filter.
 
   The event table should have an index beginning with the stream-id and version
   columns. All identifiers are validated and quoted.
@@ -532,10 +544,17 @@ defmodule GridCodec.SQL do
 
     event_type_column = opts |> Keyword.get(:event_type_column, :event_type) |> identifier!()
     data_column = opts |> Keyword.get(:data_column, :data) |> identifier!()
+    identity_columns = stream_identity_columns!(opts)
     decode = Keyword.get(opts, :decode, :jsonb)
 
+    ctx = %{
+      event_type_column: event_type_column,
+      data_column: data_column,
+      identity_columns: identity_columns
+    }
+
     {return_columns, payload_selects, event_type_filter, mode_description} =
-      stream_decode_spec!(decode, event_type_column, data_column)
+      stream_decode_spec!(decode, ctx)
 
     select_columns =
       [
@@ -546,115 +565,271 @@ defmodule GridCodec.SQL do
       |> Enum.join(",\n  ")
 
     where_clauses =
-      ["events.#{stream_id_column} = target_stream_id", event_type_filter]
+      [
+        "events.#{stream_id_column} = target_stream_id",
+        "events.#{stream_version_column} >= start_version",
+        event_type_filter
+      ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join("\n  AND ")
 
     """
     -- Set-based #{mode_description} for an indexed consumer-owned event stream
-    CREATE OR REPLACE FUNCTION #{function_name}(target_stream_id #{stream_id_type})
+    CREATE OR REPLACE FUNCTION #{function_name}(target_stream_id #{stream_id_type}, start_version bigint DEFAULT 1, max_count integer DEFAULT NULL)
     RETURNS TABLE (#{return_columns})
     AS $$
     SELECT
       #{select_columns}
     FROM #{table_name} AS events
     WHERE #{where_clauses}
-    ORDER BY events.#{stream_version_column};
+    ORDER BY events.#{stream_version_column}
+    LIMIT max_count;
     $$ LANGUAGE sql STABLE ROWS 1000;
     """
   end
 
   @doc """
+  Generates a scalar PostgreSQL function that returns the unfiltered max
+  stream version for one stream.
+
+  Required options:
+
+  - `:function` — qualified function name, for example `"risk.read_user_stream_version"`
+  - `:table` — qualified event table name, for example `"risk.recorded_events"`
+
+  Optional options match `generate_stream_decoder/1`: `:stream_id_type`,
+  `:stream_id_column`, and `:stream_version_column`.
+
+  An empty stream returns `0`. The type filter on a paired stream decoder is
+  ignored, so callers can page from the current head even when a mixed-type
+  slice is empty.
+  """
+  def generate_stream_version(opts) when is_list(opts) do
+    function_name = opts |> Keyword.fetch!(:function) |> qualified_identifier!()
+    table_name = opts |> Keyword.fetch!(:table) |> qualified_identifier!()
+    stream_id_type = opts |> Keyword.get(:stream_id_type, :text) |> stream_id_type!()
+    stream_id_column = opts |> Keyword.get(:stream_id_column, :stream_id) |> identifier!()
+
+    stream_version_column =
+      opts |> Keyword.get(:stream_version_column, :stream_version) |> identifier!()
+
+    """
+    -- Unfiltered max stream version for a consumer-owned event stream
+    CREATE OR REPLACE FUNCTION #{function_name}(target_stream_id #{stream_id_type})
+    RETURNS bigint
+    AS $$
+    SELECT COALESCE(MAX(events.#{stream_version_column}), 0)::bigint
+    FROM #{table_name} AS events
+    WHERE events.#{stream_id_column} = target_stream_id;
+    $$ LANGUAGE sql STABLE;
+    """
+  end
+
+  @doc """
   Generates the idempotent drop required before changing a stream decoder's
-  return shape.
+  return shape or argument list.
+
+  The statement is a single `DO` block that drops both the legacy 1-argument
+  overload and the paged 3-argument form, so `SELECT * FROM fn(stream_id)` is
+  not left ambiguous.
   """
   def drop_stream_decoder_statement(opts) when is_list(opts) do
+    function_name = opts |> Keyword.fetch!(:function) |> qualified_identifier!()
+    stream_id_type = opts |> Keyword.get(:stream_id_type, :text) |> stream_id_type!()
+
+    """
+    DO $gridcodec$
+    BEGIN
+      EXECUTE 'DROP FUNCTION IF EXISTS #{function_name}(#{stream_id_type})';
+      EXECUTE 'DROP FUNCTION IF EXISTS #{function_name}(#{stream_id_type}, bigint, integer)';
+    END
+    $gridcodec$;
+    """
+  end
+
+  @doc """
+  Generates the idempotent drop for a companion stream-version function.
+  """
+  def drop_stream_version_statement(opts) when is_list(opts) do
     function_name = opts |> Keyword.fetch!(:function) |> qualified_identifier!()
     stream_id_type = opts |> Keyword.get(:stream_id_type, :text) |> stream_id_type!()
     "DROP FUNCTION IF EXISTS #{function_name}(#{stream_id_type});"
   end
 
-  defp stream_decode_spec!(:jsonb, event_type_column, data_column) do
-    {
-      "stream_version bigint, event_type text, decoded jsonb",
-      [
-        "gridcodec.decode(events.#{event_type_column}::text, events.#{data_column}) AS decoded"
-      ],
-      nil,
-      "JSONB decoder"
-    }
+  defp stream_decode_spec!(decode, ctx) do
+    case normalize_stream_decode!(decode) do
+      {:jsonb, modules} ->
+        {
+          "stream_version bigint, event_type text, decoded jsonb",
+          [
+            "gridcodec.decode(events.#{ctx.event_type_column}::text, events.#{ctx.data_column}) AS decoded"
+          ],
+          stream_event_filter(modules, ctx),
+          jsonb_mode_description(modules)
+        }
+
+      {:raw, modules} ->
+        {
+          "stream_version bigint, event_type text, data bytea",
+          ["events.#{ctx.data_column} AS data"],
+          stream_event_filter(modules, ctx),
+          raw_mode_description(modules)
+        }
+
+      {:typed, module} ->
+        fields = native_typed_fields!(module, "events.#{ctx.data_column}")
+
+        return_fields =
+          Enum.map_join(fields, ", ", fn {name, type, _expression} ->
+            ~s("#{name}" #{sql_column_type(type)})
+          end)
+
+        selects =
+          Enum.map(fields, fn {name, _type, expression} ->
+            ~s|#{expression} AS "#{name}"|
+          end)
+
+        {
+          "stream_version bigint, event_type text, #{return_fields}",
+          selects,
+          stream_event_filter([module], ctx),
+          "native typed projection"
+        }
+
+      {:fields, module, fields} ->
+        field_specs = Enum.map(fields, &fixed_field!(module, &1))
+        fn_name = module.__type__() |> sql_function_part()
+
+        return_fields =
+          Enum.map_join(field_specs, ", ", fn {name, type, _type_mod, _offset} ->
+            ~s("#{name}" #{sql_column_type(type)})
+          end)
+
+        selects =
+          Enum.map(field_specs, fn {name, _type, _type_mod, _offset} ->
+            reader = "gridcodec.read_#{fn_name}_#{sql_function_part(name)}"
+            ~s|#{reader}(events.#{ctx.data_column}) AS "#{name}"|
+          end)
+
+        {
+          "stream_version bigint, event_type text, #{return_fields}",
+          selects,
+          stream_event_filter([module], ctx),
+          "fixed-field projection"
+        }
+    end
   end
 
-  defp stream_decode_spec!(:raw, _event_type_column, data_column) do
-    {
-      "stream_version bigint, event_type text, data bytea",
-      ["events.#{data_column} AS data"],
-      nil,
-      "raw reader"
-    }
+  defp normalize_stream_decode!(:jsonb), do: {:jsonb, :all}
+  defp normalize_stream_decode!(:raw), do: {:raw, :all}
+
+  defp normalize_stream_decode!({:jsonb, modules}) when is_list(modules) do
+    {:jsonb, validate_codec_modules!(modules)}
   end
 
-  defp stream_decode_spec!({:typed, module}, event_type_column, data_column)
-       when is_atom(module) do
-    unless gridcodec_codec?(module) do
-      raise ArgumentError, "not a GridCodec module: #{inspect(module)}"
+  defp normalize_stream_decode!({:raw, modules}) when is_list(modules) do
+    {:raw, validate_codec_modules!(modules)}
+  end
+
+  defp normalize_stream_decode!({:typed, module}) when is_atom(module) do
+    {:typed, validate_codec_module!(module)}
+  end
+
+  defp normalize_stream_decode!({:typed, [module]}) when is_atom(module) do
+    {:typed, validate_codec_module!(module)}
+  end
+
+  defp normalize_stream_decode!({:typed, modules}) when is_list(modules) do
+    _ = validate_codec_modules!(modules)
+
+    raise ArgumentError,
+          "decode: {:typed, modules} supports one codec because native columns are per-type; " <>
+            "use decode: {:raw, modules} or decode: {:jsonb, modules} for mixed types"
+  end
+
+  defp normalize_stream_decode!({:fields, module, fields})
+       when is_atom(module) and is_list(fields) do
+    if fields == [] do
+      raise ArgumentError, "field projection requires at least one fixed field"
     end
 
-    fields = native_typed_fields!(module, "events.#{data_column}")
-
-    return_fields =
-      Enum.map_join(fields, ", ", fn {name, type, _expression} ->
-        ~s("#{name}" #{sql_column_type(type)})
-      end)
-
-    selects =
-      Enum.map(fields, fn {name, _type, expression} ->
-        ~s|#{expression} AS "#{name}"|
-      end)
-
-    {
-      "stream_version bigint, event_type text, #{return_fields}",
-      selects,
-      "events.#{event_type_column} = #{sql_literal(module.__type__())}",
-      "native typed projection"
-    }
+    {:fields, validate_codec_module!(module), fields}
   end
 
-  defp stream_decode_spec!({:fields, module, fields}, event_type_column, data_column)
-       when is_atom(module) and is_list(fields) and fields != [] do
-    unless gridcodec_codec?(module) do
-      raise ArgumentError, "not a GridCodec module: #{inspect(module)}"
-    end
-
-    field_specs = Enum.map(fields, &fixed_field!(module, &1))
-    fn_name = module.__type__() |> sql_function_part()
-
-    return_fields =
-      Enum.map_join(field_specs, ", ", fn {name, type, _type_mod, _offset} ->
-        ~s("#{name}" #{sql_column_type(type)})
-      end)
-
-    selects =
-      Enum.map(field_specs, fn {name, _type, _type_mod, _offset} ->
-        reader = "gridcodec.read_#{fn_name}_#{sql_function_part(name)}"
-        ~s|#{reader}(events.#{data_column}) AS "#{name}"|
-      end)
-
-    {
-      "stream_version bigint, event_type text, #{return_fields}",
-      selects,
-      "events.#{event_type_column} = #{sql_literal(module.__type__())}",
-      "fixed-field projection"
-    }
-  end
-
-  defp stream_decode_spec!({:fields, _module, []}, _event_type_column, _data_column) do
-    raise ArgumentError, "field projection requires at least one fixed field"
-  end
-
-  defp stream_decode_spec!(decode, _event_type_column, _data_column) do
+  defp normalize_stream_decode!(decode) do
     raise ArgumentError, "unsupported stream decode mode: #{inspect(decode)}"
   end
+
+  defp validate_codec_modules!([]), do: raise(ArgumentError, "decode codec list cannot be empty")
+
+  defp validate_codec_modules!(modules) do
+    Enum.each(modules, &validate_codec_module!/1)
+    modules
+  end
+
+  defp validate_codec_module!(module) do
+    unless gridcodec_codec?(module) do
+      raise ArgumentError, "not a GridCodec module: #{inspect(module)}"
+    end
+
+    module
+  end
+
+  defp stream_identity_columns!(opts) do
+    schema = Keyword.get(opts, :schema_id_column)
+    type_id = Keyword.get(opts, :event_type_id_column)
+
+    case {schema, type_id} do
+      {nil, nil} ->
+        nil
+
+      {schema, type_id} when not is_nil(schema) and not is_nil(type_id) ->
+        {identifier!(schema), identifier!(type_id)}
+
+      _other ->
+        raise ArgumentError,
+              "schema_id_column and event_type_id_column must be set together"
+    end
+  end
+
+  defp stream_event_filter(:all, _ctx), do: nil
+
+  defp stream_event_filter([module], %{identity_columns: {schema_col, type_id_col}}) do
+    {schema_id, template_id} = codec_identity!(module)
+
+    "(events.#{schema_col}, events.#{type_id_col}) IN ((#{sql_literal(schema_id)}, #{sql_literal(template_id)}))"
+  end
+
+  defp stream_event_filter([module], %{event_type_column: event_type_column}) do
+    "events.#{event_type_column} = #{sql_literal(module.__type__())}"
+  end
+
+  defp stream_event_filter(modules, %{identity_columns: {schema_col, type_id_col}})
+       when is_list(modules) do
+    tuples =
+      Enum.map_join(modules, ", ", fn module ->
+        {schema_id, template_id} = codec_identity!(module)
+        "(#{sql_literal(schema_id)}, #{sql_literal(template_id)})"
+      end)
+
+    "(events.#{schema_col}, events.#{type_id_col}) IN (#{tuples})"
+  end
+
+  defp stream_event_filter(modules, %{event_type_column: event_type_column})
+       when is_list(modules) do
+    types = Enum.map_join(modules, ", ", &sql_literal(&1.__type__()))
+    "events.#{event_type_column} IN (#{types})"
+  end
+
+  defp codec_identity!(module) do
+    {module.__schema_id__(), module.__template_id__()}
+  end
+
+  defp jsonb_mode_description(:all), do: "JSONB decoder"
+  defp jsonb_mode_description(_modules), do: "mixed-type JSONB decoder"
+
+  defp raw_mode_description(:all), do: "raw reader"
+  defp raw_mode_description(_modules), do: "mixed-type raw reader"
 
   defp native_typed_fields!(module, data) do
     schema = module.__schema__()
@@ -770,6 +945,8 @@ defmodule GridCodec.SQL do
   end
 
   defp sql_literal(value) when is_atom(value), do: value |> Atom.to_string() |> sql_literal()
+
+  defp sql_literal(value) when is_integer(value), do: Integer.to_string(value)
 
   defp sql_literal(value) when is_binary(value),
     do: "'" <> String.replace(value, "'", "''") <> "'"

@@ -2,8 +2,11 @@ defmodule ExampleApp.SQLGenerationTest do
   use ExUnit.Case, async: true
 
   alias ExampleApp.Events.OrderCreated
+  alias ExampleApp.SQL.Catalog
   alias ExampleApp.Views.CurrencyAccount
   alias GridCodec.SQL
+
+  @table "public.gridcodec_test_events"
 
   test "consumer codecs generate typed and universal PostgreSQL decoders" do
     typed_sql = SQL.generate(CurrencyAccount)
@@ -24,57 +27,38 @@ defmodule ExampleApp.SQLGenerationTest do
     assert catalog_sql =~ "WHEN type_name = 'OrderCreated'"
   end
 
-  test "consumer event tables can expose an indexed whole-stream decoder" do
-    sql =
-      SQL.generate_stream_decoder(
-        function: "public.decode_gridcodec_test_stream",
-        table: "public.gridcodec_test_events",
-        stream_id_type: :text
-      )
+  test "consumer catalog exposes indexed, paged, and mixed-type stream readers" do
+    sql = Enum.join(Catalog.install_statements(table: @table), "\n")
 
-    assert sql =~ "target_stream_id text"
-    assert sql =~ ~s(events."stream_id" = target_stream_id)
-    assert sql =~ ~s(ORDER BY events."stream_version")
-    assert sql =~ ~s|gridcodec.decode(events."event_type"::text, events."data")|
+    assert sql =~ ~s("decode_event_stream")
+    assert sql =~ ~s("read_event_stream")
+    assert sql =~ ~s("read_order_stream")
+    assert sql =~ ~s("read_typed_order_stream")
+    assert sql =~ ~s("read_market_stream")
+    assert sql =~ ~s("read_market_stream_version")
+
+    assert sql =~ "start_version bigint DEFAULT 1, max_count integer DEFAULT NULL"
+    assert sql =~ ~s(events."stream_version" >= start_version)
+    assert sql =~ "LIMIT max_count;"
+    assert sql =~ ~s|events."event_type" IN ('OrderCreated', 'TradeExecuted')|
+    assert sql =~ ~s|COALESCE(MAX(events."stream_version"), 0)::bigint|
+    assert sql =~ "RETURNS TABLE (stream_version bigint, event_type text, data bytea)"
+    assert sql =~ ~s("order_id" uuid)
+    assert sql =~ "gridcodec.read_ordercreated_side"
+    assert sql =~ "gridcodec.read_ordercreated_price"
+    assert sql =~ "gridcodec.read_ordercreated_quantity"
   end
 
-  test "consumer event tables can retrieve raw or selectively decoded streams" do
-    raw_sql =
-      SQL.generate_stream_decoder(
-        function: "public.read_gridcodec_test_stream",
-        table: "public.gridcodec_test_events",
-        stream_id_type: :text,
-        decode: :raw
-      )
+  test "consumer catalog drops both stream-decoder overloads" do
+    drop = Enum.join(Catalog.drop_statements(table: @table), "\n")
 
-    assert raw_sql =~ "RETURNS TABLE (stream_version bigint, event_type text, data bytea)"
-    refute raw_sql =~ "gridcodec.decode("
+    assert drop =~ "DO $gridcodec$"
+    assert drop =~ ~s|DROP FUNCTION IF EXISTS "public"."read_market_stream"(text)|
 
-    projected_sql =
-      SQL.generate_stream_decoder(
-        function: "public.read_order_stream",
-        table: "public.gridcodec_test_events",
-        decode: {:fields, OrderCreated, [:side, :price, :quantity]}
-      )
+    assert drop =~
+             ~s|DROP FUNCTION IF EXISTS "public"."read_market_stream"(text, bigint, integer)|
 
-    assert projected_sql =~ "gridcodec.read_ordercreated_side"
-    assert projected_sql =~ "gridcodec.read_ordercreated_price"
-    assert projected_sql =~ "gridcodec.read_ordercreated_quantity"
-    refute projected_sql =~ "gridcodec.decode("
-
-    typed_sql =
-      SQL.generate_stream_decoder(
-        function: "public.read_typed_order_stream",
-        table: "public.gridcodec_test_events",
-        decode: {:typed, OrderCreated}
-      )
-
-    assert typed_sql =~ ~s("order_id" uuid)
-    assert typed_sql =~ ~s("symbol" text)
-    assert typed_sql =~ ~s|gridcodec.read_uuid_nullable(events."data", 8)|
-    assert typed_sql =~ ~s|gridcodec.read_string16(events."data",|
-    refute typed_sql =~ "gridcodec.read_ordercreated_"
-    refute typed_sql =~ "gridcodec.decode("
-    refute typed_sql =~ "jsonb"
+    assert drop =~
+             ~s|DROP FUNCTION IF EXISTS "public"."read_market_stream_version"(text)|
   end
 end
