@@ -21,3 +21,7 @@ hex = "0.4"
 [[bench]]
 name = "codec_operations"
 harness = false
+
+[[bench]]
+name = "production_operations"
+harness = false

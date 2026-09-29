@@ -32,6 +32,18 @@ impl Writer {
         &self.bytes
     }
 
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.bytes
+    }
+
+    pub fn resize(&mut self, len: usize) {
+        self.bytes.resize(len, 0);
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.bytes.truncate(len);
+    }
+
     pub fn into_inner(self) -> Vec<u8> {
         self.bytes
     }

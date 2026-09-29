@@ -35,6 +35,9 @@ fn benchmark(c: &mut Criterion) {
                 .unwrap()
         })
     });
+    c.bench_function("pure_rust/general_encode_into_slice", |b| {
+        b.iter(|| Encode::encode_into(black_box(&message), black_box(&mut fixed_output)).unwrap())
+    });
     let mut writer = Writer::with_capacity(binary.len());
     c.bench_function("pure_rust/encode_reuse", |b| {
         b.iter(|| {

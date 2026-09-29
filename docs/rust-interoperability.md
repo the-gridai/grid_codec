@@ -30,6 +30,23 @@ The Rust values include safe bounds checks and contain no `unsafe` code. Direct 
 
 Generated BEAM field access remains excellent. The NIF boundary dominates tiny reads and decodes. Rust encoding offsets that boundary for this fixture. Production adoption must use realistic schemas and batches, not this microbenchmark. Treat absolute values as machine-specific and compare tiers from the same run.
 
+### Cortex production workloads and general fast path
+
+The production benchmark includes authentic Cortex GridExchange binaries. The fixture set contains 25 market-period events and one 10,011-byte aggregate snapshot. The snapshot has a 626-byte fixed block, three 33-byte balance entries, and 45 206-byte resting-order entries.
+
+Profiling showed that allocation and repeated growable-buffer writes dominate general encoding. The shared `Encode` trait now requires an exact encoded length. `Encode.encode_into` writes through the generic `Sink` interface into caller-owned memory. `Encode.encode` allocates one exact-size vector. `Encode.encode_to` reuses one vector and fills its initialized storage. The Rustler encoder allocates one BEAM binary and writes into it directly. It no longer creates a Rust vector and then copies that vector into a BEAM binary.
+
+The same Daytona host measured these changes:
+
+- General caller-buffer encoding: 4.1 ns for the benchmark message.
+- Ordinary Rust encoding: 22.0 ns.
+- Reused-buffer Rust encoding: 12.7 ns.
+- Rustler encoding: 81-83 ns, down from 116.5 ns in the earlier run.
+- Full decode: 13.6 ns after removal of a redundant fixed-block bound check.
+- Validated fixed-block reads: 3.5 ns for a 102-byte order-book event and 4.2 ns for a 794-byte limit-order event.
+
+The authentic event view borrows the input. It does not scan or copy the full fixed block. The snapshot view also borrows the 10,011-byte input. Large snapshot cost appears when callers materialize every group entry, string, Decimal, and map. Future generated Rust codecs must preserve borrowed group views until callers request owned values.
+
 ### Compile-time layout paths
 
 GridCodec schemas know each fixed field's width and offset. Generated Rust codecs can use that information without a dynamic cursor:

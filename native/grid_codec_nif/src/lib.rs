@@ -44,15 +44,16 @@ fn benchmark_encode<'a>(
     active: bool,
     name: String,
 ) -> NifResult<Binary<'a>> {
-    let bytes = BenchmarkMessage {
+    let message = BenchmarkMessage {
         number,
         signed,
         active,
         name: &name,
-    }
-    .encode()
-    .map_err(nif_error)?;
-    Ok(binary_from_bytes(env, &bytes))
+    };
+    let encoded_len = message.encoded_len().map_err(nif_error)?;
+    let mut output = NewBinary::new(env, encoded_len);
+    Encode::encode_into(&message, output.as_mut_slice()).map_err(nif_error)?;
+    Ok(output.into())
 }
 
 #[rustler::nif]

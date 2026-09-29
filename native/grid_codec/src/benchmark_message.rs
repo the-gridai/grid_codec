@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use crate::{Decode, Encode, Error, Header, Reader, Result, Writer};
+use crate::{Decode, Encode, Error, Header, Reader, Result};
 
 pub const BLOCK_LENGTH: u16 = 13;
 pub const TEMPLATE_ID: u16 = 65_000;
@@ -127,17 +127,17 @@ impl Encode for BenchmarkMessage<'_> {
         }
     }
 
-    fn encoded_len_hint(&self) -> usize {
-        crate::HEADER_SIZE + BLOCK_LENGTH as usize + 1 + self.name.len()
+    fn encoded_len(&self) -> Result<usize> {
+        BenchmarkMessage::encoded_len(self)
     }
 
-    fn encode_payload(&self, writer: &mut Writer) -> Result<()> {
+    fn encode_payload<S: crate::Sink>(&self, writer: &mut S) -> Result<()> {
         let payload_start = writer.position();
         let mut fixed = [0; BLOCK_LENGTH as usize];
         fixed[0..4].copy_from_slice(&self.number.to_le_bytes());
         fixed[4..12].copy_from_slice(&self.signed.to_le_bytes());
         fixed[12] = u8::from(self.active);
-        writer.write_raw(&fixed);
+        writer.write_raw(&fixed)?;
         writer.verify_fixed_block(payload_start, BLOCK_LENGTH)?;
         writer.write_string8(Some(self.name))
     }

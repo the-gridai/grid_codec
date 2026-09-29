@@ -52,10 +52,15 @@ impl Encode for Example<'_> {
         Header::new(9, 7, 3, 1)
     }
 
-    fn encode_payload(&self, writer: &mut Writer) -> Result<()> {
+    fn encoded_len(&self) -> Result<usize> {
+        let name_len = self.name.map_or(0, str::len);
+        Ok(grid_codec::HEADER_SIZE + 9 + 2 + name_len)
+    }
+
+    fn encode_payload<S: grid_codec::Sink>(&self, writer: &mut S) -> Result<()> {
         let payload_start = writer.position();
-        writer.write_u64(self.sequence);
-        writer.write_bool(self.active);
+        writer.write_u64(self.sequence)?;
+        writer.write_bool(self.active)?;
         writer.verify_fixed_block(payload_start, self.header().block_length)?;
         writer.write_string16(self.name)
     }
