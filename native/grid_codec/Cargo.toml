@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "grid-codec"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rust implementation of the GridCodec binary wire format"
+
+[lib]
+name = "grid_codec"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2.0"
+
+[dev-dependencies]
+hex = "0.4"
