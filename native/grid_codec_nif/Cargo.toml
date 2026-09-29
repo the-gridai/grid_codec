@@ -1,0 +1,12 @@
+[package]
+name = "grid_codec_nif"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+grid-codec = { path = "../grid_codec" }
+rustler = "0.36"
