@@ -1,25 +1,53 @@
-alias GridCodec.Native
+defmodule NativeBench.Codec do
+  use GridCodec.Struct, template_id: 65_000, schema_id: 65_001
 
-iterations = String.to_integer(System.get_env("ITERATIONS", "1000000"))
-fixture = <<42::little-32, -7::little-signed-64, 1::8, 4::8, "grid"::binary>>
-header = GridCodec.Header.encode(block_length: 32, template_id: 1, schema_id: 100, version: 2)
-
-defmodule NativeBench do
-  def measure(name, iterations, fun) do
-    {microseconds, _} = :timer.tc(fn -> for _ <- 1..iterations, do: fun.() end)
-    ns_per_operation = microseconds * 1_000 / iterations
-    IO.puts("#{name}: #{Float.round(ns_per_operation, 1)} ns/op")
+  defcodec do
+    field :number, :u32
+    field :signed, :i64
+    field :active, :bool
+    field :name, :string8
   end
 end
 
-NativeBench.measure("beam_header", iterations, fn -> GridCodec.Header.decode!(header) end)
-NativeBench.measure("rust_header_nif", iterations, fn -> Native.read_header(header) end)
+defmodule NativeBench do
+  alias GridCodec.Native
+  alias NativeBench.Codec
 
-NativeBench.measure("beam_primitives", iterations, fn ->
-  <<number::little-32, signed::little-signed-64, active::8, length::8, name::binary-size(length)>> =
-    fixture
+  require Codec
 
-  {number, signed, active == 1, name}
-end)
+  def run do
+    iterations = String.to_integer(System.get_env("ITERATIONS", "1000000"))
+    message = %Codec{number: 42, signed: -7, active: true, name: "grid"}
+    {:ok, binary} = Codec.encode(message)
 
-NativeBench.measure("rust_primitives_nif", iterations, fn -> Native.decode_primitives(fixture) end)
+    IO.puts("GridCodec operation matrix (same message and wire bytes)")
+
+    IO.puts(
+      "Run pure Rust separately with: cargo bench --manifest-path native/grid_codec/Cargo.toml"
+    )
+
+    measure("pure_elixir/field_access", iterations, fn -> Codec.get(binary, :number) end)
+    measure("rustler/field_access", iterations, fn -> Native.benchmark_get_number(binary) end)
+
+    measure("pure_elixir/encode", iterations, fn -> Codec.encode(message) end)
+
+    measure("rustler/encode", iterations, fn ->
+      Native.benchmark_encode(42, -7, true, "grid")
+    end)
+
+    measure("pure_elixir/decode", iterations, fn -> Codec.decode(binary) end)
+    measure("rustler/decode", iterations, fn -> Native.benchmark_decode(binary) end)
+  end
+
+  defp measure(name, iterations, fun) do
+    {microseconds, result} = :timer.tc(fn -> repeat(iterations, fun, nil) end)
+    ns_per_operation = microseconds * 1_000 / iterations
+    IO.puts("#{name}: #{Float.round(ns_per_operation, 1)} ns/op")
+    result
+  end
+
+  defp repeat(0, _fun, result), do: result
+  defp repeat(iterations, fun, _result), do: repeat(iterations - 1, fun, fun.())
+end
+
+NativeBench.run()

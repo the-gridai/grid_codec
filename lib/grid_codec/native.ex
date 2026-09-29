@@ -13,6 +13,16 @@ defmodule GridCodec.Native do
   @spec read_header(binary()) :: GridCodec.Native.Header.t()
   def read_header(binary), do: Nif.read_header(binary)
 
+  @spec benchmark_get_number(binary()) :: non_neg_integer()
+  def benchmark_get_number(binary), do: Nif.benchmark_get_number(binary)
+
+  @spec benchmark_encode(non_neg_integer(), integer(), boolean(), String.t()) :: binary()
+  def benchmark_encode(number, signed, active, name),
+    do: Nif.benchmark_encode(number, signed, active, name)
+
+  @spec benchmark_decode(binary()) :: {non_neg_integer(), integer(), boolean(), String.t()}
+  def benchmark_decode(binary), do: Nif.benchmark_decode(binary)
+
   @spec encode_primitives(non_neg_integer(), integer(), boolean(), String.t()) :: binary()
   def encode_primitives(number, signed, active, name),
     do: Nif.encode_primitives(number, signed, active, name)

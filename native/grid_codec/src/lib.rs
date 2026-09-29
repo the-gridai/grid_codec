@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
+pub mod benchmark_message;
 mod error;
 mod header;
 mod reader;
 mod writer;
 
+pub use benchmark_message::BenchmarkMessage;
 pub use error::{Error, Result};
 pub use header::{Header, HEADER_SIZE};
 pub use reader::Reader;

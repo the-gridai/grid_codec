@@ -5,6 +5,13 @@ defmodule GridCodec.Native.Nif do
 
   def read_header(_binary), do: :erlang.nif_error(:nif_not_loaded)
 
+  def benchmark_get_number(_binary), do: :erlang.nif_error(:nif_not_loaded)
+
+  def benchmark_encode(_number, _signed, _active, _name),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def benchmark_decode(_binary), do: :erlang.nif_error(:nif_not_loaded)
+
   def encode_primitives(_number, _signed, _active, _name),
     do: :erlang.nif_error(:nif_not_loaded)
 
