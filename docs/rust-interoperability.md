@@ -21,11 +21,14 @@ A two-core Daytona run on September 29, 2026 measured these representative media
 
 | Operation | Pure Rust | Rustler | Pure Elixir |
 | --- | ---: | ---: | ---: |
-| Field access | 5.3 ns | 61.2 ns | 10.5 ns |
-| Encode | 41.2 ns | 116.5 ns | 156.1 ns |
-| Decode | 14.5 ns | 167.8 ns | 89.6 ns |
+| Field access | 1.8 ns | 61.2 ns | 10.5 ns |
+| Encode with a new buffer | 20.9 ns | 116.5 ns | 156.1 ns |
+| Encode with a reused buffer | 7.5 ns | Not exposed | Not exposed |
+| Decode | 14.1 ns | 167.8 ns | 89.6 ns |
 
-The benchmark confirms the intended boundary: generated BEAM field access is excellent, while the NIF boundary dominates tiny native reads and decodes. Rust encoding can offset that boundary for this fixture, but production adoption should still be based on realistic schemas and batches rather than this microbenchmark. Treat absolute values as machine-specific and compare tiers from the same run.
+The Rust values include safe bounds checks and contain no `unsafe` code. Direct header parsing reduced field access by 66%. Exact capacity hints removed a second allocation and reduced ordinary encoding by 52%. `Encode.encode_to/2` reuses caller-owned storage and reduced encoding by another 64%. The generic decode experiment did not produce a significant gain, so this change keeps the simpler reader path.
+
+Generated BEAM field access remains excellent. The NIF boundary dominates tiny reads and decodes. Rust encoding offsets that boundary for this fixture. Production adoption must use realistic schemas and batches, not this microbenchmark. Treat absolute values as machine-specific and compare tiers from the same run.
 
 Run the parity and bridge checks with:
 

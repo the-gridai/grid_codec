@@ -16,11 +16,22 @@ pub trait Encode {
     fn header(&self) -> Header;
     fn encode_payload(&self, writer: &mut Writer) -> Result<()>;
 
-    fn encode(&self) -> Result<Vec<u8>> {
+    fn encoded_len_hint(&self) -> usize {
         let header = self.header();
-        let mut writer = Writer::with_capacity(HEADER_SIZE + usize::from(header.block_length));
+        HEADER_SIZE + usize::from(header.block_length)
+    }
+
+    fn encode_to(&self, writer: &mut Writer) -> Result<()> {
+        let header = self.header();
+        writer.clear();
+        writer.reserve(self.encoded_len_hint());
         writer.write_header(header);
-        self.encode_payload(&mut writer)?;
+        self.encode_payload(writer)
+    }
+
+    fn encode(&self) -> Result<Vec<u8>> {
+        let mut writer = Writer::with_capacity(self.encoded_len_hint());
+        self.encode_to(&mut writer)?;
         Ok(writer.into_inner())
     }
 }

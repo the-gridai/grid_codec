@@ -16,6 +16,14 @@ impl Writer {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.bytes.clear();
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.bytes.reserve(additional);
+    }
+
     pub fn position(&self) -> usize {
         self.bytes.len()
     }
@@ -29,10 +37,11 @@ impl Writer {
     }
 
     pub fn write_header(&mut self, header: Header) {
-        self.write_u16(header.block_length);
-        self.write_u16(header.template_id);
-        self.write_u16(header.schema_id);
-        self.write_u16(header.version);
+        self.bytes.extend_from_slice(&header.encode());
+    }
+
+    pub fn write_raw(&mut self, value: &[u8]) {
+        self.bytes.extend_from_slice(value);
     }
 
     pub fn write_u8(&mut self, value: u8) {

@@ -23,11 +23,17 @@ impl Encode for BenchmarkMessage<'_> {
         }
     }
 
+    fn encoded_len_hint(&self) -> usize {
+        crate::HEADER_SIZE + BLOCK_LENGTH as usize + 1 + self.name.len()
+    }
+
     fn encode_payload(&self, writer: &mut Writer) -> Result<()> {
         let payload_start = writer.position();
-        writer.write_u32(self.number);
-        writer.write_i64(self.signed);
-        writer.write_bool(Some(self.active));
+        let mut fixed = [0; BLOCK_LENGTH as usize];
+        fixed[0..4].copy_from_slice(&self.number.to_le_bytes());
+        fixed[4..12].copy_from_slice(&self.signed.to_le_bytes());
+        fixed[12] = u8::from(self.active);
+        writer.write_raw(&fixed);
         writer.verify_fixed_block(payload_start, BLOCK_LENGTH)?;
         writer.write_string8(Some(self.name))
     }
@@ -40,9 +46,16 @@ impl<'a> Decode<'a> for BenchmarkMessage<'a> {
     const MAX_VERSION: u16 = VERSION;
 
     fn decode_payload(_header: Header, reader: &mut Reader<'a>) -> Result<Self> {
-        let number = reader.read_u32()?;
-        let signed = reader.read_i64()?;
-        let active = reader.read_bool()?.unwrap_or(false);
+        let fixed = reader.read_exact(BLOCK_LENGTH as usize)?;
+        let number = u32::from_le_bytes([fixed[0], fixed[1], fixed[2], fixed[3]]);
+        let signed = i64::from_le_bytes([
+            fixed[4], fixed[5], fixed[6], fixed[7], fixed[8], fixed[9], fixed[10], fixed[11],
+        ]);
+        let active = match fixed[12] {
+            0 => false,
+            1 => true,
+            value => return Err(crate::Error::InvalidBool(value)),
+        };
         let name = reader.read_string8()?.unwrap_or_default();
 
         Ok(Self {
@@ -55,9 +68,14 @@ impl<'a> Decode<'a> for BenchmarkMessage<'a> {
 }
 
 pub fn get_number(bytes: &[u8]) -> Result<u32> {
-    let mut reader = Reader::new(bytes);
-    let header = reader.read_header()?;
+    let (header, payload) = Header::decode(bytes)?;
     header.expect_identity(SCHEMA_ID, TEMPLATE_ID)?;
     header.expect_version(VERSION, VERSION)?;
-    reader.read_u32()
+    let number = payload.get(..4).ok_or(crate::Error::InsufficientData {
+        needed: 4,
+        remaining: payload.len(),
+    })?;
+    Ok(u32::from_le_bytes([
+        number[0], number[1], number[2], number[3],
+    ]))
 }

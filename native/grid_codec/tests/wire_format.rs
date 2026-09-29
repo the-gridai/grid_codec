@@ -1,4 +1,6 @@
-use grid_codec::{Decode, Encode, Error, Header, Reader, Result, Writer, HEADER_SIZE};
+use grid_codec::{
+    BenchmarkMessage, Decode, Encode, Error, Header, Reader, Result, Writer, HEADER_SIZE,
+};
 
 #[test]
 fn header_matches_grid_codec_little_endian_layout() {
@@ -127,4 +129,49 @@ fn group_header_matches_grid_codec_layout() {
 
     let mut reader = Reader::new(writer.as_slice());
     assert_eq!(reader.read_group_header().unwrap(), (12, 3));
+}
+
+#[test]
+fn encode_to_reuses_the_writer_allocation() {
+    let message = Example {
+        sequence: 99,
+        active: Some(false),
+        name: Some("magic"),
+    };
+    let expected = message.encode().unwrap();
+    let mut writer = Writer::with_capacity(expected.len());
+
+    message.encode_to(&mut writer).unwrap();
+    assert_eq!(writer.as_slice(), expected);
+    message.encode_to(&mut writer).unwrap();
+    assert_eq!(writer.as_slice(), expected);
+}
+
+#[test]
+fn benchmark_message_rejects_truncated_and_invalid_data() {
+    let message = BenchmarkMessage {
+        number: 42,
+        signed: -7,
+        active: true,
+        name: "grid",
+    };
+    let encoded = message.encode().unwrap();
+
+    for length in 0..encoded.len() {
+        assert!(BenchmarkMessage::decode(&encoded[..length]).is_err());
+    }
+
+    let mut invalid_bool = encoded.clone();
+    invalid_bool[HEADER_SIZE + 12] = 2;
+    assert_eq!(
+        BenchmarkMessage::decode(&invalid_bool),
+        Err(Error::InvalidBool(2))
+    );
+
+    let mut invalid_utf8 = encoded;
+    invalid_utf8[HEADER_SIZE + 14] = 255;
+    assert_eq!(
+        BenchmarkMessage::decode(&invalid_utf8),
+        Err(Error::InvalidUtf8)
+    );
 }
