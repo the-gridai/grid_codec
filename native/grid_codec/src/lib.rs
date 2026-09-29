@@ -6,7 +6,7 @@ mod header;
 mod reader;
 mod writer;
 
-pub use benchmark_message::BenchmarkMessage;
+pub use benchmark_message::{BenchmarkMessage, BenchmarkMessageView};
 pub use error::{Error, Result};
 pub use header::{Header, HEADER_SIZE};
 pub use reader::Reader;

@@ -1,5 +1,6 @@
 use grid_codec::{
-    BenchmarkMessage, Decode, Encode, Error, Header, Reader, Result, Writer, HEADER_SIZE,
+    BenchmarkMessage, BenchmarkMessageView, Decode, Encode, Error, Header, Reader, Result, Writer,
+    HEADER_SIZE,
 };
 
 #[test]
@@ -174,4 +175,37 @@ fn benchmark_message_rejects_truncated_and_invalid_data() {
         BenchmarkMessage::decode(&invalid_utf8),
         Err(Error::InvalidUtf8)
     );
+}
+
+#[test]
+fn compile_time_layout_encodes_into_a_caller_buffer() {
+    let message = BenchmarkMessage {
+        number: 42,
+        signed: -7,
+        active: true,
+        name: "grid",
+    };
+    let expected = message.encode().unwrap();
+    let mut output = [0_u8; 64];
+    let encoded_len = message.encode_into(&mut output).unwrap();
+
+    assert_eq!(&output[..encoded_len], expected);
+    assert_eq!(encoded_len, message.encoded_len().unwrap());
+}
+
+#[test]
+fn validated_view_checks_once_then_reads_compile_time_offsets() {
+    let message = BenchmarkMessage {
+        number: 42,
+        signed: -7,
+        active: true,
+        name: "grid",
+    };
+    let encoded = message.encode().unwrap();
+    let view = BenchmarkMessageView::new(&encoded).unwrap();
+
+    assert_eq!(view.number(), 42);
+    assert_eq!(view.signed(), -7);
+    assert!(view.active());
+    assert_eq!(view.name(), "grid");
 }

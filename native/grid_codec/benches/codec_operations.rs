@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use grid_codec::{benchmark_message, BenchmarkMessage, Decode, Encode, Writer};
+use grid_codec::{
+    benchmark_message, BenchmarkMessage, BenchmarkMessageView, Decode, Encode, Writer,
+};
 
 const NUMBER: u32 = 42;
 const SIGNED: i64 = -7;
@@ -18,8 +20,20 @@ fn benchmark(c: &mut Criterion) {
     c.bench_function("pure_rust/field_access", |b| {
         b.iter(|| benchmark_message::get_number(black_box(&binary)).unwrap())
     });
+    let view = BenchmarkMessageView::new(&binary).unwrap();
+    c.bench_function("pure_rust/validated_view_field_access", |b| {
+        b.iter(|| black_box(view).number())
+    });
     c.bench_function("pure_rust/encode", |b| {
         b.iter(|| black_box(&message).encode().unwrap())
+    });
+    let mut fixed_output = [0_u8; 64];
+    c.bench_function("pure_rust/encode_into_slice", |b| {
+        b.iter(|| {
+            black_box(&message)
+                .encode_into(black_box(&mut fixed_output))
+                .unwrap()
+        })
     });
     let mut writer = Writer::with_capacity(binary.len());
     c.bench_function("pure_rust/encode_reuse", |b| {

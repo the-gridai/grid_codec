@@ -30,6 +30,26 @@ The Rust values include safe bounds checks and contain no `unsafe` code. Direct 
 
 Generated BEAM field access remains excellent. The NIF boundary dominates tiny reads and decodes. Rust encoding offsets that boundary for this fixture. Production adoption must use realistic schemas and batches, not this microbenchmark. Treat absolute values as machine-specific and compare tiers from the same run.
 
+### Compile-time layout paths
+
+GridCodec schemas know each fixed field's width and offset. Generated Rust codecs can use that information without a dynamic cursor:
+
+- `BenchmarkMessage.encode_into` writes directly into caller-owned memory and checks its total size once.
+- `BenchmarkMessageView.new` validates the header, fixed block, boolean, variable length, and UTF-8 once.
+- View getters use generated constant offsets after validation.
+
+The same Daytona host measured 4.4 ns for `encode_into` and 0.9 ns for field access through a validated view. These paths preserve the GridCodec wire format and safe-Rust policy.
+
+### Techniques reviewed
+
+[Speedy](https://docs.rs/speedy/latest/speedy/) generates minimum byte counts, checks buffer capacity before decode, borrows variable data, and bulk-copies primitive slices. Its pointer readers and unaligned reads use `unsafe`. GridCodec uses the compile-time size and borrowing ideas, but keeps safe indexing and explicit little-endian conversion.
+
+[OxiCode](https://github.com/cool-japan/oxicode) provides exact encoded sizes, caller-provided fixed arrays, borrowed decoding, and separate SIMD bulk-array paths. GridCodec adopts exact size hints and caller-provided output. SIMD is not useful for one small message. It can help large homogeneous groups later.
+
+[`ser_raw`](https://docs.rs/ser_raw/latest/ser_raw/) copies native Rust object memory into aligned storage. That is fast for same-binary IPC, but native layout and pointers do not satisfy GridCodec's stable cross-language wire contract. GridCodec does not adopt this representation.
+
+[Rusteron](https://github.com/gsrxyz/rusteron) optimizes transport and C bindings, not schema serialization. Its reusable buffers and separation of control from data support the same allocation strategy, but its unsafe FFI model does not apply to the codec core.
+
 Run the parity and bridge checks with:
 
 ```bash
