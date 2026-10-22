@@ -8,6 +8,16 @@ defmodule GridCodec.TestSupport.Batch.SmallCommand do
   end
 end
 
+defmodule GridCodec.TestSupport.Batch.VariableCommand do
+  @moduledoc false
+  use GridCodec.Struct, template_id: 799, schema_id: 70, version: 1
+
+  defcodec do
+    field :command_id, :u64
+    field :body, :string32
+  end
+end
+
 defmodule GridCodec.TestSupport.Batch.MediumCommand do
   @moduledoc false
   use GridCodec.Struct, template_id: 701, schema_id: 70, version: 1

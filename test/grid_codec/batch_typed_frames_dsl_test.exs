@@ -4,6 +4,20 @@ defmodule GridCodec.BatchTypedFramesDslTest do
   alias GridCodec.TestSupport.Batch.LargeCommand
   alias GridCodec.TestSupport.Batch.MediumCommand
   alias GridCodec.TestSupport.Batch.SmallCommand
+  alias GridCodec.TestSupport.Batch.VariableCommand
+
+  defmodule VariableCommandsTF do
+    use GridCodec.Struct, template_id: 762, schema_id: 70, version: 1
+
+    defcodec do
+      field :batch_id, :u64
+
+      batch(:commands,
+        any_of: [GridCodec.TestSupport.Batch.VariableCommand],
+        strategy: :typed_frames
+      )
+    end
+  end
 
   defmodule MarketCommandsTF do
     use GridCodec.Struct, template_id: 760, schema_id: 70, version: 1
@@ -70,6 +84,50 @@ defmodule GridCodec.BatchTypedFramesDslTest do
 
   defp strip(entry) when is_struct(entry), do: Map.from_struct(entry)
   defp strip(entry) when is_map(entry), do: entry
+
+  describe "typed_frames DSL payload lengths" do
+    test "roundtrips a maximum-length payload between other frames" do
+      entries = [
+        %VariableCommand{command_id: 1, body: "before"},
+        %VariableCommand{command_id: 2, body: :binary.copy("x", 65_535 - 12)},
+        %VariableCommand{command_id: 3, body: "after"}
+      ]
+
+      assert {:ok, payload} = VariableCommand.encode(Enum.at(entries, 1), header: false)
+      assert byte_size(payload) == 65_535
+      original = %VariableCommandsTF{batch_id: 1, commands: entries}
+
+      for opts <- [[], [header: false]] do
+        assert {:ok, binary} = VariableCommandsTF.encode(original, opts)
+        assert {:ok, decoded} = VariableCommandsTF.decode(binary, opts)
+
+        assert Enum.map(GridCodec.Batch.to_list(decoded.commands), fn {_seq, _tag, entry} ->
+                 entry
+               end) == entries
+      end
+    end
+
+    for payload_size <- [65_536, 65_537, 131_072] do
+      test "rejects a #{payload_size}-byte payload with validation enabled or disabled" do
+        entry = %VariableCommand{
+          command_id: 1,
+          body: :binary.copy("x", unquote(payload_size) - 12)
+        }
+
+        assert {:ok, payload} = VariableCommand.encode(entry, header: false)
+        assert byte_size(payload) == unquote(payload_size)
+        original = %VariableCommandsTF{batch_id: 1, commands: [entry]}
+
+        for opts <- [[], [header: false], [validate: true], [validate: false]] do
+          assert {:error, %GridCodec.ValidationError{} = error} =
+                   VariableCommandsTF.encode(original, opts)
+
+          assert Exception.message(error) =~
+                   "TypedFrames payload length #{unquote(payload_size)} exceeds u16 max (65535)"
+        end
+      end
+    end
+  end
 
   describe "typed_frames DSL integration" do
     test "struct is created with commands field" do

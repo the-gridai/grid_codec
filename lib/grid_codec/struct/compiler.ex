@@ -1791,6 +1791,11 @@ defmodule GridCodec.Struct.Compiler do
             {:ok, payload} = unquote(mod).encode(unquote(entry_var), header: false)
             payload_len = byte_size(payload)
 
+            if payload_len > 65_535 do
+              raise ArgumentError,
+                    "TypedFrames payload length #{payload_len} exceeds u16 max (65535)"
+            end
+
             <<unquote(seq_var)::little-32, unquote(tag)::8, payload_len::little-16,
               payload::binary>>
           end
