@@ -8,6 +8,7 @@ defmodule GridCodec.BatchTest do
   alias GridCodec.TestSupport.Batch.LargeCommand
   alias GridCodec.TestSupport.Batch.MediumCommand
   alias GridCodec.TestSupport.Batch.SmallCommand
+  alias GridCodec.TestSupport.Batch.VariableCommand
 
   @small_bl SmallCommand.block_length()
   @medium_bl MediumCommand.block_length()
@@ -367,6 +368,45 @@ defmodule GridCodec.BatchTest do
         assert_raise ArgumentError, ~r/not in any_of/, fn ->
           @arch_mod.encode([bogus], @type_specs)
         end
+      end
+    end
+  end
+
+  # ----------------------------------------------------------------
+  # Typed-frame payload length boundaries
+  # ----------------------------------------------------------------
+
+  describe "typed-frame payload lengths" do
+    @variable_specs [{0, VariableCommand, VariableCommand.block_length()}]
+
+    test "roundtrips a maximum-length payload between other frames" do
+      entries = [
+        %VariableCommand{command_id: 1, body: "before"},
+        %VariableCommand{command_id: 2, body: :binary.copy("x", 65_535 - 12)},
+        %VariableCommand{command_id: 3, body: "after"}
+      ]
+
+      assert {:ok, payload} = VariableCommand.encode(Enum.at(entries, 1), header: false)
+      assert byte_size(payload) == 65_535
+      assert {:ok, binary} = TypedFrames.encode(entries, @variable_specs)
+      assert {:ok, batch} = TypedFrames.decode(binary, @variable_specs)
+
+      assert Enum.map(TypedFrames.to_list(batch), fn {_seq, _tag, entry} -> entry end) == entries
+    end
+
+    for payload_size <- [65_536, 65_537, 131_072] do
+      test "rejects a #{payload_size}-byte payload before its length can wrap" do
+        entry = %VariableCommand{
+          command_id: 1,
+          body: :binary.copy("x", unquote(payload_size) - 12)
+        }
+
+        assert {:ok, payload} = VariableCommand.encode(entry, header: false)
+        assert byte_size(payload) == unquote(payload_size)
+
+        assert_raise ArgumentError,
+                     "TypedFrames payload length #{unquote(payload_size)} exceeds u16 max (65535)",
+                     fn -> TypedFrames.encode([entry], @variable_specs) end
       end
     end
   end

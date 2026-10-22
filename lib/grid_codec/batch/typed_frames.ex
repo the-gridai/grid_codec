@@ -22,6 +22,9 @@ defmodule GridCodec.Batch.TypedFrames do
   Per-frame overhead: 7 bytes (4 seq + 1 tag + 2 length).
   No padding waste. Offset index built on decode for O(1) random access.
 
+  Each encoded entry payload must fit in the u16 length field (65,535 bytes).
+  Encoding an oversized entry raises `ArgumentError` instead of truncating its length.
+
   ## Tradeoffs vs Padded Union
 
   - **Smaller wire size** when types have different `block_length` values
@@ -70,6 +73,12 @@ defmodule GridCodec.Batch.TypedFrames do
           {:ok, {tag, ^mod, _bl}} ->
             {:ok, payload} = mod.encode(entry, header: false)
             payload_length = byte_size(payload)
+
+            if payload_length > 65_535 do
+              raise ArgumentError,
+                    "TypedFrames payload length #{payload_length} exceeds u16 max (65535)"
+            end
+
             frame = <<seq::little-32, tag::8, payload_length::little-16, payload::binary>>
             {frame, seq + 1}
 
