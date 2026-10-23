@@ -13,6 +13,9 @@ defmodule GridCodec.MixProject do
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
+      rustler_crates: [
+        grid_codec_nif: [path: "native/grid_codec_nif", mode: rustler_mode(Mix.env())]
+      ],
 
       # Hex
       description: "High-performance binary codec for BEAM/Elixir with direct field access",
@@ -67,6 +70,9 @@ defmodule GridCodec.MixProject do
     ]
   end
 
+  defp rustler_mode(:prod), do: :release
+  defp rustler_mode(_), do: :debug
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
@@ -88,6 +94,7 @@ defmodule GridCodec.MixProject do
     [
       # Runtime - Decimal type support
       {:decimal, "~> 3.1"},
+      {:rustler, "~> 0.38"},
 
       # Telemetry (for instrumented encode/decode + metric definitions)
       {:telemetry, "~> 1.0"},
@@ -109,7 +116,7 @@ defmodule GridCodec.MixProject do
       links: %{
         "GitHub" => @source_url
       },
-      files: ~w(lib docs .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
+      files: ~w(lib native docs .formatter.exs mix.exs README.md LICENSE CHANGELOG.md)
     ]
   end
 
@@ -128,6 +135,7 @@ defmodule GridCodec.MixProject do
         "docs/binary-filtering.md": [title: "Binary Filtering & Transcoding"],
         "docs/sql-generation.md": [title: "PostgreSQL SQL Generation"],
         "docs/performance.md": [title: "Performance Guide"],
+        "docs/rust-interoperability.md": [title: "Rust Interoperability"],
         "docs/consumer-integration.md": [title: "Consumer Integration"],
         "docs/troubleshooting.md": [title: "Troubleshooting"],
         "CHANGELOG.md": [title: "Changelog"],
