@@ -16,7 +16,7 @@ defmodule ExampleApp.SQLGenerationTest do
 
     assert typed_sql =~ ~s("reservations" jsonb)
     assert typed_sql =~ "jsonb_agg("
-    assert typed_sql =~ "gridcodec.read_u16(data, 0)"
+    assert typed_sql =~ "gridcodec.field_offsets(data, 1, ARRAY[]::int[])"
 
     catalog_sql = SQL.generate_all([OrderCreated, CurrencyAccount])
 

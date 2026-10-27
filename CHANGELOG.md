@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-10-28
+
+### Fixed
+
+- **Bounded PostgreSQL decoder generation** — compute sequential group and
+  variable-field offsets once instead of recursively duplicating earlier SQL
+  expressions. Typed, JSONB, and native typed stream decoders share a portable
+  SQL cursor, skip version-absent variable fields, and preserve historical wire
+  block lengths. Fixed-only and single-string paths remain direct.
+- **Wide JSON objects** — split top-level and group objects above 50 fields
+  below PostgreSQL's 100-function-argument limit.
+- **Planner metadata and string reads** — single-event typed decoders advertise
+  `ROWS 1`; data-only helpers and decoders are parallel-safe. Simplify the
+  string reader while preserving empty/NULL and UTF-8 behavior.
+- **Typed-frame payload bounds** — reject oversized batch payloads before
+  encoding rather than overflowing their frame-length prefix (#15).
+
+### Documentation
+
+- Document offset traversal, bounded PostgreSQL profiling, catalog refresh
+  requirements, and historical/wide-object integration checks. CI runs the new
+  PostgreSQL offset regressions alongside the existing SQL compatibility suite.
+
 ## [0.51.0] - 2026-09-13
 
 ### Added

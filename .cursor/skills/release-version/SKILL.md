@@ -42,6 +42,7 @@ mix test test/grid_codec/sql_test.exs test/mix/tasks/gridcodec_sql_test.exs
 cd example_app && mix test test/example_app/sql_generation_test.exs
 cd example_app && DATABASE_HOST=db MIX_ENV=prod mix run benchmarks/sql_decode_bench.exs
 cd example_app && DATABASE_HOST=db mix run priv/sql_decoder_evolution_test.exs
+cd example_app && DATABASE_HOST=db mix run priv/sql_offset_regression_test.exs
 ```
 
 Run `cd example_app && mix run priv/sql_integration_test.exs` when generated SQL
