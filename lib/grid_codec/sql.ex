@@ -73,18 +73,18 @@ defmodule GridCodec.SQL do
       get_byte(data, 2) + get_byte(data, 3) * 256,
       get_byte(data, 4) + get_byte(data, 5) * 256,
       get_byte(data, 6) + get_byte(data, 7) * 256;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Unsigned integer readers (little-endian)
     CREATE OR REPLACE FUNCTION gridcodec.read_u8(data bytea, pos int)
     RETURNS smallint AS $$
       SELECT get_byte(data, pos)::smallint;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_u16(data bytea, pos int)
     RETURNS integer AS $$
       SELECT (get_byte(data, pos) + get_byte(data, pos + 1) * 256)::integer;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_u32(data bytea, pos int)
     RETURNS bigint AS $$
@@ -92,7 +92,7 @@ defmodule GridCodec.SQL do
             + get_byte(data, pos + 1)::bigint * 256
             + get_byte(data, pos + 2)::bigint * 65536
             + get_byte(data, pos + 3)::bigint * 16777216);
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_u64(data bytea, pos int)
     RETURNS numeric AS $$
@@ -104,7 +104,7 @@ defmodule GridCodec.SQL do
             + get_byte(data, pos + 5)::numeric * 1099511627776
             + get_byte(data, pos + 6)::numeric * 281474976710656
             + get_byte(data, pos + 7)::numeric * 72057594037927936);
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Signed integer readers (little-endian, two's complement)
     CREATE OR REPLACE FUNCTION gridcodec.read_i8(data bytea, pos int)
@@ -114,7 +114,7 @@ defmodule GridCodec.SQL do
         THEN (get_byte(data, pos) - 256)::smallint
         ELSE get_byte(data, pos)::smallint
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_i16(data bytea, pos int)
     RETURNS integer AS $$
@@ -123,7 +123,7 @@ defmodule GridCodec.SQL do
         THEN (gridcodec.read_u16(data, pos) - 65536)::integer
         ELSE gridcodec.read_u16(data, pos)
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_i32(data bytea, pos int)
     RETURNS bigint AS $$
@@ -132,7 +132,7 @@ defmodule GridCodec.SQL do
         THEN (gridcodec.read_u32(data, pos) - 4294967296)::bigint
         ELSE gridcodec.read_u32(data, pos)
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_i64(data bytea, pos int)
     RETURNS numeric AS $$
@@ -141,7 +141,7 @@ defmodule GridCodec.SQL do
         THEN gridcodec.read_u64(data, pos) - 18446744073709551616::numeric
         ELSE gridcodec.read_u64(data, pos)
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Native signed i64 reader for fields that fit PostgreSQL bigint exactly
     CREATE OR REPLACE FUNCTION gridcodec.read_i64_bigint(data bytea, pos int)
@@ -160,7 +160,7 @@ defmodule GridCodec.SQL do
     CREATE OR REPLACE FUNCTION gridcodec.read_uuid(data bytea, pos int)
     RETURNS uuid AS $$
       SELECT encode(substring(data FROM pos + 1 FOR 16), 'hex')::uuid;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- UUID null check (all zeros = null)
     CREATE OR REPLACE FUNCTION gridcodec.read_uuid_nullable(data bytea, pos int)
@@ -170,7 +170,7 @@ defmodule GridCodec.SQL do
         THEN NULL
         ELSE encode(substring(data FROM pos + 1 FOR 16), 'hex')::uuid
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Fixed char array reader: trim at the first zero byte before UTF-8 conversion
     CREATE OR REPLACE FUNCTION gridcodec.read_char_array(data bytea, pos int, len int)
@@ -187,7 +187,7 @@ defmodule GridCodec.SQL do
         END,
         'UTF8'
       );
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Decimal reader: 8 bytes mantissa (i64 LE) + 1 byte exponent (i8) → numeric
     CREATE OR REPLACE FUNCTION gridcodec.read_decimal(data bytea, pos int)
@@ -201,7 +201,7 @@ defmodule GridCodec.SQL do
           ELSE get_byte(data, pos + 8)
         END)
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Timestamp reader: i64 microseconds → timestamptz
     CREATE OR REPLACE FUNCTION gridcodec.read_timestamp_us(data bytea, pos int)
@@ -225,12 +225,12 @@ defmodule GridCodec.SQL do
         THEN NULL
         ELSE encode(substring(data FROM pos + 2 FOR 16), 'hex')::uuid::text
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     CREATE OR REPLACE FUNCTION gridcodec.read_prefixed_id_tag(data bytea, pos int)
     RETURNS smallint AS $$
       SELECT get_byte(data, pos)::smallint;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- Bool reader: 0=false, 1=true, 255=null
     CREATE OR REPLACE FUNCTION gridcodec.read_bool(data bytea, pos int)
@@ -240,19 +240,43 @@ defmodule GridCodec.SQL do
         WHEN 255 THEN NULL
         ELSE true
       END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     -- String16 reader: 2-byte LE length prefix + data
     CREATE OR REPLACE FUNCTION gridcodec.read_string16(data bytea, pos int)
     RETURNS text AS $$
-      SELECT CASE gridcodec.read_u16(data, pos)
-        WHEN 0 THEN NULL
-        ELSE convert_from(
-          substring(data FROM pos + 3 FOR gridcodec.read_u16(data, pos)),
-          'UTF8'
-        )
-      END;
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+      SELECT convert_from(
+        substring(data FROM pos + 3 FOR NULLIF(gridcodec.read_u16(data, pos), 0)),
+        'UTF8'
+      );
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
+    """
+    |> Kernel.<>(generate_offset_helper())
+  end
+
+  # Keep offsets as values, never recursively substitute their SQL text. The
+  # cursor walks wire-sized groups and present variable fields exactly once.
+  defp generate_offset_helper do
+    """
+
+    CREATE OR REPLACE FUNCTION gridcodec.field_offsets(data bytea, group_count int, variable_versions int[])
+    RETURNS int[] AS $$
+    WITH RECURSIVE cursor(field_index, byte_offset) AS (
+      SELECT 0, #{@header_size} + gridcodec.read_u16(data, 0)
+      UNION ALL
+      SELECT field_index + 1,
+        CASE
+          WHEN field_index < group_count THEN
+            byte_offset + 4 + gridcodec.read_u16(data, byte_offset) * gridcodec.read_u16(data, byte_offset + 2)
+          WHEN gridcodec.read_u16(data, 6) < variable_versions[field_index - group_count + 1] THEN
+            byte_offset
+          ELSE byte_offset + 2 + gridcodec.read_u16(data, byte_offset)
+        END
+      FROM cursor
+      WHERE field_index + 1 < group_count + cardinality(variable_versions)
+    )
+    SELECT array_agg(byte_offset ORDER BY field_index) FROM cursor;
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
     """
   end
 
@@ -580,7 +604,7 @@ defmodule GridCodec.SQL do
     AS $$
     SELECT
       #{select_columns}
-    FROM #{table_name} AS events
+    FROM #{table_name} AS events#{stream_offset_join(decode, ctx)}
     WHERE #{where_clauses}
     ORDER BY events.#{stream_version_column}
     LIMIT max_count;
@@ -872,30 +896,77 @@ defmodule GridCodec.SQL do
   end
 
   defp native_variable_expressions!(fields, field_specs, data) do
-    variable_fields =
-      Enum.filter(fields, fn {name, _type, _opts} ->
-        match?({:variable, _index}, Map.get(field_specs, name))
+    variable_fields = variable_fields(fields, field_specs)
+
+    variable_fields
+    |> Enum.with_index(1)
+    |> Map.new(fn {{name, type, opts}, index} ->
+      expression =
+        case type do
+          value when value in [:string, :string16] ->
+            "gridcodec.read_string16(#{data}, (#{variable_offset([], variable_fields, index, data)})::int)"
+
+          _other ->
+            raise ArgumentError,
+                  "native typed projection does not support variable field #{inspect(name)} type #{inspect(type)}"
+        end
+
+      {name, guard_since(expression, opts, data)}
+    end)
+  end
+
+  defp variable_fields(fields, field_specs) do
+    Enum.filter(fields, fn {name, _type, _opts} ->
+      match?({:variable, _index}, Map.get(field_specs, name))
+    end)
+  end
+
+  defp offset_query(groups, var_fields, data) do
+    versions =
+      Enum.map_join(var_fields, ", ", fn {_name, _type, opts} ->
+        case Keyword.get(opts, :since) do
+          version when is_integer(version) and version > 1 -> to_string(version)
+          _other -> "0"
+        end
       end)
 
-    start_offset = "#{@header_size} + gridcodec.read_u16(#{data}, 0)"
+    "SELECT gridcodec.field_offsets(#{data}, #{length(groups)}, ARRAY[#{versions}]::int[]) AS positions"
+  end
 
-    {expressions, _next_offset} =
-      Enum.map_reduce(variable_fields, start_offset, fn {name, type, opts}, offset ->
-        expression =
-          case type do
-            value when value in [:string, :string16] ->
-              "gridcodec.read_string16(#{data}, (#{offset})::int)"
+  defp offset_cte([], fields) when length(fields) <= 1, do: {"", ""}
 
-            _other ->
-              raise ArgumentError,
-                    "native typed projection does not support variable field #{inspect(name)} type #{inspect(type)}"
-          end
+  defp offset_cte(groups, var_fields) do
+    {
+      "WITH gridcodec_offsets AS MATERIALIZED (\n  #{offset_query(groups, var_fields, "data")}\n)\n",
+      "\nFROM gridcodec_offsets"
+    }
+  end
 
-        next_offset = "#{offset} + 2 + gridcodec.read_u16(#{data}, (#{offset})::int)"
-        {{name, guard_since(expression, opts, data)}, next_offset}
-      end)
+  defp variable_offset([], [_field], _index, data) do
+    "#{@header_size} + gridcodec.read_u16(#{data}, 0)"
+  end
 
-    Map.new(expressions)
+  defp variable_offset(_groups, _fields, index, _data) do
+    "gridcodec_offsets.positions[#{index}]"
+  end
+
+  defp stream_offset_join(decode, ctx) do
+    case normalize_stream_decode!(decode) do
+      {:typed, module} ->
+        fields = variable_fields(module.__schema__().fields, module.__field_specs__())
+
+        if length(fields) <= 1 do
+          ""
+        else
+          query = offset_query([], fields, "events.#{ctx.data_column}")
+
+          "\nCROSS JOIN LATERAL (WITH offsets AS MATERIALIZED (#{query}) " <>
+            "SELECT positions FROM offsets) AS gridcodec_offsets"
+        end
+
+      _other ->
+        ""
+    end
   end
 
   defp gridcodec_codec?(mod) do
@@ -1155,33 +1226,22 @@ defmodule GridCodec.SQL do
     groups = Map.get(schema, :groups, [])
     var_fields = Map.get(schema, :var_fields, [])
     batch_names = schema |> Map.get(:batches, []) |> Enum.map(&elem(&1, 0)) |> MapSet.new()
-    first_start = "#{@header_size} + gridcodec.read_u16(data, 0)"
 
-    {specs, _next_start} =
-      Enum.reduce(groups, {[], first_start}, fn {name, _block, opts}, {specs, start_expr} ->
-        validate_sql_group!(module, name, opts, var_fields, batch_names)
-        block_length = Keyword.fetch!(opts, :block_length)
-        entry = group_entry_spec!(module, schema, name, opts)
-        block_length_expr = "gridcodec.read_u16(data, (#{start_expr}))"
-        count_expr = "gridcodec.read_u16(data, (#{start_expr}) + 2)"
+    groups
+    |> Enum.with_index(1)
+    |> Enum.map(fn {{name, _block, opts}, index} ->
+      validate_sql_group!(module, name, opts, var_fields, batch_names)
+      start_expr = "gridcodec_offsets.positions[#{index}]"
 
-        end_expr =
-          "#{start_expr} + 4 + #{block_length_expr} * #{count_expr}"
-
-        spec = %{
-          name: name,
-          start_expr: start_expr,
-          end_expr: end_expr,
-          block_length: block_length,
-          block_length_expr: block_length_expr,
-          count_expr: count_expr,
-          entry: entry
-        }
-
-        {[spec | specs], end_expr}
-      end)
-
-    Enum.reverse(specs)
+      %{
+        name: name,
+        start_expr: start_expr,
+        block_length: Keyword.fetch!(opts, :block_length),
+        block_length_expr: "gridcodec.read_u16(data, #{start_expr})",
+        count_expr: "gridcodec.read_u16(data, #{start_expr} + 2)",
+        entry: group_entry_spec!(module, schema, name, opts)
+      }
+    end)
   end
 
   defp validate_sql_group!(module, name, opts, var_fields, batch_names) do
@@ -1310,9 +1370,6 @@ defmodule GridCodec.SQL do
     {normalized_type, type_mod}
   end
 
-  defp var_data_start_expr([], _block_length), do: "#{@header_size} + gridcodec.read_u16(data, 0)"
-  defp var_data_start_expr(groups, _block_length), do: List.last(groups).end_expr
-
   defp fixed_fields(module) do
     field_specs = module.__field_specs__()
 
@@ -1364,12 +1421,11 @@ defmodule GridCodec.SQL do
     entry_json =
       case group.entry do
         {:object, fields} ->
-          pairs =
-            Enum.map_join(fields, ", ", fn field ->
-              "'#{field.name}', #{group_field_value_expr(field, group, entry_offset)}"
-            end)
-
-          "jsonb_build_object(#{pairs})"
+          fields
+          |> Enum.map(fn field ->
+            "'#{field.name}', #{group_field_value_expr(field, group, entry_offset)}"
+          end)
+          |> json_object_expr()
 
         {:scalar, field} ->
           group_field_value_expr(field, group, entry_offset)
@@ -1445,22 +1501,14 @@ defmodule GridCodec.SQL do
         "#{group_json_expr(group)} AS \"#{group.name}\""
       end)
 
-    # Variable-length fields are sequential: each starts after the previous one's
-    # 2-byte length prefix + content. We track the cumulative offset in SQL.
-    {var_select_exprs, _} =
-      Enum.map_reduce(var_fields, nil, fn {name, type, opts}, prev_offset_expr ->
-        offset_expr =
-          case prev_offset_expr do
-            nil ->
-              var_data_start_expr(groups, block_length)
-
-            prev ->
-              "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
-          end
-
-        expr = sql_read_var_expr(name, type, offset_expr, opts)
-        {expr, offset_expr}
+    var_select_exprs =
+      var_fields
+      |> Enum.with_index(length(groups) + 1)
+      |> Enum.map(fn {{name, type, opts}, index} ->
+        sql_read_var_expr(name, type, variable_offset(groups, var_fields, index, "data"), opts)
       end)
+
+    {offset_cte, offset_from} = offset_cte(groups, var_fields)
 
     all_exprs =
       Enum.map_join(select_exprs ++ group_select_exprs ++ var_select_exprs, ",\n  ", & &1)
@@ -1472,9 +1520,9 @@ defmodule GridCodec.SQL do
     RETURNS TABLE (
       #{column_defs}
     ) AS $$
-    SELECT
-      #{all_exprs};
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    #{offset_cte}SELECT
+      #{all_exprs}#{offset_from};
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE ROWS 1;
 
     """
   end
@@ -1507,7 +1555,7 @@ defmodule GridCodec.SQL do
         #{when_clauses}
         ELSE jsonb_build_object('_error', 'unknown type: ' || type_name)
       END;
-      $$ LANGUAGE sql IMMUTABLE STRICT;
+      $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
       """
   end
@@ -1517,7 +1565,6 @@ defmodule GridCodec.SQL do
     type_name = module.__type__()
     field_specs = module.__field_specs__()
     fields = schema.fields
-    block_length = schema.block_length
     groups = build_group_specs!(module, schema)
 
     fn_name = type_name |> String.downcase() |> String.replace(~r/[^a-z0-9_]/, "_")
@@ -1551,29 +1598,35 @@ defmodule GridCodec.SQL do
         "'#{group.name}', #{group_json_expr(group)}"
       end)
 
-    {var_pairs, _} =
-      Enum.map_reduce(var_fields, nil, fn {name, type, opts}, prev_offset_expr ->
-        offset_expr =
-          case prev_offset_expr do
-            nil -> var_data_start_expr(groups, block_length)
-            prev -> "#{prev} + 2 + gridcodec.read_u16(data, #{prev})"
-          end
-
-        value_expr = sql_json_var_value_expr(name, type, offset_expr, opts)
-        {"'#{name}', #{value_expr}", offset_expr}
+    var_pairs =
+      var_fields
+      |> Enum.with_index(length(groups) + 1)
+      |> Enum.map(fn {{name, type, opts}, index} ->
+        expression = variable_offset(groups, var_fields, index, "data")
+        value_expr = sql_json_var_value_expr(name, type, expression, opts)
+        "'#{name}', #{value_expr}"
       end)
 
-    all_pairs = Enum.join(fixed_pairs ++ group_pairs ++ var_pairs, ",\n    ")
+    object = json_object_expr(fixed_pairs ++ group_pairs ++ var_pairs)
+    {offset_cte, offset_from} = offset_cte(groups, var_fields)
 
     """
     CREATE OR REPLACE FUNCTION gridcodec.decode_#{fn_name}_json(data bytea)
     RETURNS jsonb AS $$
-    SELECT jsonb_build_object(
-      #{all_pairs}
-    );
-    $$ LANGUAGE sql IMMUTABLE STRICT;
+    #{offset_cte}SELECT #{object}#{offset_from};
+    $$ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE;
 
     """
+  end
+
+  defp json_object_expr([]), do: "jsonb_build_object()"
+
+  defp json_object_expr(pairs) do
+    pairs
+    |> Enum.chunk_every(50)
+    |> Enum.map_join(" || ", fn chunk ->
+      "jsonb_build_object(#{Enum.join(chunk, ", ")})"
+    end)
   end
 
   defp sql_json_value_expr(_name, type, type_mod, offset) do

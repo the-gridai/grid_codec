@@ -38,6 +38,8 @@ does not depend on which modules happen to be loaded in the migration runtime.
 The catalog creates:
 
 - `gridcodec.read_header(bytea)` for the 8-byte GridCodec header.
+- `gridcodec.field_offsets(bytea, integer, integer[])` for the shared sequential
+  group/variable-field cursor used by generated decoders.
 - Primitive readers such as `gridcodec.read_u64/2`,
   `gridcodec.read_uuid_nullable/2`, and `gridcodec.read_string16/2`.
 - Per-codec fixed-field readers such as
@@ -93,6 +95,45 @@ FROM events
 WHERE event_type = 'OrderCreated'
 GROUP BY side;
 ```
+
+## Variable-field generation and query cost
+
+Decoders with multiple variable fields calculate wire offsets once through a
+materialized cursor. Each group advances by its encoded block length and entry
+count; each present string advances by its two-byte length prefix and byte
+length. Version-absent strings do not advance the cursor. Typed, JSONB, and
+native typed stream output share this traversal, so adding fields does not
+recursively duplicate earlier SQL expressions. Fixed-only and single-string
+codecs retain their direct offset path.
+
+Single-event typed decoders advertise `ROWS 1`; their NULL input still returns
+no rows. Helpers and generated single-event decoders are `PARALLEL SAFE`.
+JSON objects wider than 50 fields are assembled in chunks below PostgreSQL's
+100-function-argument limit, including objects inside fixed groups.
+
+Filter indexed envelope fields before decoding and cap exploratory input
+before grouping. Compare `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` on the same
+input slice, consuming the decoded values so PostgreSQL cannot prune them.
+Separate disk reads from warm execution and server execution from client
+round-trip time. A cheap indexed scan followed by expensive function calls is
+not evidence that another table index will fix decoding.
+
+After upgrading GridCodec, regenerate and reinstall the SQL catalog on each
+consumer database. Updating the Elixir dependency does not replace installed
+PostgreSQL functions. Preserve custom schemas and recheck execution grants.
+Use `generate_all_statements/1` rather than parsing generated functions with a
+regular expression. Existing typed/JSON function names, signatures, column
+order, wire format, and NULL/decimal/version semantics stay unchanged.
+
+The release integration checks include:
+
+```bash
+cd example_app
+mix run priv/sql_offset_regression_test.exs
+```
+
+This checks historical variable tails, empty and UTF-8 strings, 64-field JSON,
+group traversal, and native typed stream parity against PostgreSQL.
 
 These readers are `IMMUTABLE STRICT PARALLEL SAFE`, so they can also back
 expression indexes when a payload field is important enough to index. Variable

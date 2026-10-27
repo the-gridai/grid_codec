@@ -185,6 +185,9 @@ jobs:
       - name: Run SQL stream integration
         run: cd example_app && DATABASE_HOST=localhost mix run priv/sql_integration_test.exs
 
+      - name: Run SQL offset and wide-object regressions
+        run: cd example_app && DATABASE_HOST=localhost mix run priv/sql_offset_regression_test.exs
+
   example-app-dialyzer:
     name: Example App Dialyzer
     runs-on: ubuntu-latest

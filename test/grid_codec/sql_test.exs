@@ -224,8 +224,8 @@ defmodule GridCodec.SQLTest do
     test "each var field offset depends on previous field length" do
       sql = SQL.generate(MultiStringCodec)
 
-      assert sql =~ "read_u16(data,"
-      assert sql =~ "+ 2 + gridcodec.read_u16"
+      assert sql =~ "gridcodec.field_offsets(data, 0, ARRAY[0, 0, 0]::int[])"
+      assert sql =~ "gridcodec_offsets.positions[3]"
     end
   end
 
@@ -255,19 +255,13 @@ defmodule GridCodec.SQLTest do
     test "walks multiple groups using wire block lengths and counts before var-data" do
       sql = SQL.generate(SQLGroupsEvent)
 
-      assert sql =~ "8 + gridcodec.read_u16(data, 0)"
+      assert sql =~ "gridcodec.field_offsets(data, 3, ARRAY[0, 0]::int[])"
+      assert @helpers_sql =~ "8 + gridcodec.read_u16(data, 0)"
 
-      assert sql =~
-               "4 + gridcodec.read_u16(data, (8 + gridcodec.read_u16(data, 0))) * " <>
-                 "gridcodec.read_u16(data, (8 + gridcodec.read_u16(data, 0)) + 2)"
+      assert @helpers_sql =~
+               "byte_offset + 4 + gridcodec.read_u16(data, byte_offset) * gridcodec.read_u16(data, byte_offset + 2)"
 
-      reason_line =
-        sql
-        |> String.split("\n")
-        |> Enum.find(&String.contains?(&1, ~s(AS "reason")))
-
-      assert reason_line =~ "gridcodec.read_u16(data, 0)"
-      assert length(Regex.scan(~r/gridcodec\.read_u16/, reason_line)) >= 7
+      assert sql =~ ~s(gridcodec_offsets.positions[4])
     end
 
     test "uses each preceding var field length after the group-derived start" do
@@ -278,7 +272,7 @@ defmodule GridCodec.SQLTest do
         |> String.split("\n")
         |> Enum.find(&String.contains?(&1, ~s(AS "detail")))
 
-      assert detail_line =~ "+ 2 + gridcodec.read_u16"
+      assert detail_line =~ "gridcodec_offsets.positions[5]"
     end
 
     test "rejects framed groups before a variable tail" do

@@ -5,7 +5,7 @@ config :example_app, ExampleApp.Repo,
   username: "postgres",
   password: "postgres",
   hostname: System.get_env("DATABASE_HOST", "localhost"),
-  port: 5432
+  port: System.get_env("DATABASE_PORT", "5432") |> String.to_integer()
 
 config :example_app,
   ecto_repos: [ExampleApp.Repo]
